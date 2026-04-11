@@ -563,6 +563,12 @@ const perkMachines = [
 // ===== PERK MACHINE 3D MESHES =====
 const perkMeshObjects = [];
 function buildPerkMachines() {
+  // Clean up old perk meshes on restart
+  perkMeshObjects.forEach(po => {
+    scene.remove(po.body); scene.remove(po.panel); scene.remove(po.light);
+  });
+  perkMeshObjects.length = 0;
+  
   perkMachines.forEach(pm => {
     const perk = perks[pm.perkIdx];
     const color = new THREE.Color(perk.color);
@@ -1764,9 +1770,13 @@ window._startGame = function() {
   document.getElementById('hud').classList.remove('hidden');
   initAudio();
   startBackgroundMusic();
-  initGame();
-  if (!isMobile) controls.lock();
-  state = 'roundIntro';
+  initGame(); // sets state='roundIntro' via nextRound()
+  if (!isMobile) {
+    controls.lock();
+  } else {
+    // Mobile doesn't need pointer lock
+    state = 'roundIntro';
+  }
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
