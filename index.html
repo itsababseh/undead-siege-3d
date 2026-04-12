@@ -174,8 +174,8 @@ const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0a);
-scene.fog = new THREE.FogExp2(0x0a0a0a, 0.035);
+scene.background = new THREE.Color(0x111118);
+scene.fog = new THREE.FogExp2(0x111118, 0.018);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -186,18 +186,18 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.8;
+renderer.toneMappingExposure = 1.4;
 document.body.appendChild(renderer.domElement);
 
 // ===== CONTROLS =====
 const controls = new PointerLockControls(camera, renderer.domElement);
 
 // ===== LIGHTING =====
-const ambientLight = new THREE.AmbientLight(0x1a1515, 0.4);
+const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
 scene.add(ambientLight);
 
-// Main directional light (dim, overhead)
-const dirLight = new THREE.DirectionalLight(0x334466, 0.3);
+// Main directional light (overhead fill)
+const dirLight = new THREE.DirectionalLight(0x8899bb, 0.7);
 dirLight.position.set(50, 30, 50);
 scene.add(dirLight);
 
@@ -212,14 +212,24 @@ function addLight(x, z, color, intensity, distance) {
 }
 
 // Flickering ceiling lights
-addLight(12, 6, 0xffaa66, 2, 20);
-addLight(15, 12, 0xff6644, 1.5, 18);
-addLight(5, 5, 0x66ff88, 1.2, 15); // West wing green
-addLight(12, 19, 0xffaa44, 1.5, 18);
-addLight(21, 14, 0x4488ff, 1, 15); // East chamber blue
-addLight(8, 15, 0xff8844, 1, 16);
-addLight(15, 3, 0xff6666, 1, 16);
-addLight(3, 7, 0x88ff88, 0.8, 12);
+addLight(12, 6, 0xffaa66, 4, 30);
+addLight(15, 12, 0xff6644, 3, 28);
+addLight(5, 5, 0x66ff88, 2.5, 25); // West wing green
+addLight(12, 19, 0xffaa44, 3, 28);
+addLight(21, 14, 0x4488ff, 2.5, 25); // East chamber blue
+addLight(8, 15, 0xff8844, 2.5, 26);
+addLight(15, 3, 0xff6666, 2.5, 26);
+addLight(3, 7, 0x88ff88, 2, 22);
+// Extra fill lights for dark corners
+addLight(18, 6, 0xffcc88, 2.5, 25);
+addLight(6, 18, 0xffaa77, 2.5, 25);
+addLight(18, 18, 0xffbb88, 2.5, 25);
+addLight(12, 12, 0xffeedd, 3, 30); // Center area bright
+
+// Player torch light (always illuminates area around player)
+const playerLight = new THREE.PointLight(0xffeedd, 1.8, 20);
+playerLight.position.copy(camera.position);
+scene.add(playerLight);
 
 // Muzzle flash light
 const muzzleLight = new THREE.PointLight(0xffcc44, 0, 12);
@@ -238,11 +248,11 @@ function createTexture(width, height, drawFn) {
 }
 
 const wallTexGrey = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#777';
   ctx.fillRect(0, 0, w, h);
   for (let i = 0; i < 6; i++) {
     const y = i * 22;
-    ctx.fillStyle = '#444';
+    ctx.fillStyle = '#666';
     ctx.fillRect(0, y, w, 2);
     if (i % 2 === 0) { ctx.fillRect(w/2 - 1, y, 2, 22); }
     else { ctx.fillRect(0, y, 2, 22); ctx.fillRect(w - 2, y, 2, 22); }
@@ -255,25 +265,25 @@ const wallTexGrey = createTexture(128, 128, (ctx, w, h) => {
 });
 
 const wallTexBrown = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#5C3A1E';
+  ctx.fillStyle = '#7A5030';
   ctx.fillRect(0, 0, w, h);
   for (let i = 0; i < 8; i++) {
     for (let j = 0; j < 4; j++) {
       const x = i * 16 + (j % 2) * 8;
       const y = j * 32;
-      ctx.fillStyle = `rgb(${80+Math.random()*20},${50+Math.random()*15},${25+Math.random()*10})`;
+      ctx.fillStyle = `rgb(${100+Math.random()*25},${65+Math.random()*20},${35+Math.random()*15})`;
       ctx.fillRect(x, y, 15, 30);
-      ctx.strokeStyle = '#3A2210';
+      ctx.strokeStyle = '#4A3218';
       ctx.strokeRect(x, y, 15, 30);
     }
   }
 });
 
 const wallTexGreen = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#3A5A30';
+  ctx.fillStyle = '#4A7A40';
   ctx.fillRect(0, 0, w, h);
   for (let i = 0; i < 40; i++) {
-    ctx.fillStyle = `rgba(${Math.random()>0.5?0:50},${40+Math.random()*40},${Math.random()*20},0.3)`;
+    ctx.fillStyle = `rgba(${Math.random()>0.5?10:60},${55+Math.random()*45},${Math.random()*25},0.3)`;
     ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*15+3, Math.random()*15+3);
   }
   // Cracks
@@ -306,14 +316,14 @@ const wallTexDoor = createTexture(128, 128, (ctx, w, h) => {
 });
 
 const floorTex = createTexture(256, 256, (ctx, w, h) => {
-  ctx.fillStyle = '#1a1a18';
+  ctx.fillStyle = '#3a3a35';
   ctx.fillRect(0, 0, w, h);
   // Tile pattern
   const ts = 32;
   for(let x = 0; x < w; x += ts) {
     for(let y = 0; y < h; y += ts) {
-      const v = 18 + Math.random()*8;
-      ctx.fillStyle = `rgb(${v},${v},${v-2})`;
+      const v = 45 + Math.random()*15;
+      ctx.fillStyle = `rgb(${v},${v},${v-3})`;
       ctx.fillRect(x+1, y+1, ts-2, ts-2);
     }
   }
@@ -328,10 +338,10 @@ const floorTex = createTexture(256, 256, (ctx, w, h) => {
 floorTex.repeat.set(MAP_W, MAP_H);
 
 const ceilTex = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#151512';
+  ctx.fillStyle = '#2a2a25';
   ctx.fillRect(0, 0, w, h);
   for(let i = 0; i < 20; i++) {
-    ctx.fillStyle = `rgba(${Math.random()*20},${Math.random()*18},${Math.random()*15},0.4)`;
+    ctx.fillStyle = `rgba(${20+Math.random()*20},${18+Math.random()*18},${15+Math.random()*15},0.4)`;
     ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*30+5, Math.random()*30+5);
   }
 });
@@ -589,7 +599,7 @@ function buildPerkMachines() {
     scene.add(panel);
     
     // Perk light
-    const pLight = new THREE.PointLight(color.getHex(), 0.8, 8);
+    const pLight = new THREE.PointLight(color.getHex(), 1.5, 14);
     pLight.position.set(pm.tx * TILE + TILE/2, 2.5, pm.tz * TILE + TILE/2);
     scene.add(pLight);
     
@@ -1251,6 +1261,7 @@ function update(dt) {
   gunKick = Math.max(0, gunKick - dt * 6);
   dmgFlash = Math.max(0, dmgFlash - dt * 4);
   muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
+  playerLight.position.copy(camera.position);
   
   // Quick Revive HP regen
   if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
