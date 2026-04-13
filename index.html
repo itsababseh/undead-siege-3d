@@ -251,8 +251,7 @@ document.body.appendChild(renderer.domElement);
 
 // ===== CONTROLS =====
 const controls = new PointerLockControls(camera, renderer.domElement);
-controls.minPolarAngle = 0.15;          // ~8.6° from straight up
-controls.maxPolarAngle = Math.PI - 0.15; // ~8.6° from straight down
+// Pitch clamping is done manually in gameLoop (PointerLockControls doesn't support polar angle limits)
 
 // ===== LIGHTING =====
 const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
@@ -5247,6 +5246,9 @@ function gameLoop(time) {
   if (state === 'menu') return;
   
   update(dt);
+  // Clamp camera pitch so player can't flip upside-down (PointerLockControls has no built-in limit)
+  const maxPitch = Math.PI / 2 - 0.15;
+  camera.rotation.x = Math.max(-maxPitch, Math.min(maxPitch, camera.rotation.x));
   updateCenterMsg(dt);
   updateGunModel(dt);
   updateLights(dt);
