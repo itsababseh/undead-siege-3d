@@ -134,6 +134,7 @@ canvas{display:block}
   <div id="buyPrompt"></div>
   <div id="centerMsg"><div class="big"></div><div class="small"></div></div>
   <div id="dmgOverlay"></div>
+  <div id="roundFlash" style="position:fixed;inset:0;background:rgba(255,255,255,0.3);pointer-events:none;z-index:8;display:none;opacity:0"></div>
   <button id="muteBtn">🔊</button>
   <div id="minimap"><canvas id="minimapCanvas" width="140" height="140"></canvas></div>
 </div>
@@ -2626,6 +2627,317 @@ function spawnDmgNumber(worldX, worldY, worldZ, dmg, isKill) {
   setTimeout(() => el.remove(), 800);
 }
 
+// ===== VISUAL JUICE SYSTEM =====
+
+// --- Screen Shake ---
+let shakeIntensity = 0;
+let shakeDecay = 8;
+let shakeOffsetX = 0, shakeOffsetY = 0;
+
+function triggerScreenShake(intensity, decay) {
+  shakeIntensity = Math.max(shakeIntensity, intensity);
+  if (decay) shakeDecay = decay;
+}
+
+function updateScreenShake(dt) {
+  if (shakeIntensity > 0.001) {
+    shakeOffsetX = (Math.random() - 0.5) * shakeIntensity * 0.015;
+    shakeOffsetY = (Math.random() - 0.5) * shakeIntensity * 0.015;
+    camera.rotation.z = shakeOffsetX;
+    shakeIntensity *= Math.pow(0.05, dt); // exponential decay
+  } else {
+    shakeIntensity = 0;
+    shakeOffsetX = 0;
+    shakeOffsetY = 0;
+    camera.rotation.z = 0;
+  }
+}
+
+// --- Muzzle Flash Particles (3D sparks) ---
+const muzzleSparks = [];
+const sparkGeo = new THREE.SphereGeometry(0.02, 3, 3);
+
+function spawnMuzzleSparks() {
+  if (!camera) return;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const origin = camera.position.clone().add(dir.clone().multiplyScalar(1.2));
+  // Offset slightly to gun position
+  const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+  origin.add(right.multiplyScalar(0.15));
+  origin.y -= 0.1;
+  
+  const w = weapons[player.curWeapon];
+  const sparkColor = w.isRayGun ? 0x00ff44 : 0xffaa22;
+  const sparkCount = w.isRayGun ? 6 : (player.curWeapon === 2 ? 10 : 4); // more for shotgun
+  
+  for (let i = 0; i < sparkCount; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color: sparkColor, transparent: true, opacity: 1 });
+    const mesh = new THREE.Mesh(sparkGeo, mat);
+    mesh.position.copy(origin);
+    scene.add(mesh);
+    
+    const spread = player.curWeapon === 2 ? 3 : 1.5;
+    muzzleSparks.push({
+      mesh,
+      vx: dir.x * 8 + (Math.random() - 0.5) * spread,
+      vy: dir.y * 8 + Math.random() * 2 + (Math.random() - 0.5) * spread,
+      vz: dir.z * 8 + (Math.random() - 0.5) * spread,
+      life: 0.08 + Math.random() * 0.12,
+    });
+  }
+}
+
+function updateMuzzleSparks(dt) {
+  for (let i = muzzleSparks.length - 1; i >= 0; i--) {
+    const s = muzzleSparks[i];
+    s.life -= dt;
+    if (s.life <= 0) {
+      scene.remove(s.mesh);
+      s.mesh.material.dispose();
+      muzzleSparks.splice(i, 1);
+      continue;
+    }
+    s.mesh.position.x += s.vx * dt;
+    s.mesh.position.y += s.vy * dt;
+    s.mesh.position.z += s.vz * dt;
+    s.mesh.material.opacity = s.life * 5;
+    s.mesh.scale.setScalar(1 + (1 - s.life * 5) * 2);
+  }
+}
+
+// --- Zombie Death Animation (dissolve + collapse) ---
+const dyingZombies = [];
+
+function startZombieDeathAnim(z) {
+  if (!z._mesh) return;
+  // Keep mesh alive for death animation, remove from active zombie tracking
+  const mesh = z._mesh;
+  const hpBar = z._hpBar;
+  const eyeLight = z._eyeLight;
+  
+  // Remove HP bar and eye light immediately
+  if (hpBar) scene.remove(hpBar);
+  if (eyeLight) scene.remove(eyeLight);
+  
+  dyingZombies.push({
+    mesh,
+    timer: 0,
+    duration: 0.6 + Math.random() * 0.3,
+    startY: mesh.position.y,
+    fallDir: (Math.random() - 0.5) * 0.5,
+    isBoss: z.isBoss,
+    wx: z.wx, wz: z.wz,
+  });
+  
+  // Detach from zombie object so removeZombieMesh won't double-remove
+  z._mesh = null;
+  z._hpBar = null;
+  z._eyeLight = null;
+}
+
+function updateDyingZombies(dt) {
+  for (let i = dyingZombies.length - 1; i >= 0; i--) {
+    const dz = dyingZombies[i];
+    dz.timer += dt;
+    const t = dz.timer / dz.duration;
+    
+    if (t >= 1) {
+      scene.remove(dz.mesh);
+      if (dz.mesh.material) {
+        if (dz.mesh.material.map) dz.mesh.material.map.dispose();
+        dz.mesh.material.dispose();
+      }
+      dyingZombies.splice(i, 1);
+      continue;
+    }
+    
+    // Collapse downward + tilt + dissolve
+    dz.mesh.position.y = dz.startY * (1 - t * 0.8);
+    dz.mesh.rotation.x = t * 1.2; // fall forward
+    dz.mesh.rotation.z = dz.fallDir * t * 2;
+    dz.mesh.scale.y = Math.max(0.1, 1 - t * 0.7);
+    
+    // Fade out
+    if (dz.mesh.material) {
+      dz.mesh.material.transparent = true;
+      dz.mesh.material.opacity = 1 - t;
+    }
+  }
+}
+
+// --- Blood Splatter Decals on Walls ---
+const bloodDecals = [];
+const MAX_BLOOD_DECALS = 30;
+
+function spawnBloodSplatter(x, y, z) {
+  // Raycast to nearby walls to place decals
+  const directions = [
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+    new THREE.Vector3(0.7, 0, 0.7), new THREE.Vector3(-0.7, 0, -0.7),
+  ];
+  
+  const origin = new THREE.Vector3(x, y, z);
+  const rc = new THREE.Raycaster();
+  
+  for (const dir of directions) {
+    rc.set(origin, dir.normalize());
+    rc.far = 3;
+    const hits = rc.intersectObjects(wallMeshes);
+    if (hits.length > 0 && hits[0].distance < 3) {
+      const hit = hits[0];
+      // Create blood splatter plane
+      const size = 0.3 + Math.random() * 0.6;
+      const splatGeo = new THREE.PlaneGeometry(size, size);
+      
+      // Draw blood splatter on canvas
+      const splatCanvas = document.createElement('canvas');
+      splatCanvas.width = 64; splatCanvas.height = 64;
+      const sctx = splatCanvas.getContext('2d');
+      
+      // Random blood splatter pattern
+      const cx = 32, cy = 32;
+      for (let s = 0; s < 5 + Math.random() * 8; s++) {
+        const r = 5 + Math.random() * 20;
+        const angle = Math.random() * Math.PI * 2;
+        const sx = cx + Math.cos(angle) * Math.random() * 15;
+        const sy = cy + Math.sin(angle) * Math.random() * 15;
+        sctx.beginPath();
+        sctx.fillStyle = `rgba(${120 + Math.random()*60}, 0, 0, ${0.6 + Math.random()*0.4})`;
+        sctx.arc(sx, sy, r, 0, Math.PI * 2);
+        sctx.fill();
+      }
+      // Drips
+      for (let d = 0; d < 3; d++) {
+        const dx = 10 + Math.random() * 44;
+        sctx.fillStyle = `rgba(${100 + Math.random()*40}, 0, 0, 0.7)`;
+        sctx.fillRect(dx, 30 + Math.random() * 10, 2 + Math.random() * 3, 10 + Math.random() * 20);
+      }
+      
+      const splatTex = new THREE.CanvasTexture(splatCanvas);
+      const splatMat = new THREE.MeshBasicMaterial({ 
+        map: splatTex, transparent: true, opacity: 0.8,
+        depthWrite: false, side: THREE.DoubleSide
+      });
+      
+      const splat = new THREE.Mesh(splatGeo, splatMat);
+      splat.position.copy(hit.point);
+      // Offset slightly from wall to prevent z-fighting
+      splat.position.add(hit.face.normal.clone().multiplyScalar(0.02));
+      splat.lookAt(hit.point.clone().add(hit.face.normal));
+      // Random rotation
+      splat.rotateZ(Math.random() * Math.PI * 2);
+      
+      scene.add(splat);
+      bloodDecals.push({ mesh: splat, life: 15 + Math.random() * 10 }); // 15-25 seconds
+      
+      // Limit decal count
+      while (bloodDecals.length > MAX_BLOOD_DECALS) {
+        const old = bloodDecals.shift();
+        scene.remove(old.mesh);
+        old.mesh.material.map.dispose();
+        old.mesh.material.dispose();
+        old.mesh.geometry.dispose();
+      }
+      
+      break; // Only one splatter per kill
+    }
+  }
+}
+
+function updateBloodDecals(dt) {
+  for (let i = bloodDecals.length - 1; i >= 0; i--) {
+    const d = bloodDecals[i];
+    d.life -= dt;
+    if (d.life <= 0) {
+      scene.remove(d.mesh);
+      d.mesh.material.map.dispose();
+      d.mesh.material.dispose();
+      d.mesh.geometry.dispose();
+      bloodDecals.splice(i, 1);
+      continue;
+    }
+    // Fade out in last 3 seconds
+    if (d.life < 3) {
+      d.mesh.material.opacity = (d.life / 3) * 0.8;
+    }
+  }
+}
+
+// --- Round Transition Effect ---
+let roundTransitionTimer = 0;
+let roundTransitionPhase = 'none'; // 'none', 'slowmo', 'flash'
+let slowMoFactor = 1;
+
+function triggerRoundTransition() {
+  roundTransitionPhase = 'flash';
+  roundTransitionTimer = 0.8;
+}
+
+function updateRoundTransition(dt) {
+  if (roundTransitionPhase === 'none') { slowMoFactor = 1; return; }
+  
+  roundTransitionTimer -= dt;
+  
+  if (roundTransitionPhase === 'flash') {
+    // Quick white flash then fade
+    const flashEl = document.getElementById('roundFlash');
+    if (roundTransitionTimer > 0.5) {
+      // Flash in
+      const t = (0.8 - roundTransitionTimer) / 0.3;
+      flashEl.style.opacity = Math.min(0.3, t * 0.3);
+      flashEl.style.display = 'block';
+    } else if (roundTransitionTimer > 0) {
+      // Fade out
+      flashEl.style.opacity = (roundTransitionTimer / 0.5) * 0.3;
+    } else {
+      flashEl.style.display = 'none';
+      flashEl.style.opacity = 0;
+      roundTransitionPhase = 'none';
+    }
+  }
+  
+  slowMoFactor = roundTransitionPhase === 'none' ? 1 : 1;
+}
+
+// --- Damage Vignette (red edge pulse when hurt) ---
+let vignetteIntensity = 0;
+
+function triggerDamageVignette(amount) {
+  vignetteIntensity = Math.min(1, vignetteIntensity + amount * 0.015);
+}
+
+function updateDamageVignette(dt) {
+  if (vignetteIntensity > 0.01) {
+    const vig = document.getElementById('dmgOverlay');
+    vig.style.boxShadow = `inset 0 0 ${60 + vignetteIntensity * 100}px ${vignetteIntensity * 40}px rgba(180, 0, 0, ${vignetteIntensity * 0.5})`;
+    vig.style.display = 'block';
+    vignetteIntensity *= Math.pow(0.1, dt);
+  } else {
+    vignetteIntensity = 0;
+    const vig = document.getElementById('dmgOverlay');
+    vig.style.boxShadow = '';
+  }
+}
+
+// --- Low Health Heartbeat Overlay ---
+let heartbeatPhase = 0;
+
+function updateLowHealthEffect(dt) {
+  if (player.hp > 0 && player.hp < player.maxHp * 0.25 && state === 'playing') {
+    heartbeatPhase += dt * 3; // heartbeat speed
+    const pulse = Math.abs(Math.sin(heartbeatPhase));
+    const vig = document.getElementById('dmgOverlay');
+    const baseAlpha = 0.15 + pulse * 0.15;
+    vig.style.boxShadow = `inset 0 0 80px 30px rgba(180, 0, 0, ${baseAlpha})`;
+    vig.style.display = 'block';
+  } else {
+    heartbeatPhase = 0;
+  }
+}
+
+
 // ===== PARTICLES =====
 const particles = [];
 const particleGeo = new THREE.SphereGeometry(0.05, 4, 4);
@@ -2714,6 +3026,17 @@ function initGame() {
   particles.forEach(p => scene.remove(p.mesh));
   particles.length = 0;
   floatTexts.length = 0;
+  
+  // Clear visual juice
+  muzzleSparks.forEach(s => { scene.remove(s.mesh); s.mesh.material.dispose(); });
+  muzzleSparks.length = 0;
+  dyingZombies.forEach(dz => { scene.remove(dz.mesh); });
+  dyingZombies.length = 0;
+  bloodDecals.forEach(d => { scene.remove(d.mesh); d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
+  bloodDecals.length = 0;
+  shakeIntensity = 0; vignetteIntensity = 0;
+  roundTransitionPhase = 'none';
+  document.getElementById('roundFlash').style.display = 'none';
   
   // Reset map and doors
   map = [...mapData];
@@ -2961,6 +3284,10 @@ function tryShoot() {
   player.fireTimer = w.rate * player.fireRateMult;
   sfxShoot(); // routes to weapon-specific sound
   gunKick = 1;
+  spawnMuzzleSparks();
+  // Screen shake: heavier for shotgun/raygun
+  const shakeAmt = player.curWeapon === 2 ? 0.6 : (w.isRayGun ? 0.4 : 0.2);
+  triggerScreenShake(shakeAmt, 10);
   
   // Muzzle flash
   muzzleLight.intensity = 3;
@@ -3047,10 +3374,17 @@ function tryShoot() {
           }
           const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
           addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
+          // Death animation: dissolve + collapse instead of instant remove
+          startZombieDeathAnim(bestZ);
+          // Blood splatter on nearby walls
+          spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
+          // Screen shake on kills (bigger for boss)
+          triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
           removeZombieMesh(bestZ);
           zombies.splice(idx, 1);
           if (bestZ.isBoss) {
             sfxBossKill();
+            triggerScreenShake(2.5, 5); // massive boss death shake
           }
         }
       }
@@ -3326,6 +3660,8 @@ function update(dt) {
         sfxHurt();
         sfxZombieAttack();
         dmgFlash = 1;
+        triggerScreenShake(0.8, 6);
+        triggerDamageVignette(z.dmg);
         z.atkTimer = 1;
         if (player.hp <= 0) {
           player.hp = 0;
@@ -3358,6 +3694,7 @@ function update(dt) {
     const bonus = round * 100;
     points += bonus;
     sfxRoundEnd();
+    triggerRoundTransition();
     addFloatText(`+${bonus} ROUND BONUS`, '#fc0', 2);
     nextRound();
   }
@@ -3942,6 +4279,13 @@ function gameLoop(time) {
   updateGunModel(dt);
   updateLights(dt);
   updateHitmarker(dt);
+  updateScreenShake(dt);
+  updateMuzzleSparks(dt);
+  updateDyingZombies(dt);
+  updateBloodDecals(dt);
+  updateRoundTransition(dt);
+  updateDamageVignette(dt);
+  updateLowHealthEffect(dt);
   updateHUD();
   drawMinimap();
   drawFloatTexts();
