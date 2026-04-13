@@ -42,9 +42,9 @@ canvas{display:block}
 #perkIcons{position:fixed;bottom:68px;left:15px;display:flex;gap:6px}
 .perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5)}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
-#centerMsg{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}
+#centerMsg{position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}
 #centerMsg .big{font-size:clamp(28px,5vw,48px);font-weight:bold;letter-spacing:4px;text-shadow:0 0 30px currentColor}
-#centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px}
+#centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px;opacity:0.8}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
 #pauseOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50}
@@ -671,7 +671,7 @@ const zombies = [];
 // Billboard sprites with canvas-drawn zombie art (DOOM-style)
 // Each zombie type has unique hand-drawn appearance with walk animation frames
 
-const ZOMBIE_SPRITE_SIZE = 256;
+const ZOMBIE_SPRITE_SIZE = 512;
 const ZOMBIE_VARIANTS = 5;
 const ZOMBIE_FRAMES = 4;
 const zombieSpriteSheets = { normal: [], elite: [], boss: [] };
@@ -702,96 +702,148 @@ function createZombieSpriteSheet(variant, type) {
 function drawZombieFrame(ctx, size, variant, type, frame) {
   const W = size, H = size, cx = W / 2;
   const walkPhase = (frame / ZOMBIE_FRAMES) * Math.PI * 2;
-  const legSwing = Math.sin(walkPhase) * 14;
-  const armSwing = Math.sin(walkPhase + 0.5) * 10;
-  const bodyBob = Math.abs(Math.sin(walkPhase)) * 3;
-  const headBob = Math.sin(walkPhase * 0.5) * 2;
-  const shoulderTilt = Math.sin(walkPhase) * 2;
+  const legSwing = Math.sin(walkPhase) * 18;
+  const armSwing = Math.sin(walkPhase + 0.5) * 14;
+  const bodyBob = Math.abs(Math.sin(walkPhase)) * 4;
+  const headBob = Math.sin(walkPhase * 0.5) * 3;
+  const shoulderTilt = Math.sin(walkPhase) * 3;
 
-  // Color palettes per type — dark, decayed, menacing
-  let skin, skinDark, skinLight, cloth, clothDark, blood, eyeGlow;
+  // Darker, more decayed color palettes
+  let skin, skinDark, skinLight, cloth, clothDark, pants, blood, eyeGlow, shirtColor;
   if (type === 'boss') {
-    skin='#3A1515'; skinDark='#250808'; skinLight='#4A1A1A';
-    cloth='#1A0808'; clothDark='#0E0404'; blood='#880000'; eyeGlow='#FFFF00';
+    skin='#4A2020'; skinDark='#301010'; skinLight='#5A2828';
+    cloth='#221010'; clothDark='#150808'; pants='#1A0E0E'; blood='#990000'; eyeGlow='#FFFF00';
+    shirtColor='#1E0808';
   } else if (type === 'elite') {
-    skin='#3A3820'; skinDark='#2A2810'; skinLight='#4A4830';
-    cloth='#252310'; clothDark='#1A1808'; blood='#661800'; eyeGlow='#FF6600';
+    skin='#4A4830'; skinDark='#353318'; skinLight='#5A5838';
+    cloth='#2A2815'; clothDark='#1E1C0C'; pants='#201E10'; blood='#772000'; eyeGlow='#FF6600';
+    shirtColor='#252010';
   } else {
-    skin='#2E3528'; skinDark='#1A2012'; skinLight='#3A4232';
-    cloth='#1E1E18'; clothDark='#121210'; blood='#4A0808'; eyeGlow='#FF1E0A';
+    skin='#3A4035'; skinDark='#252A20'; skinLight='#4A5042';
+    cloth='#282820'; clothDark='#1A1A14'; pants='#1C1C18'; blood='#5A1010'; eyeGlow='#FF2010';
+    shirtColor='#222218';
   }
 
-  // Variant-specific quirks (each looks distinctly different)
+  // 5 unique character appearances — like different zombified humans
   const quirks = [
-    { headTilt:-8,  shoulderDrop:'L', hasJaw:true,  clothTear:'chest',    missingArm:false, hunchAmount:12 },
-    { headTilt:12,  shoulderDrop:'R', hasJaw:false, clothTear:'belly',    missingArm:false, hunchAmount:5  },
-    { headTilt:-3,  shoulderDrop:'L', hasJaw:true,  clothTear:'shoulder', missingArm:true,  hunchAmount:18 },
-    { headTilt:15,  shoulderDrop:'R', hasJaw:true,  clothTear:'none',     missingArm:false, hunchAmount:8  },
-    { headTilt:-20, shoulderDrop:'L', hasJaw:false, clothTear:'chest',    missingArm:false, hunchAmount:22 },
+    { headTilt:-6,  shoulderDrop:'L', hasJaw:true,  clothTear:'chest',    missingArm:false, hunchAmount:8,  hasHair:false, hasBelt:true },
+    { headTilt:10,  shoulderDrop:'R', hasJaw:false, clothTear:'belly',    missingArm:false, hunchAmount:4,  hasHair:true,  hasBelt:false },
+    { headTilt:-3,  shoulderDrop:'L', hasJaw:true,  clothTear:'shoulder', missingArm:true,  hunchAmount:14, hasHair:false, hasBelt:true },
+    { headTilt:12,  shoulderDrop:'R', hasJaw:true,  clothTear:'none',     missingArm:false, hunchAmount:6,  hasHair:true,  hasBelt:false },
+    { headTilt:-15, shoulderDrop:'L', hasJaw:false, clothTear:'chest',    missingArm:false, hunchAmount:16, hasHair:false, hasBelt:true },
   ];
   const q = quirks[variant % quirks.length];
-  const baseY = type === 'boss' ? H * 0.02 : H * 0.10;
-  const sc = type === 'boss' ? 1.35 : type === 'elite' ? 1.12 : 1.0;
+  const baseY = type === 'boss' ? H * 0.02 : H * 0.08;
+  const sc = (type === 'boss' ? 1.3 : type === 'elite' ? 1.1 : 1.0) * (size / 256);
 
   ctx.save();
 
-  // ---- LEGS ----
-  const hipY = H - baseY - 75 * sc + bodyBob;
-  const legLen = 58 * sc;
-  const legW = 15 * sc;
+  // ---- LEGS (human proportions — longer, with pants) ----
+  const hipY = H - baseY - 95 * sc + bodyBob;
+  const legLen = 78 * sc;
+  const legW = 16 * sc;
+  const kneePos = legLen * 0.48;
 
   // Left leg
   ctx.save();
-  ctx.translate(cx - 13 * sc, hipY);
+  ctx.translate(cx - 14 * sc, hipY);
   ctx.rotate(legSwing * Math.PI / 180);
-  ctx.fillStyle = cloth;
-  ctx.fillRect(-legW/2, 0, legW, legLen * 0.55);
-  ctx.fillStyle = variant % 2 === 0 ? skinDark : cloth;
-  ctx.fillRect(-legW/2 + 1, legLen * 0.5, legW - 2, legLen * 0.5);
+  // Pants (thigh)
+  ctx.fillStyle = pants;
+  ctx.beginPath();
+  ctx.moveTo(-legW/2 - 1, 0); ctx.lineTo(legW/2 + 1, 0);
+  ctx.lineTo(legW/2, kneePos); ctx.lineTo(-legW/2, kneePos);
+  ctx.closePath(); ctx.fill();
+  // Pants (shin) — slightly narrower
+  ctx.fillStyle = pants;
+  ctx.fillRect(-legW/2 + 1, kneePos, legW - 2, legLen - kneePos - 6*sc);
+  // Knee crease
+  ctx.strokeStyle = clothDark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-legW/2 + 2, kneePos); ctx.lineTo(legW/2 - 2, kneePos + 2); ctx.stroke();
+  // Torn pants exposing skin on some variants
   if (variant === 1 || variant === 3) {
     ctx.fillStyle = skin;
-    ctx.fillRect(-legW/2 + 2, legLen * 0.45, legW - 4, 8 * sc);
+    ctx.fillRect(-legW/2 + 3, kneePos + 8*sc, legW - 6, 12 * sc);
+    ctx.fillStyle = blood;
+    ctx.fillRect(-3, kneePos + 12*sc, 6, 4*sc);
   }
-  ctx.fillStyle = '#1A1A12';
-  ctx.fillRect(-legW/2 - 2, legLen - 4*sc, legW + 4, 8 * sc);
+  // Shoe/boot
+  ctx.fillStyle = '#151510';
+  const shoeW = legW + 5;
+  ctx.fillRect(-shoeW/2, legLen - 8*sc, shoeW, 10 * sc);
   ctx.restore();
 
   // Right leg
   ctx.save();
-  ctx.translate(cx + 13 * sc, hipY);
+  ctx.translate(cx + 14 * sc, hipY);
   ctx.rotate(-legSwing * Math.PI / 180);
-  ctx.fillStyle = cloth;
-  ctx.fillRect(-legW/2, 0, legW, legLen * 0.55);
-  ctx.fillStyle = variant % 2 === 1 ? skinDark : cloth;
-  ctx.fillRect(-legW/2 + 1, legLen * 0.5, legW - 2, legLen * 0.5);
+  ctx.fillStyle = pants;
+  ctx.beginPath();
+  ctx.moveTo(-legW/2 - 1, 0); ctx.lineTo(legW/2 + 1, 0);
+  ctx.lineTo(legW/2, kneePos); ctx.lineTo(-legW/2, kneePos);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = pants;
+  ctx.fillRect(-legW/2 + 1, kneePos, legW - 2, legLen - kneePos - 6*sc);
+  ctx.strokeStyle = clothDark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-legW/2 + 2, kneePos); ctx.lineTo(legW/2 - 2, kneePos + 2); ctx.stroke();
   if (variant >= 2) {
     ctx.fillStyle = blood;
-    ctx.fillRect(-2, legLen * 0.3, 4, 15 * sc);
+    ctx.fillRect(-3, legLen * 0.3, 5, 18 * sc);
   }
-  ctx.fillStyle = '#1A1A12';
-  ctx.fillRect(-legW/2 - 2, legLen - 4*sc, legW + 4, 8 * sc);
+  ctx.fillStyle = '#151510';
+  ctx.fillRect(-(legW+5)/2, legLen - 8*sc, legW + 5, 10 * sc);
   ctx.restore();
 
-  // ---- TORSO ----
-  const torsoTop = H - baseY - 160 * sc + bodyBob;
-  const torsoH = 88 * sc;
-  const torsoW = 54 * sc;
+  // ---- TORSO (shirt/jacket with visible collar, wrinkles, human shape) ----
+  const torsoTop = H - baseY - 195 * sc + bodyBob;
+  const torsoH = 105 * sc;
+  const torsoW = 58 * sc;
 
-  // Main torso (trapezoidal)
-  ctx.fillStyle = cloth;
+  // Main torso — shirt shape with slight taper
+  ctx.fillStyle = shirtColor;
   ctx.beginPath();
-  ctx.moveTo(cx - torsoW * 0.4, torsoTop + torsoH);
-  ctx.lineTo(cx + torsoW * 0.4, torsoTop + torsoH);
-  ctx.lineTo(cx + torsoW * 0.55, torsoTop + 5);
-  ctx.lineTo(cx - torsoW * 0.55, torsoTop + 5);
+  ctx.moveTo(cx - torsoW * 0.42, torsoTop + torsoH);
+  ctx.lineTo(cx + torsoW * 0.42, torsoTop + torsoH);
+  ctx.lineTo(cx + torsoW * 0.56, torsoTop + 8);
+  ctx.lineTo(cx + torsoW * 0.3, torsoTop);
+  ctx.lineTo(cx - torsoW * 0.3, torsoTop);
+  ctx.lineTo(cx - torsoW * 0.56, torsoTop + 8);
   ctx.closePath();
   ctx.fill();
 
-  // Shoulder bulk
-  const sDropL = q.shoulderDrop === 'L' ? shoulderTilt + 4 : shoulderTilt;
-  const sDropR = q.shoulderDrop === 'R' ? shoulderTilt + 4 : shoulderTilt;
-  ctx.fillStyle = clothDark;
-  ctx.fillRect(cx - torsoW * 0.6, torsoTop + sDropL, torsoW * 1.2, 13 * sc);
+  // Shirt wrinkles/folds (subtle lines for realism)
+  ctx.strokeStyle = clothDark;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.5;
+  for (let w = 0; w < 3; w++) {
+    const wy = torsoTop + 25*sc + w * 22*sc;
+    ctx.beginPath();
+    ctx.moveTo(cx - torsoW*0.3, wy);
+    ctx.quadraticCurveTo(cx + (w%2?5:-5)*sc, wy + 4*sc, cx + torsoW*0.3, wy + 2*sc);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Belt line (separates shirt from pants)
+  if (q.hasBelt) {
+    ctx.fillStyle = '#2A2218';
+    ctx.fillRect(cx - torsoW*0.44, torsoTop + torsoH - 8*sc, torsoW*0.88, 8*sc);
+    ctx.fillStyle = '#555540';
+    ctx.fillRect(cx - 4*sc, torsoTop + torsoH - 7*sc, 8*sc, 6*sc); // buckle
+  }
+
+  // Shoulder bulk — wider, more human
+  const sDropL = q.shoulderDrop === 'L' ? shoulderTilt + 5 : shoulderTilt;
+  const sDropR = q.shoulderDrop === 'R' ? shoulderTilt + 5 : shoulderTilt;
+  ctx.fillStyle = shirtColor;
+  ctx.fillRect(cx - torsoW * 0.62, torsoTop + sDropL, torsoW * 1.24, 16 * sc);
+  // Collar/neckline
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(cx, torsoTop + 4, 12*sc, 8*sc, 0, 0, Math.PI);
+  ctx.fill();
 
   // Cloth tear exposing flesh
   if (q.clothTear === 'chest') {
@@ -842,160 +894,227 @@ function drawZombieFrame(ctx, size, variant, type, frame) {
     ctx.fill();
   }
 
-  // ---- ARMS ----
-  const armW = 12 * sc;
-  const armLen = 62 * sc;
-  const shoulderY = torsoTop + 8;
+  // ---- ARMS (longer, with shirt sleeves + exposed forearms) ----
+  const armW = 14 * sc;
+  const armLen = 72 * sc;
+  const shoulderY = torsoTop + 10;
 
   // Left arm
   if (!q.missingArm) {
     ctx.save();
-    ctx.translate(cx - torsoW * 0.55, shoulderY + sDropL);
-    ctx.rotate((-28 + armSwing) * Math.PI / 180);
-    ctx.fillStyle = variant % 3 === 0 ? skinDark : cloth;
-    ctx.fillRect(-armW/2, 0, armW, armLen * 0.5);
+    ctx.translate(cx - torsoW * 0.58, shoulderY + sDropL);
+    ctx.rotate((-25 + armSwing) * Math.PI / 180);
+    // Upper arm (shirt sleeve)
+    ctx.fillStyle = shirtColor;
+    ctx.fillRect(-armW/2, 0, armW, armLen * 0.42);
+    // Sleeve edge
+    ctx.fillStyle = clothDark;
+    ctx.fillRect(-armW/2 - 1, armLen * 0.4, armW + 2, 3*sc);
+    // Forearm (exposed skin)
     ctx.fillStyle = skin;
-    ctx.fillRect(-armW/2 + 1, armLen * 0.45, armW - 2, armLen * 0.5);
-    // Hand with fingers/claws
+    ctx.fillRect(-armW/2 + 1, armLen * 0.42, armW - 2, armLen * 0.45);
+    // Vein/tendon detail
+    ctx.strokeStyle = skinDark;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-2, armLen*0.5); ctx.lineTo(-1, armLen*0.8); ctx.stroke();
+    // Hand — palm + curled fingers (more human)
     ctx.fillStyle = skinDark;
     ctx.beginPath();
-    ctx.ellipse(0, armLen * 0.93, 7*sc, 8*sc, 0, 0, Math.PI*2);
+    ctx.ellipse(0, armLen * 0.9, 8*sc, 7*sc, 0, 0, Math.PI*2);
     ctx.fill();
-    ctx.fillStyle = skinDark;
+    // Individual fingers curling inward (claw-like but human)
     for (let f = -2; f <= 2; f++) {
       ctx.save();
-      ctx.translate(f * 3.5 * sc, armLen * 0.95);
-      ctx.rotate(f * 0.15);
-      ctx.fillRect(-1, 0, 2.5, 8 * sc);
+      ctx.translate(f * 3.2 * sc, armLen * 0.93);
+      ctx.rotate(f * 0.12 + 0.2);
+      ctx.fillStyle = skinDark;
+      ctx.fillRect(-1.2, 0, 2.8, 10 * sc);
+      // Fingernail
+      ctx.fillStyle = '#4A4A3A';
+      ctx.fillRect(-0.5, 9*sc, 2, 2.5*sc);
       ctx.restore();
     }
     ctx.restore();
   } else {
     // Stump (missing arm variant)
     ctx.save();
-    ctx.translate(cx - torsoW * 0.55, shoulderY + sDropL);
+    ctx.translate(cx - torsoW * 0.58, shoulderY + sDropL);
     ctx.rotate(-10 * Math.PI / 180);
+    ctx.fillStyle = shirtColor;
+    ctx.fillRect(-armW/2, 0, armW, armLen * 0.25);
     ctx.fillStyle = skin;
-    ctx.fillRect(-armW/2, 0, armW, armLen * 0.3);
+    ctx.fillRect(-armW/2 + 1, armLen * 0.22, armW - 2, armLen * 0.1);
     ctx.fillStyle = blood;
     ctx.beginPath();
-    ctx.ellipse(0, armLen * 0.3, armW/2 + 2, 5*sc, 0, 0, Math.PI*2);
+    ctx.ellipse(0, armLen * 0.32, armW/2 + 2, 6*sc, 0, 0, Math.PI*2);
     ctx.fill();
-    // Blood drips
     ctx.fillStyle = blood;
-    ctx.fillRect(-2, armLen * 0.28, 3, 14*sc);
-    ctx.fillRect(3, armLen * 0.3, 2, 20*sc);
+    ctx.fillRect(-2, armLen * 0.3, 3, 16*sc);
+    ctx.fillRect(3, armLen * 0.32, 2, 22*sc);
     ctx.restore();
   }
 
   // Right arm
   ctx.save();
-  ctx.translate(cx + torsoW * 0.55, shoulderY + sDropR);
-  ctx.rotate((28 - armSwing * 0.7) * Math.PI / 180);
-  ctx.fillStyle = variant % 2 === 0 ? cloth : skinDark;
-  ctx.fillRect(-armW/2, 0, armW, armLen * 0.5);
+  ctx.translate(cx + torsoW * 0.58, shoulderY + sDropR);
+  ctx.rotate((25 - armSwing * 0.7) * Math.PI / 180);
+  // Upper arm (shirt sleeve)
+  ctx.fillStyle = shirtColor;
+  ctx.fillRect(-armW/2, 0, armW, armLen * 0.42);
+  ctx.fillStyle = clothDark;
+  ctx.fillRect(-armW/2 - 1, armLen * 0.4, armW + 2, 3*sc);
+  // Forearm (exposed skin)
   ctx.fillStyle = skin;
-  ctx.fillRect(-armW/2 + 1, armLen * 0.45, armW - 2, armLen * 0.5);
+  ctx.fillRect(-armW/2 + 1, armLen * 0.42, armW - 2, armLen * 0.45);
+  // Wound on forearm for some variants
   if (variant === 0 || variant === 4) {
     ctx.fillStyle = blood;
-    ctx.fillRect(-armW/2 + 2, armLen * 0.55, armW - 4, 7*sc);
-    ctx.fillStyle = '#5A1515';
-    ctx.fillRect(-armW/2 + 3, armLen * 0.57, armW - 6, 3*sc);
+    ctx.beginPath();
+    ctx.ellipse(0, armLen * 0.6, 5*sc, 8*sc, 0.3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = skinLight;
+    ctx.fillRect(-armW/2 + 3, armLen * 0.58, armW - 6, 3*sc);
   }
-  // Hand with fingers/claws
+  // Vein detail
+  ctx.strokeStyle = skinDark;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(2, armLen*0.48); ctx.lineTo(1, armLen*0.78); ctx.stroke();
+  // Hand + fingers
   ctx.fillStyle = skinDark;
   ctx.beginPath();
-  ctx.ellipse(0, armLen * 0.93, 7*sc, 8*sc, 0, 0, Math.PI*2);
+  ctx.ellipse(0, armLen * 0.9, 8*sc, 7*sc, 0, 0, Math.PI*2);
   ctx.fill();
   for (let f = -2; f <= 2; f++) {
     ctx.save();
-    ctx.translate(f * 3.5 * sc, armLen * 0.95);
-    ctx.rotate(f * 0.15);
-    ctx.fillRect(-1, 0, 2.5, 8 * sc);
+    ctx.translate(f * 3.2 * sc, armLen * 0.93);
+    ctx.rotate(f * 0.12 - 0.2);
+    ctx.fillStyle = skinDark;
+    ctx.fillRect(-1.2, 0, 2.8, 10 * sc);
+    ctx.fillStyle = '#4A4A3A';
+    ctx.fillRect(-0.5, 9*sc, 2, 2.5*sc);
     ctx.restore();
   }
   ctx.restore();
 
-  // ---- NECK ----
-  const neckH = 11 * sc;
-  const neckW = 13 * sc;
-  const neckY = torsoTop - neckH + 5;
+  // ---- NECK (thicker, more human) ----
+  const neckH = 14 * sc;
+  const neckW = 16 * sc;
+  const neckY = torsoTop - neckH + 6;
   ctx.fillStyle = skin;
-  ctx.fillRect(cx - neckW/2, neckY, neckW, neckH + 2);
+  ctx.fillRect(cx - neckW/2, neckY, neckW, neckH + 3);
+  // Tendons / sinew
+  ctx.strokeStyle = skinDark;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 4*sc, neckY); ctx.lineTo(cx - 5*sc, neckY + neckH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + 4*sc, neckY); ctx.lineTo(cx + 5*sc, neckY + neckH); ctx.stroke();
   if (variant === 2 || variant === 4) {
     ctx.fillStyle = blood;
-    ctx.fillRect(cx - neckW/2 - 1, neckY + 2, neckW + 2, 5*sc);
+    ctx.beginPath();
+    ctx.ellipse(cx + 5*sc, neckY + 5*sc, 5*sc, 4*sc, 0.3, 0, Math.PI*2);
+    ctx.fill();
   }
 
-  // ---- HEAD ----
-  const headSize = 24 * sc;
-  const headX = cx + q.headTilt * sc * 0.3;
-  const headY = neckY - headSize * 0.8 + headBob;
+  // ---- HEAD (more human-shaped — oval, with jaw, ears) ----
+  const headSize = 28 * sc;
+  const headX = cx + q.headTilt * sc * 0.25;
+  const headY = neckY - headSize * 0.85 + headBob;
 
   ctx.save();
   ctx.translate(headX, headY + headSize);
-  ctx.rotate(q.headTilt * Math.PI / 180 * 0.4);
+  ctx.rotate(q.headTilt * Math.PI / 180 * 0.35);
   ctx.translate(-headX, -(headY + headSize));
 
-  // Skull shape
+  // Ears
+  ctx.fillStyle = skinDark;
+  ctx.beginPath();
+  ctx.ellipse(headX - headSize * 0.92, headY + headSize * 0.5, 5*sc, 8*sc, -0.1, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(headX + headSize * 0.92, headY + headSize * 0.5, 5*sc, 8*sc, 0.1, 0, Math.PI*2);
+  ctx.fill();
+
+  // Head shape — more oval/human (wider at top, narrower at jaw)
   ctx.fillStyle = skin;
   ctx.beginPath();
-  ctx.ellipse(headX, headY + headSize * 0.5, headSize * 0.88, headSize, 0, 0, Math.PI * 2);
+  ctx.ellipse(headX, headY + headSize * 0.42, headSize * 0.82, headSize * 0.92, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  // Top of head / hair remnants
-  ctx.fillStyle = skinDark;
+  // Jawline
   ctx.beginPath();
-  ctx.ellipse(headX, headY + headSize * 0.2, headSize * 0.78, headSize * 0.5, 0, Math.PI, Math.PI * 2);
+  ctx.moveTo(headX - headSize * 0.7, headY + headSize * 0.55);
+  ctx.quadraticCurveTo(headX - headSize * 0.5, headY + headSize * 1.05, headX, headY + headSize * 1.08);
+  ctx.quadraticCurveTo(headX + headSize * 0.5, headY + headSize * 1.05, headX + headSize * 0.7, headY + headSize * 0.55);
   ctx.fill();
 
-  // Scraggly hair for some variants
-  if (variant === 1 || variant === 3) {
-    ctx.strokeStyle = '#1A1A10';
-    ctx.lineWidth = 1.8;
-    for (let h = 0; h < 7; h++) {
-      const hx = headX - headSize * 0.5 + h * headSize * 0.17;
+  // Hair / scalp — darker on top
+  if (q.hasHair) {
+    ctx.fillStyle = '#181812';
+    ctx.beginPath();
+    ctx.ellipse(headX, headY + headSize * 0.15, headSize * 0.75, headSize * 0.42, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    // Messy hair strands
+    ctx.strokeStyle = '#1E1E14';
+    ctx.lineWidth = 2.5;
+    for (let h = 0; h < 8; h++) {
+      const hx = headX - headSize * 0.55 + h * headSize * 0.16;
       ctx.beginPath();
-      ctx.moveTo(hx, headY + 4);
-      ctx.quadraticCurveTo(hx + (h%2===0?-6:6), headY - 6 - h*2, hx + (h%2===0?-10:10), headY - 4);
+      ctx.moveTo(hx, headY + headSize * 0.1);
+      ctx.quadraticCurveTo(hx + (h%2===0?-8:8)*sc, headY - 5*sc - h*1.5*sc, hx + (h%2===0?-12:12)*sc, headY + 2*sc);
       ctx.stroke();
     }
+  } else {
+    // Balding / decayed scalp
+    ctx.fillStyle = skinDark;
+    ctx.beginPath();
+    ctx.ellipse(headX, headY + headSize * 0.18, headSize * 0.7, headSize * 0.38, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
   }
 
-  // Brow ridge
+  // Brow ridge (more human — subtle)
   ctx.fillStyle = skinDark;
-  ctx.fillRect(headX - headSize * 0.68, headY + headSize * 0.3, headSize * 1.36, 6 * sc);
-
-  // Eye sockets (deep dark holes)
-  const eyeY = headY + headSize * 0.45;
-  const eyeSpacing = headSize * 0.36;
-  ctx.fillStyle = '#0E0E06';
   ctx.beginPath();
-  ctx.ellipse(headX - eyeSpacing, eyeY, 7*sc, 6*sc, 0, 0, Math.PI*2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(headX + eyeSpacing, eyeY, 7*sc, 6*sc, 0, 0, Math.PI*2);
+  ctx.ellipse(headX, headY + headSize * 0.32, headSize * 0.65, 4 * sc, 0, 0, Math.PI);
   ctx.fill();
 
-  // Glowing eyes
+  // Eye sockets — more human shaped (almond)
+  const eyeY = headY + headSize * 0.42;
+  const eyeSpacing = headSize * 0.32;
+  // Socket shadow
+  ctx.fillStyle = '#0A0A06';
+  ctx.beginPath();
+  ctx.ellipse(headX - eyeSpacing, eyeY, 8*sc, 5.5*sc, -0.1, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(headX + eyeSpacing, eyeY, 8*sc, 5.5*sc, 0.1, 0, Math.PI*2);
+  ctx.fill();
+
+  // Glowing irises (smaller, more human eye proportions)
   ctx.fillStyle = eyeGlow;
   ctx.shadowColor = eyeGlow;
-  ctx.shadowBlur = 10 * sc;
+  ctx.shadowBlur = 12 * sc;
   ctx.beginPath();
-  ctx.ellipse(headX - eyeSpacing, eyeY, 3.5*sc, 3.5*sc, 0, 0, Math.PI*2);
+  ctx.ellipse(headX - eyeSpacing, eyeY, 3.5*sc, 3*sc, 0, 0, Math.PI*2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(headX + eyeSpacing, eyeY, 3.5*sc, 3.5*sc, 0, 0, Math.PI*2);
+  ctx.ellipse(headX + eyeSpacing, eyeY, 3.5*sc, 3*sc, 0, 0, Math.PI*2);
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // Nose cavity (triangular hole)
-  ctx.fillStyle = '#0E0E06';
+  // Nose — bridge + nostrils (more human, not just a hole)
+  ctx.fillStyle = skinDark;
   ctx.beginPath();
-  ctx.moveTo(headX - 4*sc, headY + headSize * 0.62);
-  ctx.lineTo(headX + 4*sc, headY + headSize * 0.62);
-  ctx.lineTo(headX, headY + headSize * 0.73);
+  ctx.moveTo(headX - 2*sc, headY + headSize * 0.38);
+  ctx.lineTo(headX - 5*sc, headY + headSize * 0.62);
+  ctx.lineTo(headX + 5*sc, headY + headSize * 0.62);
+  ctx.lineTo(headX + 2*sc, headY + headSize * 0.38);
   ctx.closePath();
+  ctx.fill();
+  // Nostrils
+  ctx.fillStyle = '#0A0A06';
+  ctx.beginPath();
+  ctx.ellipse(headX - 3*sc, headY + headSize * 0.63, 2.5*sc, 2*sc, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(headX + 3*sc, headY + headSize * 0.63, 2.5*sc, 2*sc, 0, 0, Math.PI*2);
   ctx.fill();
 
   // Mouth
@@ -1332,8 +1451,13 @@ function updateParticles(dt) {
 
 // ===== FLOATING TEXTS (screen-space) =====
 const floatTexts = [];
+let floatTextSlot = 0;
 function addFloatText(text, color, duration = 1.5) {
-  floatTexts.push({ text, color, life: duration, maxLife: duration, x: 0.5 + (Math.random()-0.5)*0.1, y: 0.4 });
+  // Stack float texts vertically so they don't overlap
+  const baseY = 0.32;
+  const yOffset = (floatTextSlot % 6) * 0.045; // 6 slots, spaced 4.5% apart
+  floatTextSlot++;
+  floatTexts.push({ text, color, life: duration, maxLife: duration, x: 0.5 + (Math.random()-0.5)*0.06, y: baseY + yOffset });
 }
 
 // ===== GAME INIT =====
@@ -2522,13 +2646,19 @@ function updateGunModel(dt) {
 // ===== FLOATING TEXT OVERLAY =====
 function drawFloatTexts() {
   const container = document.getElementById('hud');
-  // Remove old float text elements
   container.querySelectorAll('.float-text').forEach(el => el.remove());
   
-  for (const ft of floatTexts) {
+  for (let i = floatTexts.length - 1; i >= 0; i--) {
+    const ft = floatTexts[i];
+    // Float upward over lifetime
+    const progress = 1 - (ft.life / ft.maxLife);
+    const currentY = ft.y - progress * 0.08; // drift up 8% of screen
+    const alpha = ft.life < 0.5 ? ft.life * 2 : 1; // fade out last 0.5s
+    const scale = ft.life < 0.3 ? 0.8 + ft.life : 1; // shrink at end
+    
     const div = document.createElement('div');
     div.className = 'float-text';
-    div.style.cssText = `position:fixed;left:${ft.x*100}%;top:${ft.y*100}%;transform:translate(-50%,-50%);color:${ft.color};font-size:${ft.maxLife > 2 ? 18 : 14}px;font-weight:bold;letter-spacing:2px;opacity:${Math.min(1,ft.life)};pointer-events:none;text-shadow:0 0 10px ${ft.color};white-space:nowrap`;
+    div.style.cssText = `position:fixed;left:${ft.x*100}%;top:${currentY*100}%;transform:translate(-50%,-50%) scale(${scale});color:${ft.color};font-size:${ft.maxLife > 2 ? 18 : 14}px;font-weight:bold;letter-spacing:2px;opacity:${alpha};pointer-events:none;text-shadow:0 0 10px ${ft.color}, 0 2px 4px rgba(0,0,0,0.8);white-space:nowrap`;
     div.textContent = ft.text;
     container.appendChild(div);
   }
