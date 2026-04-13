@@ -5810,6 +5810,12 @@ window._startGame = function() {
   paused = false;
   hidePause();
   
+  // Request pointer lock IMMEDIATELY in the click handler (browser requires
+  // requestPointerLock to be called from a direct user gesture — no setTimeout allowed)
+  if (!isMobile) {
+    controls.lock();
+  }
+  
   // Smooth transition: fade to black, switch screens, fade in
   const trans = document.getElementById('gameTransition');
   trans.classList.add('active');
@@ -5826,11 +5832,6 @@ window._startGame = function() {
     // Fade from black
     setTimeout(() => {
       trans.classList.remove('active');
-      if (!isMobile) {
-        controls.lock();
-      } else {
-        state = 'roundIntro';
-      }
     }, 200);
   }, 400);
 };
