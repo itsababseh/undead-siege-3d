@@ -58,9 +58,9 @@ canvas{display:block}
 #centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px;opacity:0.8}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
-#powerupTimerBar{position:fixed;top:0;left:0;right:0;height:3px;z-index:13;pointer-events:none;display:none}
-#powerupTimerFill{height:100%;border-radius:0 0 2px 0;transition:width 0.25s linear}
-#powerupTimerGlow{position:fixed;top:0;left:0;right:0;height:12px;z-index:12;pointer-events:none;display:none;background:linear-gradient(180deg,rgba(255,50,50,0.15),transparent)}
+#powerupTimerBar{position:fixed;top:48px;left:50%;transform:translateX(-50%);width:220px;height:6px;border-radius:3px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);z-index:13;pointer-events:none;display:none;overflow:hidden}
+#powerupTimerFill{height:100%;border-radius:3px;transition:width 0.25s linear}
+#powerupTimerLabel{position:fixed;top:34px;left:50%;transform:translateX(-50%);z-index:13;pointer-events:none;display:none;font-size:11px;letter-spacing:2px;font-weight:bold;text-shadow:0 0 8px currentColor,0 1px 4px rgba(0,0,0,0.8)}
 #pauseOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50}
 #pauseOverlay h2{color:#fff;font-size:48px;letter-spacing:6px;margin-bottom:10px}
 #pauseOverlay .info{color:#888;font-size:14px;letter-spacing:2px}
@@ -137,8 +137,8 @@ canvas{display:block}
   <div id="buyPrompt"></div>
   <div id="centerMsg"><div class="big"></div><div class="small"></div></div>
   <div id="dmgOverlay"></div>
+  <div id="powerupTimerLabel"></div>
   <div id="powerupTimerBar"><div id="powerupTimerFill"></div></div>
-  <div id="powerupTimerGlow"></div>
   <div id="roundFlash" style="position:fixed;inset:0;background:rgba(255,255,255,0.3);pointer-events:none;z-index:8;display:none;opacity:0"></div>
   <div id="radioOverlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);border:1px solid rgba(100,180,255,0.3);padding:12px 24px;border-radius:6px;max-width:500px;width:80%;display:none;z-index:15;box-shadow:0 0 20px rgba(0,100,255,0.15)">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -1662,13 +1662,13 @@ function tryPackAPunch() {
 const powerUps = [];
 const POWERUP_TYPES = [
   { id: 'instakill', name: 'INSTA-KILL', color: '#ff4444', duration: 30, icon: '💀',
-    apply() { player._instaKill = true; player._instaKillTimer = 30; },
+    apply() { player._instaKill = true; player._instaKillTimer = 15; },
     remove() { player._instaKill = false; } },
   { id: 'maxammo', name: 'MAX AMMO', color: '#44ff44', duration: 0, icon: '🔫',
     apply() { for (let i = 0; i < weapons.length; i++) { if (player.owned[i]) player.ammo[i] = weapons[i].maxAmmo; } player.mag = weapons[player.curWeapon].mag; },
     remove() {} },
   { id: 'doublepoints', name: 'DOUBLE POINTS', color: '#ffff44', duration: 30, icon: '💰',
-    apply() { player._doublePoints = true; player._doublePointsTimer = 30; },
+    apply() { player._doublePoints = true; player._doublePointsTimer = 15; },
     remove() { player._doublePoints = false; } },
   { id: 'nuke', name: 'NUKE', color: '#ff8800', duration: 0, icon: '☢️',
     apply() { 
@@ -1696,8 +1696,9 @@ const POWERUP_TYPES = [
 ];
 
 function spawnPowerUp(wx, wz) {
-  // 12% chance to drop a power-up when a zombie dies
-  if (Math.random() > 0.12) return;
+  // Power-up drop chance scales with round: ~4% at round 1, up to ~18% by round 15+
+  const dropChance = Math.min(0.04 + (round - 1) * 0.01, 0.18);
+  if (Math.random() > dropChance) return;
   
   const typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
   const type = POWERUP_TYPES[typeIdx];
@@ -4096,7 +4097,8 @@ function spawnZombie() {
 
 
 // ===== INPUT =====
-const gameKeys = ['w','a','s','d','r','e','1','2','3','4'];
+const gameKeys = ['w','a','s','d','r','e','q','1','2','3','4'];
+let _quickSwapWeapon = 0; // for Q quick-swap
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   keys[k] = true;
@@ -4108,6 +4110,20 @@ renderer.domElement.addEventListener('mousedown', () => {
   initAudio(); startBackgroundMusic(); mouseDown = true;
 });
 renderer.domElement.addEventListener('mouseup', () => { mouseDown = false; });
+
+// Scroll wheel weapon switching
+let _lastWeapon = 0;
+document.addEventListener('wheel', e => {
+  if (state !== 'playing') return;
+  e.preventDefault();
+  const dir = e.deltaY > 0 ? 1 : -1;
+  const owned = [];
+  for (let i = 0; i < weapons.length; i++) { if (player.owned[i]) owned.push(i); }
+  if (owned.length <= 1) return;
+  const cur = owned.indexOf(player.curWeapon);
+  const next = owned[(cur + dir + owned.length) % owned.length];
+  switchWeapon(next);
+}, { passive: false });
 
 // Pointer lock pause (uses controls.isLocked which is set by our custom handler above)
 document.addEventListener('pointerlockchange', () => {
@@ -4382,12 +4398,15 @@ const weaponMags = {};
 
 function switchWeapon(idx) {
   if (idx === player.curWeapon || !player.owned[idx]) return;
+  if (state !== 'playing' && state !== 'roundIntro') return; // block switching when dead/paused
   // Save current weapon's mag count
   weaponMags[player.curWeapon] = player.mag;
+  _quickSwapWeapon = player.curWeapon; // track for Q quick-swap
   player.curWeapon = idx;
   // Restore the target weapon's mag (or full if first time)
   player.mag = (weaponMags[idx] !== undefined) ? weaponMags[idx] : weapons[idx].mag;
   player.reloading = false;
+  player.reloadTimer = 0;
   sfxWeaponSwitch();
 }
 
@@ -4542,11 +4561,12 @@ function update(dt) {
   }
   player._lastFiring = isFiring;
   
-  // Key actions
-  if (keyPressed('1') && player.owned[0]) switchWeapon(0);
-  if (keyPressed('2') && player.owned[1]) switchWeapon(1);
-  if (keyPressed('3') && player.owned[2]) switchWeapon(2);
-  if (keyPressed('4') && player.owned[3]) switchWeapon(3);
+  // Key actions — weapon switching
+  if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
+  if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
+  if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
+  if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
+  if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
   if (keyPressed('r')) doReload();
   if (keyPressed('e')) tryBuy();
   
@@ -4898,40 +4918,45 @@ function updateHUD() {
   if (dmgFlash > 0) dmgEl.classList.add('flash');
   else dmgEl.classList.remove('flash');
   
-  // Power-up timer bars (subtle top-of-screen progress bar)
+  // Power-up timer bar (centered below round indicator)
   const puBar = document.getElementById('powerupTimerBar');
   const puFill = document.getElementById('powerupTimerFill');
-  const puGlow = document.getElementById('powerupTimerGlow');
+  const puLabel = document.getElementById('powerupTimerLabel');
   const hasInsta = player._instaKill && player._instaKillTimer > 0;
   const hasDbl = player._doublePoints && player._doublePointsTimer > 0;
   if (hasInsta || hasDbl) {
     puBar.style.display = 'block';
-    puGlow.style.display = 'block';
+    puLabel.style.display = 'block';
+    const PU_DUR = 15; // matches apply() duration
     if (hasInsta && hasDbl) {
-      // Both active — split bar: left half insta-kill red, right half double-points gold
-      const iPct = (player._instaKillTimer / 30) * 50;
-      const dPct = (player._doublePointsTimer / 30) * 50;
+      const iPct = (player._instaKillTimer / PU_DUR) * 50;
+      const dPct = (player._doublePointsTimer / PU_DUR) * 50;
       puFill.style.width = (iPct + dPct) + '%';
       puFill.style.background = `linear-gradient(90deg, #f44 0%, #f44 ${iPct/(iPct+dPct)*100}%, #fc0 ${iPct/(iPct+dPct)*100}%, #fc0 100%)`;
-      puGlow.style.background = 'linear-gradient(180deg,rgba(255,80,50,0.12),transparent)';
+      puLabel.style.color = '#f88';
+      puLabel.textContent = `💀 ${Math.ceil(player._instaKillTimer)}s  💰 ${Math.ceil(player._doublePointsTimer)}s`;
     } else if (hasInsta) {
-      puFill.style.width = (player._instaKillTimer / 30) * 100 + '%';
+      puFill.style.width = (player._instaKillTimer / PU_DUR) * 100 + '%';
       puFill.style.background = '#f44';
-      puGlow.style.background = 'linear-gradient(180deg,rgba(255,50,50,0.12),transparent)';
+      puLabel.style.color = '#f66';
+      puLabel.textContent = `💀 INSTA-KILL ${Math.ceil(player._instaKillTimer)}s`;
     } else {
-      puFill.style.width = (player._doublePointsTimer / 30) * 100 + '%';
+      puFill.style.width = (player._doublePointsTimer / PU_DUR) * 100 + '%';
       puFill.style.background = '#fc0';
-      puGlow.style.background = 'linear-gradient(180deg,rgba(255,200,0,0.12),transparent)';
+      puLabel.style.color = '#fc0';
+      puLabel.textContent = `💰 DOUBLE POINTS ${Math.ceil(player._doublePointsTimer)}s`;
     }
-    // Pulse the bar when less than 5 seconds remain
+    // Pulse when less than 5 seconds remain
     const lowestTimer = Math.min(
       hasInsta ? player._instaKillTimer : 999,
       hasDbl ? player._doublePointsTimer : 999
     );
-    puBar.style.opacity = lowestTimer < 5 ? (0.5 + Math.sin(performance.now() / 150) * 0.5) : '1';
+    const pulseAlpha = lowestTimer < 5 ? (0.5 + Math.sin(performance.now() / 150) * 0.5) : 1;
+    puBar.style.opacity = pulseAlpha;
+    puLabel.style.opacity = pulseAlpha;
   } else {
     puBar.style.display = 'none';
-    puGlow.style.display = 'none';
+    puLabel.style.display = 'none';
   }
   
   // Mobile weapon switcher active state
