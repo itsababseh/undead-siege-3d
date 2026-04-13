@@ -26,9 +26,9 @@ canvas{display:block}
 #ammoBox .wname{color:#fc0;font-size:12px;letter-spacing:2px}
 #ammoBox .ammo{color:#fff;font-size:24px;font-weight:bold;letter-spacing:1px}
 #ammoBox .ammo.reloading{color:#f84;font-size:16px}
-#reloadBarWrap{position:fixed;bottom:52px;right:15px;width:160px;height:6px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,140,0,0.3);border-radius:3px;overflow:hidden;display:none;z-index:11}
+#reloadBarWrap{position:fixed;bottom:58px;right:15px;width:160px;height:6px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,140,0,0.3);border-radius:3px;overflow:hidden;display:none;z-index:11}
 #reloadFill{height:100%;width:0%;background:linear-gradient(90deg,#f84,#fc0);border-radius:2px;transition:width 0.05s linear}
-#reloadTime{position:fixed;bottom:60px;right:15px;color:#f84;font-size:10px;letter-spacing:1px;display:none;z-index:11;min-width:160px;text-align:right}
+#reloadTime{position:fixed;bottom:68px;right:15px;color:#f84;font-size:10px;letter-spacing:1px;display:none;z-index:11;min-width:160px;text-align:right}
 #pointsBox{position:fixed;bottom:15px;left:15px;background:rgba(0,0,0,0.65);border:1px solid rgba(255,255,255,0.1);padding:8px 16px;border-radius:4px}
 #pointsBox .label{color:#fc0;font-size:10px;letter-spacing:2px}
 #pointsBox .val{color:#fc0;font-size:26px;font-weight:bold}
@@ -71,6 +71,18 @@ canvas{display:block}
 .wsBtn.active{border-color:#fc0;color:#fc0}
 /* Vibe Jam portal button */
 #vibePortal{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000}
+/* Floating damage numbers */
+.dmg-num{position:fixed;pointer-events:none;z-index:15;font-family:'Courier New',monospace;font-weight:bold;text-shadow:0 0 6px rgba(0,0,0,0.9),0 0 2px #000;animation:dmgFloat 0.8s ease-out forwards}
+@keyframes dmgFloat{0%{opacity:1;transform:translate(-50%,0) scale(1.2)}30%{opacity:1;transform:translate(-50%,-30px) scale(1)}100%{opacity:0;transform:translate(-50%,-60px) scale(0.7)}}
+/* Hitmarker */
+#hitmarker{position:fixed;top:50%;left:50%;width:24px;height:24px;transform:translate(-50%,-50%);pointer-events:none;z-index:12;opacity:0;transition:opacity 0.05s}
+#hitmarker.show{opacity:1}
+#hitmarker .hm{position:absolute;background:#fff;border-radius:1px}
+#hitmarker .hm-tl{width:8px;height:2px;top:4px;left:0;transform:rotate(45deg)}
+#hitmarker .hm-tr{width:8px;height:2px;top:4px;right:0;transform:rotate(-45deg)}
+#hitmarker .hm-bl{width:8px;height:2px;bottom:4px;left:0;transform:rotate(-45deg)}
+#hitmarker .hm-br{width:8px;height:2px;bottom:4px;right:0;transform:rotate(45deg)}
+#hitmarker.kill .hm{background:#f44}
 </style>
 </head>
 <body>
@@ -91,6 +103,12 @@ canvas{display:block}
     <div class="ch ch-h ch-r"></div>
     <div class="ch ch-v ch-t"></div>
     <div class="ch ch-v ch-b"></div>
+  </div>
+  <div id="hitmarker">
+    <div class="hm hm-tl"></div>
+    <div class="hm hm-tr"></div>
+    <div class="hm hm-bl"></div>
+    <div class="hm hm-br"></div>
   </div>
   <div id="reloadTime">RELOADING 1.5s</div>
   <div id="reloadBarWrap"><div id="reloadFill"></div></div>
@@ -470,24 +488,24 @@ function startBackgroundMusic() {
   bgMusicStarted = true;
   // Deep bass drone
   const o1 = actx.createOscillator(), g1 = actx.createGain();
-  o1.type = 'sawtooth'; o1.frequency.value = 42; g1.gain.value = 0.04;
+  o1.type = 'sawtooth'; o1.frequency.value = 42; g1.gain.value = 0.012;
   o1.connect(g1); g1.connect(masterGain); o1.start(); bgGains.push(g1);
   // Creepy wobble
   const o2 = actx.createOscillator(), g2 = actx.createGain();
-  o2.type = 'sine'; o2.frequency.value = 380; g2.gain.value = 0.015;
+  o2.type = 'sine'; o2.frequency.value = 380; g2.gain.value = 0.005;
   const lfo = actx.createOscillator(), lfoG = actx.createGain();
   lfo.type = 'sine'; lfo.frequency.value = 0.3; lfoG.gain.value = 25;
   lfo.connect(lfoG); lfoG.connect(o2.frequency); lfo.start();
   o2.connect(g2); g2.connect(masterGain); o2.start(); bgGains.push(g2);
   // Wind noise
   const o3 = actx.createOscillator(), g3 = actx.createGain();
-  o3.type = 'sawtooth'; o3.frequency.value = 95; g3.gain.value = 0.02;
+  o3.type = 'sawtooth'; o3.frequency.value = 95; g3.gain.value = 0.006;
   const filt = actx.createBiquadFilter();
   filt.type = 'bandpass'; filt.frequency.value = 200; filt.Q.value = 3;
   o3.connect(filt); filt.connect(g3); g3.connect(masterGain); o3.start(); bgGains.push(g3);
   // Eerie pad
   const o4 = actx.createOscillator(), g4 = actx.createGain();
-  o4.type = 'triangle'; o4.frequency.value = 165; g4.gain.value = 0.018;
+  o4.type = 'triangle'; o4.frequency.value = 165; g4.gain.value = 0.005;
   const lfo2 = actx.createOscillator(), lfo2G = actx.createGain();
   lfo2.type = 'sine'; lfo2.frequency.value = 0.08; lfo2G.gain.value = 0.012;
   lfo2.connect(lfo2G); lfo2G.connect(g4.gain); lfo2.start();
@@ -748,11 +766,11 @@ function drawZombieFrame(ctx, size, variant, type, frame) {
 
   // 5 unique character quirks
   const quirks = [
-    { headTilt:-6,  shoulderDrop:'L', hasJaw:true,  clothTear:'chest',    missingArm:false, hunchAmount:8,  hasHair:false, hasBelt:true,  hasSuspenders:false, shirtType:'tee' },
-    { headTilt:10,  shoulderDrop:'R', hasJaw:false, clothTear:'belly',    missingArm:false, hunchAmount:4,  hasHair:true,  hasBelt:false, hasSuspenders:true,  shirtType:'button' },
+    { headTilt:-4,  shoulderDrop:'L', hasJaw:true,  clothTear:'chest',    missingArm:false, hunchAmount:8,  hasHair:false, hasBelt:true,  hasSuspenders:false, shirtType:'tee' },
+    { headTilt:6,   shoulderDrop:'R', hasJaw:false, clothTear:'belly',    missingArm:false, hunchAmount:4,  hasHair:true,  hasBelt:false, hasSuspenders:true,  shirtType:'button' },
     { headTilt:-3,  shoulderDrop:'L', hasJaw:true,  clothTear:'shoulder', missingArm:true,  hunchAmount:14, hasHair:false, hasBelt:true,  hasSuspenders:false, shirtType:'tank' },
-    { headTilt:12,  shoulderDrop:'R', hasJaw:true,  clothTear:'none',     missingArm:false, hunchAmount:6,  hasHair:true,  hasBelt:false, hasSuspenders:false, shirtType:'jacket' },
-    { headTilt:-15, shoulderDrop:'L', hasJaw:false, clothTear:'chest',    missingArm:false, hunchAmount:16, hasHair:false, hasBelt:true,  hasSuspenders:false, shirtType:'tee' },
+    { headTilt:7,   shoulderDrop:'R', hasJaw:true,  clothTear:'none',     missingArm:false, hunchAmount:6,  hasHair:true,  hasBelt:false, hasSuspenders:false, shirtType:'jacket' },
+    { headTilt:-8,  shoulderDrop:'L', hasJaw:false, clothTear:'chest',    missingArm:false, hunchAmount:16, hasHair:false, hasBelt:true,  hasSuspenders:false, shirtType:'tee' },
   ];
   const q = quirks[variant % quirks.length];
   const baseY = type === 'boss' ? H * 0.02 : H * 0.08;
@@ -760,6 +778,11 @@ function drawZombieFrame(ctx, size, variant, type, frame) {
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
+
+  // Clip to canvas bounds to prevent half-face rendering
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  ctx.clip();
 
   // ======== SHADOW ON GROUND ========
   ctx.save();
@@ -1815,14 +1838,14 @@ function createZombieMesh(z) {
   eyeLight.position.set(0, spriteH * 0.75, 0);
   group.add(eyeLight);
 
-  // HP bar
+  // HP bar (larger, more visible)
   const hpCanvas = document.createElement('canvas');
-  hpCanvas.width = 64; hpCanvas.height = 8;
+  hpCanvas.width = 128; hpCanvas.height = 16;
   const hpTex = new THREE.CanvasTexture(hpCanvas);
   const hpMaterial = new THREE.SpriteMaterial({ map: hpTex, transparent: true });
   const hpSprite = new THREE.Sprite(hpMaterial);
-  hpSprite.scale.set(1.2*scale, 0.15*scale, 1);
-  hpSprite.position.y = spriteH + 0.15;
+  hpSprite.scale.set(1.6*scale, 0.22*scale, 1);
+  hpSprite.position.y = spriteH + 0.2;
   hpSprite.visible = false;
   group.add(hpSprite);
 
@@ -1892,15 +1915,32 @@ function updateZombieMesh(z, dt) {
   // Eye light flicker
   eyeLight.intensity = 0.4 + Math.sin(performance.now() / 200 + z._spriteVariant * 3) * 0.25;
 
-  // HP bar
+  // HP bar (improved with gradient and border)
   if (z.hp < z.maxHp) {
     hpSprite.visible = true;
     const ctx = hpCanvas.getContext('2d');
-    ctx.clearRect(0, 0, 64, 8);
-    ctx.fillStyle = '#300';
-    ctx.fillRect(0, 0, 64, 8);
-    ctx.fillStyle = z.isBoss ? '#ff2222' : z.isElite ? '#ff8800' : '#ff4444';
-    ctx.fillRect(0, 0, 64 * (z.hp / z.maxHp), 8);
+    const W = 128, H = 16;
+    ctx.clearRect(0, 0, W, H);
+    // Dark background with border
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, W-1, H-1);
+    // Health fill with gradient
+    const ratio = Math.max(0, z.hp / z.maxHp);
+    const fillW = (W - 4) * ratio;
+    const hpGrad = ctx.createLinearGradient(2, 0, W - 2, 0);
+    if (z.isBoss) { hpGrad.addColorStop(0, '#ff0000'); hpGrad.addColorStop(1, '#ff4444'); }
+    else if (z.isElite) { hpGrad.addColorStop(0, '#cc6600'); hpGrad.addColorStop(1, '#ff9922'); }
+    else if (ratio > 0.5) { hpGrad.addColorStop(0, '#cc2222'); hpGrad.addColorStop(1, '#ff4444'); }
+    else if (ratio > 0.25) { hpGrad.addColorStop(0, '#cc4400'); hpGrad.addColorStop(1, '#ff6622'); }
+    else { hpGrad.addColorStop(0, '#ff0000'); hpGrad.addColorStop(1, '#ff2222'); }
+    ctx.fillStyle = hpGrad;
+    ctx.fillRect(2, 2, fillW, H - 4);
+    // Sheen highlight on bar
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(2, 2, fillW, (H - 4) / 2);
     hpTex.needsUpdate = true;
   } else {
     hpSprite.visible = false;
@@ -1915,6 +1955,42 @@ function removeZombieMesh(z) {
   }
 }
 
+
+// ===== FLOATING DAMAGE NUMBERS =====
+let hitmarkerTimer = 0;
+function showHitmarker(isKill) {
+  const hm = document.getElementById('hitmarker');
+  hm.className = isKill ? 'show kill' : 'show';
+  hitmarkerTimer = isKill ? 0.3 : 0.12;
+}
+function updateHitmarker(dt) {
+  if (hitmarkerTimer > 0) {
+    hitmarkerTimer -= dt;
+    if (hitmarkerTimer <= 0) {
+      document.getElementById('hitmarker').className = '';
+    }
+  }
+}
+function spawnDmgNumber(worldX, worldY, worldZ, dmg, isKill) {
+  // Project 3D position to screen coordinates
+  const vec = new THREE.Vector3(worldX, worldY, worldZ);
+  vec.project(camera);
+  const hw = window.innerWidth / 2;
+  const hh = window.innerHeight / 2;
+  const sx = vec.x * hw + hw;
+  const sy = -vec.y * hh + hh;
+  // Don't show if behind camera
+  if (vec.z > 1) return;
+  const el = document.createElement('div');
+  el.className = 'dmg-num';
+  el.textContent = isKill ? '☠ ' + dmg : '-' + dmg;
+  el.style.left = sx + 'px';
+  el.style.top = sy + 'px';
+  el.style.fontSize = isKill ? '22px' : (dmg >= 100 ? '18px' : '14px');
+  el.style.color = isKill ? '#ff4444' : (dmg >= 100 ? '#ff8844' : '#ffcc44');
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
 
 // ===== PARTICLES =====
 const particles = [];
@@ -2317,6 +2393,8 @@ function tryShoot() {
       sfxHit();
       points += 10;
       spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
+      showHitmarker(false);
+      spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
       
       if (bestZ.hp <= 0) {
         const idx = zombies.indexOf(bestZ);
@@ -2325,6 +2403,8 @@ function tryShoot() {
           const pts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
           points += pts;
           sfxKill();
+          showHitmarker(true);
+          spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
           if (w.isRayGun) {
             // Green energy explosion
             spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10);
@@ -2697,13 +2777,14 @@ function updateHUD() {
   const reloadFill = document.getElementById('reloadFill');
   const reloadTimeEl = document.getElementById('reloadTime');
   if (player.reloading) {
-    ammoEl.textContent = 'RELOADING';
+    const remaining = Math.max(0, player.reloadTimer).toFixed(1);
+    ammoEl.textContent = `${remaining}s`;
     ammoEl.className = 'ammo reloading';
     const pct = Math.max(0, Math.min(100, ((player.reloadTotal - player.reloadTimer) / player.reloadTotal) * 100));
     reloadBarWrap.style.display = 'block';
     reloadFill.style.width = pct + '%';
     reloadTimeEl.style.display = 'block';
-    reloadTimeEl.textContent = `RELOADING ${Math.max(0, player.reloadTimer).toFixed(1)}s`;
+    reloadTimeEl.textContent = `RELOADING`;
   } else {
     ammoEl.textContent = `${player.mag} / ${player.ammo[player.curWeapon] === 999 ? '∞' : player.ammo[player.curWeapon]}`;
     ammoEl.className = 'ammo';
@@ -3221,6 +3302,7 @@ function gameLoop(time) {
   updateCenterMsg(dt);
   updateGunModel(dt);
   updateLights(dt);
+  updateHitmarker(dt);
   updateHUD();
   drawMinimap();
   drawFloatTexts();
