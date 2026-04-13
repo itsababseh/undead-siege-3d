@@ -1110,13 +1110,11 @@ function createZombieMesh(z) {
   z._spriteVariant = Math.floor(Math.random() * sheets.length);
   z._spriteFrame = 0;
   z._frameTimer = 0;
-  // Frame speed tied to movement: fast zombies animate faster, limpers slower
   const spdRatio = z._baseSpd ? (z.spd / z._baseSpd) : 1;
   z._frameSpeed = z._hasLimp ? (0.22 + Math.random() * 0.12) : (0.08 + (1 - Math.min(spdRatio, 1.5) / 1.5) * 0.12 + Math.random() * 0.04);
 
   const spriteSheet = sheets[z._spriteVariant];
 
-  // Create texture from first frame
   const frameCanvas = document.createElement('canvas');
   frameCanvas.width = ZOMBIE_SPRITE_SIZE;
   frameCanvas.height = ZOMBIE_SPRITE_SIZE;
@@ -1127,28 +1125,30 @@ function createZombieMesh(z) {
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
 
-  const spriteMat = new THREE.SpriteMaterial({
+  const spriteH = 2.2 * scale;
+
+  // Use PlaneGeometry instead of Sprite for precise ground positioning
+  const planeGeo = new THREE.PlaneGeometry(spriteH, spriteH);
+  // Shift geometry up so bottom edge is at y=0 (feet on ground)
+  planeGeo.translate(0, spriteH / 2, 0);
+
+  const planeMat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
     alphaTest: 0.02,
     depthWrite: true,
-    sizeAttenuation: true,
+    side: THREE.DoubleSide,
   });
-  const sprite = new THREE.Sprite(spriteMat);
-  const spriteH = 2.2 * scale;
-  sprite.scale.set(spriteH, spriteH, 1);
-  // Anchor at bottom-center so sprite stands on the ground (no extra y offset)
-  sprite.center.set(0.5, 0.0);
-  sprite.position.y = 0;
-  group.add(sprite);
+  const mesh = new THREE.Mesh(planeGeo, planeMat);
+  group.add(mesh);
 
-  // Eye glow point light (at head height ~70% of sprite)
+  // Eye glow point light
   const eyeColor = z.isBoss ? 0xffff00 : z.isElite ? 0xff6600 : 0xff1e0a;
   const eyeLight = new THREE.PointLight(eyeColor, 0.6, 4);
-  eyeLight.position.set(0, spriteH * 0.75, -0.3);
+  eyeLight.position.set(0, spriteH * 0.75, 0);
   group.add(eyeLight);
 
-  // HP bar (above head)
+  // HP bar
   const hpCanvas = document.createElement('canvas');
   hpCanvas.width = 64; hpCanvas.height = 8;
   const hpTex = new THREE.CanvasTexture(hpCanvas);
@@ -1162,8 +1162,8 @@ function createZombieMesh(z) {
   scene.add(group);
 
   zombieMeshes.set(z, {
-    group, sprite, spriteMat, tex, frameCanvas,
-    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet,
+    group, mesh, planeMat, tex, frameCanvas,
+    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet, spriteH,
   });
   return group;
 }
@@ -1171,20 +1171,23 @@ function createZombieMesh(z) {
 function updateZombieMesh(z) {
   const data = zombieMeshes.get(z);
   if (!data) return;
-  const { group, sprite, spriteMat, tex, frameCanvas,
-    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet } = data;
-  const scale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
+  const { group, mesh, planeMat, tex, frameCanvas,
+    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet, spriteH } = data;
 
-  // Position — grounded on floor
+  // Position — firmly on the floor (y=0)
   let yOff = 0;
   if (z._hasLimp) {
-    // Limping visual: bob up/down and slight tilt
     yOff = Math.abs(Math.sin(z._limpPhase)) * 0.08 * z._limpSeverity;
-    sprite.material.rotation = Math.sin(z._limpPhase) * 0.06 * z._limpSeverity;
+    mesh.rotation.z = Math.sin(z._limpPhase) * 0.06 * z._limpSeverity;
   } else {
-    sprite.material.rotation = 0;
+    mesh.rotation.z = 0;
   }
   group.position.set(z.wx, yOff, z.wz);
+
+  // Billboard: rotate mesh to always face camera (Y-axis only)
+  const dx = camera.position.x - group.position.x;
+  const dz = camera.position.z - group.position.z;
+  mesh.rotation.y = Math.atan2(dx, dz);
 
   // Animate walk cycle
   z._frameTimer += 0.016;
@@ -1201,9 +1204,9 @@ function updateZombieMesh(z) {
 
   // Hit flash
   if (z.flash > 0) {
-    spriteMat.color.setRGB(1, 0.3, 0.3);
+    planeMat.color.setRGB(1, 0.3, 0.3);
   } else {
-    spriteMat.color.setRGB(1, 1, 1);
+    planeMat.color.setRGB(1, 1, 1);
   }
 
   // Eye light flicker
@@ -1566,25 +1569,42 @@ function tryShoot() {
     
     let bestZ = null, bestD = Infinity;
     for (const z of zombies) {
-      // Target zombie center mass (half sprite height above ground)
-      const zCenterY = z.isBoss ? 1.7 : z.isElite ? 1.3 : 1.1;
-      const toZ = new THREE.Vector3(z.wx - camera.position.x, zCenterY - camera.position.y, z.wz - camera.position.z);
-      const dot = toZ.dot(shootDir);
-      if (dot < 0.5) continue;
-      const perpV = toZ.clone().sub(shootDir.clone().multiplyScalar(dot));
-      const perpD = perpV.length();
-      // Use generous hitbox — full sprite height check
-      const hitRadius = z.isBoss ? 1.8 : z.isElite ? 1.2 : 1.0;
-      if (perpD < hitRadius && dot < bestD) {
-        // Check wall occlusion
-        let blocked = false;
-        const step = TILE * 0.25;
-        for (let t = step; t < dot; t += step) {
-          const cx = camera.position.x + shootDir.x * t;
-          const cz = camera.position.z + shootDir.z * t;
-          if (mapAt(cx, cz) !== 0) { blocked = true; break; }
-        }
-        if (!blocked) { bestD = dot; bestZ = z; }
+      // Cylinder hitbox: check if ray passes within hitRadius of zombie's vertical axis
+      const zScale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
+      const zHeight = 2.2 * zScale;
+      const hitRadius = z.isBoss ? 1.4 : z.isElite ? 1.0 : 0.8;
+
+      // Vector from camera to zombie base in XZ
+      const ox = camera.position.x - z.wx;
+      const oz = camera.position.z - z.wz;
+
+      const dxS = shootDir.x, dyS = shootDir.y, dzS = shootDir.z;
+      const dxdz2 = dxS * dxS + dzS * dzS;
+      if (dxdz2 < 0.0001) continue;
+
+      // Find t where ray is closest to zombie's vertical axis in XZ
+      const tClosest = -(ox * dxS + oz * dzS) / dxdz2;
+      if (tClosest < 0.3) continue; // too close or behind
+
+      // Horizontal distance squared at closest approach
+      const hDistSq = (ox + tClosest * dxS) ** 2 + (oz + tClosest * dzS) ** 2;
+      if (hDistSq > hitRadius * hitRadius) continue;
+
+      // Y position of ray at closest approach — must be within zombie height
+      const yAtClosest = camera.position.y + tClosest * dyS;
+      if (yAtClosest < -0.3 || yAtClosest > zHeight + 0.3) continue;
+
+      // Wall occlusion check
+      let blocked = false;
+      const step = TILE * 0.25;
+      for (let t = step; t < tClosest; t += step) {
+        const cx = camera.position.x + dxS * t;
+        const cz = camera.position.z + dzS * t;
+        if (mapAt(cx, cz) !== 0) { blocked = true; break; }
+      }
+      if (!blocked && tClosest < bestD) {
+        bestD = tClosest;
+        bestZ = z;
       }
     }
     
