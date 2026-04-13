@@ -257,7 +257,7 @@ const controls = {
   isLocked: false,
   _yaw: 0,    // horizontal rotation (radians)
   _pitch: 0,  // vertical rotation (radians, clamped)
-  _maxPitch: Math.PI / 2 - 0.1,
+  _maxPitch: Math.PI / 3,  // 60° — standard FPS pitch limit
   
   lock() {
     renderer.domElement.requestPointerLock();
