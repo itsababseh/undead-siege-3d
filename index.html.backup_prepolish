@@ -54,10 +54,8 @@ canvas{display:block}
 .perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5)}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
 #centerMsg{position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}
-#centerMsg .big{font-size:clamp(28px,5vw,48px);font-weight:bold;letter-spacing:4px;text-shadow:0 0 30px currentColor,0 0 60px currentColor;animation:msgPulseIn 0.4s ease-out}
-#centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px;opacity:0.8;animation:msgSlideUp 0.5s ease-out 0.15s both}
-@keyframes msgPulseIn{0%{transform:scale(1.8);opacity:0}50%{transform:scale(0.95)}100%{transform:scale(1);opacity:1}}
-@keyframes msgSlideUp{0%{transform:translateY(10px);opacity:0}100%{transform:translateY(0);opacity:0.8}}
+#centerMsg .big{font-size:clamp(28px,5vw,48px);font-weight:bold;letter-spacing:4px;text-shadow:0 0 30px currentColor}
+#centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px;opacity:0.8}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
 #powerupTimerBar{position:fixed;top:48px;left:50%;transform:translateX(-50%);width:220px;height:6px;border-radius:3px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);z-index:13;pointer-events:none;display:none;overflow:hidden}
@@ -84,39 +82,6 @@ canvas{display:block}
 .wsBtn.active{border-color:#fc0;color:#fc0}
 /* Vibe Jam portal button */
 #vibePortal{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000}
-/* ===== LOADING SCREEN ===== */
-#loadScreen{position:fixed;inset:0;background:#050505;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.6s ease-out}
-#loadScreen.done{opacity:0;pointer-events:none}
-#loadScreen canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-#loadTitle{font-size:clamp(36px,8vw,72px);color:#c00;letter-spacing:12px;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3),0 2px 4px rgba(0,0,0,0.8);z-index:1;font-family:'Courier New',monospace;font-weight:bold;text-align:center}
-#loadSub{color:#444;font-size:clamp(10px,2vw,14px);letter-spacing:6px;margin-top:8px;z-index:1}
-#loadBarWrap{width:min(300px,60vw);height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:40px;z-index:1;overflow:hidden;position:relative}
-#loadBarFill{height:100%;width:0%;background:linear-gradient(90deg,#800,#c00,#f44);border-radius:2px;transition:width 0.3s ease-out;box-shadow:0 0 12px rgba(200,0,0,0.5)}
-#loadBarWrap::after{content:'';position:absolute;top:0;left:0;height:100%;width:60px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);animation:loadShimmer 1.5s ease-in-out infinite}
-@keyframes loadShimmer{0%{transform:translateX(-60px)}100%{transform:translateX(300px)}}
-#loadTip{color:#333;font-size:10px;letter-spacing:3px;margin-top:16px;z-index:1;text-transform:uppercase}
-/* ===== ENHANCED MENU ===== */
-#blocker .menu-bg{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-#blocker .menu-bg canvas{width:100%;height:100%}
-#menuLogo{position:relative;text-align:center;margin-bottom:10px}
-#menuLogo h1{font-size:clamp(32px,7vw,64px);color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.25),0 4px 8px rgba(0,0,0,0.6);letter-spacing:10px;line-height:1.1}
-#menuLogo .sub{color:#555;font-size:clamp(10px,2vw,14px);letter-spacing:6px;margin-top:4px}
-#menuLogo .version{color:#333;font-size:9px;letter-spacing:3px;margin-top:2px}
-.menu-divider{width:120px;height:1px;background:linear-gradient(90deg,transparent,rgba(200,0,0,0.3),transparent);margin:16px auto}
-#startBtn{position:relative;overflow:hidden}
-#startBtn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);transition:left 0.5s}
-#startBtn:hover::before{left:100%}
-.menu-rank{margin-top:8px;text-align:center}
-.menu-rank .rank-title{font-size:14px;letter-spacing:3px;font-weight:bold}
-.menu-rank .rank-desc{font-size:10px;color:#555;margin-top:2px}
-.menu-stats{display:flex;gap:24px;justify-content:center;margin-top:12px;flex-wrap:wrap}
-.menu-stats .stat{text-align:center}
-.menu-stats .stat .val{font-size:18px;font-weight:bold;color:#c00}
-.menu-stats .stat .lbl{font-size:9px;color:#555;letter-spacing:2px;margin-top:2px}
-/* ===== STATE TRANSITIONS ===== */
-#gameTransition{position:fixed;inset:0;background:#000;z-index:99;pointer-events:none;opacity:0;transition:opacity 0.4s ease-in-out}
-#gameTransition.active{opacity:1}
-#deathVeil{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:99;pointer-events:none;transition:background 1s ease-in}
 /* Floating damage numbers */
 .dmg-num{position:fixed;pointer-events:none;z-index:15;font-family:'Courier New',monospace;font-weight:bold;text-shadow:0 0 6px rgba(0,0,0,0.9),0 0 2px #000;animation:dmgFloat 0.8s ease-out forwards}
 @keyframes dmgFloat{0%{opacity:1;transform:translate(-50%,0) scale(1.2)}30%{opacity:1;transform:translate(-50%,-30px) scale(1)}100%{opacity:0;transform:translate(-50%,-60px) scale(0.7)}}
@@ -132,38 +97,16 @@ canvas{display:block}
 </style>
 </head>
 <body>
-<!-- Loading Screen -->
-<div id="loadScreen">
-  <canvas id="loadCanvas"></canvas>
-  <div id="loadTitle">UNDEAD SIEGE</div>
-  <div id="loadSub">3D ZOMBIE SURVIVAL</div>
-  <div id="loadBarWrap"><div id="loadBarFill"></div></div>
-  <div id="loadTip">Preparing the bunker...</div>
-</div>
-
-<!-- Enhanced Menu -->
-<div id="blocker" class="hidden">
-  <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
-  <div id="menuLogo">
-    <h1>UNDEAD SIEGE</h1>
-    <div class="sub">3D ZOMBIE SURVIVAL</div>
-    <div class="version">v1.0 · VIBE JAM 2026</div>
-  </div>
-  <div class="menu-divider"></div>
+<div id="blocker">
+  <h1>UNDEAD SIEGE</h1>
+  <div class="sub">3D ZOMBIE SURVIVAL</div>
   <button id="startBtn">ENLIST</button>
-  <div class="controls-info" id="controlsInfo">
+  <div class="controls-info">
     WASD move · Mouse aim · Click shoot · R reload<br>
     1-4 weapons · E buy/interact · ESC pause
   </div>
-  <div class="menu-rank" id="menuRank"></div>
-  <div class="menu-stats" id="menuStats"></div>
-  <div class="menu-divider"></div>
   <div class="menu-scores" id="menuScores"></div>
 </div>
-
-<!-- State Transition Overlays -->
-<div id="gameTransition"></div>
-<div id="deathVeil"></div>
 
 <div id="hud" class="hidden">
   <div id="crosshair">
@@ -230,187 +173,6 @@ canvas{display:block}
 <script type="module">
 import * as THREE from 'three';
 // PointerLockControls removed — using custom FPS camera to prevent roll drift
-
-// ===== LOADING SCREEN ANIMATION =====
-(function initLoadScreen() {
-  const canvas = document.getElementById('loadCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  let w = canvas.width = window.innerWidth;
-  let h = canvas.height = window.innerHeight;
-  
-  // Floating particles for atmosphere
-  const particles = [];
-  for (let i = 0; i < 60; i++) {
-    particles.push({
-      x: Math.random() * w, y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.3, vy: -Math.random() * 0.5 - 0.1,
-      size: Math.random() * 2 + 0.5,
-      alpha: Math.random() * 0.4 + 0.1,
-      color: Math.random() > 0.7 ? '200,0,0' : '255,255,255'
-    });
-  }
-  
-  function drawLoadParticles() {
-    ctx.clearRect(0, 0, w, h);
-    // Subtle radial gradient background
-    const grd = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w*0.6);
-    grd.addColorStop(0, 'rgba(30,0,0,0.15)');
-    grd.addColorStop(1, 'transparent');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, w, h);
-    
-    for (const p of particles) {
-      p.x += p.vx; p.y += p.vy;
-      if (p.y < -10) { p.y = h + 10; p.x = Math.random() * w; }
-      if (p.x < -10) p.x = w + 10;
-      if (p.x > w + 10) p.x = -10;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${p.color},${p.alpha})`;
-      ctx.fill();
-    }
-    if (!document.getElementById('loadScreen').classList.contains('done')) {
-      requestAnimationFrame(drawLoadParticles);
-    }
-  }
-  drawLoadParticles();
-  
-  window.addEventListener('resize', () => {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
-  });
-})();
-
-// Loading progress simulation — ticks as Three.js assets load
-const loadProgress = { value: 0, target: 0 };
-const loadTips = [
-  'Preparing the bunker...', 'Loading weapons cache...', 'Waking the undead...',
-  'Fortifying defenses...', 'Tuning radio frequencies...', 'Charging Ray Gun...'
-];
-function updateLoadBar(pct, tip) {
-  loadProgress.target = pct;
-  const fill = document.getElementById('loadBarFill');
-  const tipEl = document.getElementById('loadTip');
-  if (fill) fill.style.width = pct + '%';
-  if (tip && tipEl) tipEl.textContent = tip;
-}
-function finishLoading() {
-  updateLoadBar(100, 'Ready for combat');
-  setTimeout(() => {
-    const ls = document.getElementById('loadScreen');
-    if (ls) {
-      ls.classList.add('done');
-      setTimeout(() => { ls.style.display = 'none'; }, 700);
-    }
-    // Show menu
-    const blocker = document.getElementById('blocker');
-    blocker.classList.remove('hidden');
-    blocker.style.opacity = '0';
-    requestAnimationFrame(() => {
-      blocker.style.transition = 'opacity 0.8s ease-in';
-      blocker.style.opacity = '1';
-    });
-    initMenuBackground();
-    showMenuScoresEnhanced();
-  }, 400);
-}
-
-// ===== MENU BACKGROUND ANIMATION =====
-let menuBgActive = false;
-function initMenuBackground() {
-  const canvas = document.getElementById('menuBgCanvas');
-  if (!canvas || menuBgActive) return;
-  menuBgActive = true;
-  const ctx = canvas.getContext('2d');
-  let w = canvas.width = window.innerWidth;
-  let h = canvas.height = window.innerHeight;
-  
-  // Smoky particles + red embers
-  const mParticles = [];
-  for (let i = 0; i < 40; i++) {
-    mParticles.push({
-      x: Math.random() * w, y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.2, vy: -Math.random() * 0.4 - 0.05,
-      size: Math.random() * 3 + 1,
-      alpha: Math.random() * 0.2 + 0.05,
-      isEmber: Math.random() > 0.75
-    });
-  }
-  
-  function drawMenuBg() {
-    if (!menuBgActive) return;
-    ctx.clearRect(0, 0, w, h);
-    
-    // Dark vignette
-    const grd = ctx.createRadialGradient(w/2, h*0.4, w*0.15, w/2, h*0.4, w*0.7);
-    grd.addColorStop(0, 'rgba(20,0,0,0.05)');
-    grd.addColorStop(1, 'rgba(0,0,0,0.3)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, w, h);
-    
-    const t = performance.now() / 1000;
-    for (const p of mParticles) {
-      p.x += p.vx + Math.sin(t + p.y * 0.01) * 0.1;
-      p.y += p.vy;
-      if (p.y < -10) { p.y = h + 10; p.x = Math.random() * w; }
-      
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      if (p.isEmber) {
-        const flicker = 0.5 + Math.sin(t * 3 + p.x) * 0.3;
-        ctx.fillStyle = `rgba(200,${Math.floor(40 + flicker * 30)},0,${p.alpha + flicker * 0.15})`;
-        // Glow
-        ctx.shadowColor = 'rgba(200,50,0,0.4)';
-        ctx.shadowBlur = 8;
-      } else {
-        ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
-        ctx.shadowBlur = 0;
-      }
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-    
-    requestAnimationFrame(drawMenuBg);
-  }
-  drawMenuBg();
-  
-  window.addEventListener('resize', () => {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
-  });
-}
-
-function stopMenuBackground() { menuBgActive = false; }
-function restartMenuBackground() { menuBgActive = false; initMenuBackground(); }
-
-// ===== ENHANCED MENU SCORES & STATS =====
-function showMenuScoresEnhanced() {
-  // Rank display
-  try {
-    const rank = getPlayerRank();
-    const rankEl = document.getElementById('menuRank');
-    if (rankEl) {
-      rankEl.innerHTML = `<div class="rank-title" style="color:${rank.color}">${rank.rank}</div><div class="rank-desc">${rank.desc}</div>`;
-    }
-  } catch(e) {} // getPlayerRank may not exist yet on first load
-  
-  // Stats
-  try {
-    const stats = JSON.parse(localStorage.getItem('undeadSiege3dStats') || '{}');
-    const statsEl = document.getElementById('menuStats');
-    if (statsEl && stats.totalKills) {
-      statsEl.innerHTML = `
-        <div class="stat"><div class="val">${stats.totalKills || 0}</div><div class="lbl">TOTAL KILLS</div></div>
-        <div class="stat"><div class="val">${stats.gamesPlayed || 0}</div><div class="lbl">GAMES</div></div>
-        <div class="stat"><div class="val">${stats.bestRound || 0}</div><div class="lbl">BEST ROUND</div></div>
-      `;
-    }
-  } catch(e) {}
-  
-  // High scores
-  showMenuScores();
-}
 
 // roundRect polyfill for older browsers
 if (!CanvasRenderingContext2D.prototype.roundRect) {
@@ -769,7 +531,7 @@ function buildMap() {
   }
 }
 buildMap();
-updateLoadBar(25, 'Loading weapons cache...');
+
 
 // ===== AUDIO SYSTEM (Sound Design Overhaul) =====
 let actx, masterGain, muted = false, bgMusicStarted = false;
@@ -1438,7 +1200,6 @@ function saveScore(rd, kills, pts) {
 function showMenuScores() {
   const board = getLeaderboard();
   const el = document.getElementById('menuScores');
-  if (!el) return;
   if (!board.length) { el.textContent = '🏆 No high scores yet'; return; }
   let html = '🏆 HIGH SCORES<br>';
   board.slice(0,5).forEach((e,i) => { html += `${i+1}. R${e.round} · ${e.kills} kills · ${e.points} pts<br>`; });
@@ -1540,7 +1301,6 @@ function buildPerkMachines() {
   });
 }
 buildPerkMachines();
-updateLoadBar(50, 'Fortifying defenses...');
 
 // ===== WALL BUY MARKERS =====
 wallBuys.forEach(wb => {
@@ -2020,7 +1780,6 @@ function updatePowerUps(dt) {
 
 buildMysteryBox();
 buildPackAPunch();
-updateLoadBar(65, 'Tuning radio frequencies...');
 
 // ===== STORY / PROGRESSION SYSTEM =====
 
@@ -2377,7 +2136,6 @@ function showMenuRank() {
 
 
 buildGenerators();
-updateLoadBar(80, 'Charging Ray Gun...');
 showMenuRank();
 
 // ===== ZOMBIES =====
@@ -5308,19 +5066,10 @@ let centerMsgTimer = 0;
 function showCenterMsg(big, small, color, duration = 2) {
   const el = document.getElementById('centerMsg');
   el.style.display = 'block';
-  el.style.opacity = '1';
-  const bigEl = el.querySelector('.big');
-  const smallEl = el.querySelector('.small');
-  // Re-trigger animations by cloning
-  bigEl.style.animation = 'none';
-  smallEl.style.animation = 'none';
-  void bigEl.offsetHeight; // reflow trigger
-  bigEl.style.animation = '';
-  smallEl.style.animation = '';
-  bigEl.textContent = big;
-  bigEl.style.color = color;
-  smallEl.textContent = small;
-  smallEl.style.color = '#888';
+  el.querySelector('.big').textContent = big;
+  el.querySelector('.big').style.color = color;
+  el.querySelector('.small').textContent = small;
+  el.querySelector('.small').style.color = '#888';
   centerMsgTimer = duration;
 }
 
@@ -5352,60 +5101,36 @@ function showDeath() {
   updatePersistentStats();
   closeRadio();
   const board = saveScore(round, totalKills, points);
+  const blocker = document.getElementById('blocker');
+  blocker.classList.remove('hidden');
   
-  // Death veil — slow fade to dark before showing death screen
-  const veil = document.getElementById('deathVeil');
-  veil.style.background = 'rgba(0,0,0,0.85)';
+  let lbHTML = '';
+  board.slice(0, 5).forEach((e, i) => {
+    const isThis = e.round === round && e.kills === totalKills && e.points === points;
+    lbHTML += `<div style="color:${isThis?'#fc0':'#aaa'};${isThis?'font-weight:bold':''}">
+      ${i+1}. R${e.round} · ${e.kills} kills · ${e.points} pts${isThis?' ← YOU':''}
+    </div>`;
+  });
   
-  setTimeout(() => {
-    const blocker = document.getElementById('blocker');
-    blocker.classList.remove('hidden');
-    blocker.style.opacity = '0';
-    
-    let lbHTML = '';
-    board.slice(0, 5).forEach((e, i) => {
-      const isThis = e.round === round && e.kills === totalKills && e.points === points;
-      lbHTML += `<div style="color:${isThis?'#fc0':'#aaa'};${isThis?'font-weight:bold':''}">
-        ${i+1}. R${e.round} · ${e.kills} kills · ${e.points} pts${isThis?' ← YOU':''}
-      </div>`;
-    });
-    
-    // Enhanced death screen with background canvas
-    blocker.innerHTML = `
-      <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
-      <h1 style="color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3);position:relative">YOU DIED</h1>
-      <div class="sub" style="position:relative">SURVIVED ${round} ROUND${round!==1?'S':''}</div>
-      <div class="menu-divider"></div>
-      <div style="color:#888;font-size:14px;margin:10px 0;line-height:2;text-align:center;position:relative">
-        <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap">
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${round}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">ROUND</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${totalKills}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">KILLS</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${points}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">POINTS</div></div>
-        </div>
-      </div>
-      <div class="menu-divider"></div>
-      <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666;position:relative">🏆 HIGH SCORES</div>
-      <div style="font-size:12px;line-height:1.8;position:relative">${lbHTML}</div>
-      <button onclick="window._startGame()" style="margin-top:16px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;position:relative;overflow:hidden;transition:all 0.3s">FIGHT AGAIN</button>
-    `;
-    
-    // Show rank on death screen
-    const rank = getPlayerRank();
-    const rankEl = document.createElement('div');
-    rankEl.style.cssText = 'margin-top:10px;text-align:center;position:relative;';
-    rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#555;font-size:10px">${rank.desc}</div>`;
-    blocker.appendChild(rankEl);
-    
-    document.getElementById('hud').classList.add('hidden');
-    
-    // Fade in death screen
-    restartMenuBackground();
-    requestAnimationFrame(() => {
-      blocker.style.transition = 'opacity 0.8s ease-in';
-      blocker.style.opacity = '1';
-      veil.style.background = 'rgba(0,0,0,0)';
-    });
-  }, 1000);
+  blocker.innerHTML = `
+    <h1 style="color:#c00">YOU DIED</h1>
+    <div class="sub">THE HORDE OVERWHELMED YOU</div>
+    <div style="color:#888;font-size:14px;margin:15px 0;line-height:2;text-align:center">
+      Round <b style="color:#fc0">${round}</b> · <b style="color:#fc0">${totalKills}</b> kills · <b style="color:#fc0">${points}</b> pts
+    </div>
+    <div style="margin:10px 0;font-size:12px;letter-spacing:1px">🏆 HIGH SCORES</div>
+    <div style="font-size:12px;line-height:1.8">${lbHTML}</div>
+    <button onclick="window._startGame()" style="margin-top:20px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px">FIGHT AGAIN</button>
+  `;
+  
+  // Show rank on death screen
+  const rank = getPlayerRank();
+  const rankEl = document.createElement('div');
+  rankEl.style.cssText = 'margin-top:12px;text-align:center;';
+  rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#555;font-size:10px">${rank.desc}</div>`;
+  blocker.appendChild(rankEl);
+  
+  document.getElementById('hud').classList.add('hidden');
 }
 
 // ===== GUN MODELS (weapon-specific 3D) =====
@@ -5740,30 +5465,17 @@ function gameLoop(time) {
 window._startGame = function() {
   paused = false;
   hidePause();
-  
-  // Smooth transition: fade to black, switch screens, fade in
-  const trans = document.getElementById('gameTransition');
-  trans.classList.add('active');
-  
-  setTimeout(() => {
-    stopMenuBackground();
-    document.getElementById('blocker').classList.add('hidden');
-    document.getElementById('hud').classList.remove('hidden');
-    document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
-    initAudio();
-    startBackgroundMusic();
-    initGame(); // sets state='roundIntro' via nextRound()
-    
-    // Fade from black
-    setTimeout(() => {
-      trans.classList.remove('active');
-      if (!isMobile) {
-        controls.lock();
-      } else {
-        state = 'roundIntro';
-      }
-    }, 200);
-  }, 400);
+  document.getElementById('blocker').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  initAudio();
+  startBackgroundMusic();
+  initGame(); // sets state='roundIntro' via nextRound()
+  if (!isMobile) {
+    controls.lock();
+  } else {
+    // Mobile doesn't need pointer lock
+    state = 'roundIntro';
+  }
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
@@ -5777,10 +5489,7 @@ window.addEventListener('resize', () => {
 
 // Start render loop
 requestAnimationFrame(gameLoop);
-updateLoadBar(95, 'Waking the undead...');
-
-// Finish loading — show menu after brief delay for smooth transition
-setTimeout(() => finishLoading(), 600);
+showMenuScores();
 
 // ===== VIBE JAM PORTAL =====
 // Adds the vibejam.com portal widget for competition entry
