@@ -4248,7 +4248,7 @@ function initGame() {
   mysteryBox.collectTimer = 0; mysteryBox.resultWeaponIdx = -1;
   
   // Clear power-ups
-  powerUps.forEach(pu => { scene.remove(pu.mesh); scene.remove(pu.light); pu.mesh.material.dispose(); pu.mesh.geometry.dispose(); });
+  powerUps.forEach(pu => { scene.remove(pu.mesh); if (pu.light) scene.remove(pu.light); if (pu.mesh.material) pu.mesh.material.dispose(); if (pu.mesh.geometry) pu.mesh.geometry.dispose(); });
   powerUps.length = 0;
   player._instaKill = false; player._instaKillTimer = 0;
   player._doublePoints = false; player._doublePointsTimer = 0;
@@ -4279,7 +4279,7 @@ function initGame() {
     if (dz.hpTex) dz.hpTex.dispose();
   });
   dyingZombies.length = 0;
-  bloodDecals.forEach(d => { scene.remove(d.mesh); d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
+  bloodDecals.forEach(d => { scene.remove(d.mesh); if (d.mesh.material.map) d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
   bloodDecals.length = 0;
   shakeIntensity = 0; vignetteIntensity = 0;
   roundTransitionPhase = 'none';
@@ -4432,7 +4432,8 @@ document.addEventListener('wheel', e => {
 // Pointer lock pause (uses controls.isLocked which is set by our custom handler above)
 document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked) {
-    if ((state === 'playing' || state === 'roundIntro') && !paused) {
+    // Don't trigger pause during the start transition (pointer lock may briefly drop)
+    if ((state === 'playing' || state === 'roundIntro') && !paused && !_startingGame) {
       paused = true;
       showPause();
     }
@@ -5806,34 +5807,40 @@ function gameLoop(time) {
 }
 
 // ===== START =====
+let _startingGame = false; // guard against pause handler during start transition
 window._startGame = function() {
+  if (_startingGame) return; // prevent double-clicks
+  _startingGame = true;
   paused = false;
   hidePause();
   
-  // Request pointer lock IMMEDIATELY in the click handler (browser requires
-  // requestPointerLock to be called from a direct user gesture — no setTimeout allowed)
+  // Hide the menu and overlays immediately — no fade-to-black transition
+  // (the previous fade approach caused the dark overlay to get stuck when
+  // initGame() errored or pointer lock raced with the pause handler)
+  const trans = document.getElementById('gameTransition');
+  trans.classList.remove('active'); // ensure clean state
+  
+  stopMenuBackground();
+  document.getElementById('blocker').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
+  
+  initAudio();
+  startBackgroundMusic();
+  
+  try {
+    initGame(); // sets state='roundIntro' via nextRound()
+  } catch (e) {
+    console.error('initGame error:', e);
+  }
+  
+  // Request pointer lock synchronously — must be in direct user gesture handler.
+  // Blocker is already hidden (opacity:0, pointer-events:none) so canvas receives lock.
   if (!isMobile) {
     controls.lock();
   }
   
-  // Smooth transition: fade to black, switch screens, fade in
-  const trans = document.getElementById('gameTransition');
-  trans.classList.add('active');
-  
-  setTimeout(() => {
-    stopMenuBackground();
-    document.getElementById('blocker').classList.add('hidden');
-    document.getElementById('hud').classList.remove('hidden');
-    document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
-    initAudio();
-    startBackgroundMusic();
-    initGame(); // sets state='roundIntro' via nextRound()
-    
-    // Fade from black
-    setTimeout(() => {
-      trans.classList.remove('active');
-    }, 200);
-  }, 400);
+  _startingGame = false;
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
