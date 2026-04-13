@@ -251,6 +251,8 @@ document.body.appendChild(renderer.domElement);
 
 // ===== CONTROLS =====
 const controls = new PointerLockControls(camera, renderer.domElement);
+controls.minPolarAngle = 0.15;          // ~8.6° from straight up
+controls.maxPolarAngle = Math.PI - 0.15; // ~8.6° from straight down
 
 // ===== LIGHTING =====
 const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
@@ -1150,8 +1152,8 @@ let mouseDown = false;
 const player = {
   hp: 100, maxHp: 100, speed: 8,
   curWeapon: 0, mag: 8,
-  ammo: [999, 0, 0],
-  owned: [true, false, false],
+  ammo: [999, 0, 0, 0],
+  owned: [true, false, false, false],
   reloading: false, reloadTimer: 0,
   fireTimer: 0, fireRateMult: 1, reloadMult: 1,
   hpRegen: false, hpRegenTimer: 0,
@@ -1291,6 +1293,7 @@ function buildMysteryBox() {
     scene.remove(mysteryBoxMeshes.lid);
     scene.remove(mysteryBoxMeshes.glow);
     scene.remove(mysteryBoxMeshes.light);
+    if (mysteryBoxMeshes.trim) scene.remove(mysteryBoxMeshes.trim);
     if (mysteryBoxMeshes.weaponDisplay) scene.remove(mysteryBoxMeshes.weaponDisplay);
   }
   
@@ -1623,8 +1626,6 @@ const POWERUP_TYPES = [
     remove() {} },
 ];
 
-const powerUpMeshes = [];
-
 function spawnPowerUp(wx, wz) {
   // 12% chance to drop a power-up when a zombie dies
   if (Math.random() > 0.12) return;
@@ -1650,7 +1651,6 @@ function spawnPowerUp(wx, wz) {
   
   const pu = { typeIdx, wx, wz, mesh, light, life: 20, bobPhase: Math.random() * Math.PI * 2 };
   powerUps.push(pu);
-  powerUpMeshes.push(pu);
 }
 
 function updatePowerUps(dt) {
@@ -3828,6 +3828,9 @@ function initGame() {
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
   camera.rotation.set(0, 0, 0);
   
+  // Reset per-weapon mag tracking
+  for (const k in weaponMags) delete weaponMags[k];
+  
   // Clear zombies
   zombies.forEach(z => removeZombieMesh(z));
   zombies.length = 0;
@@ -4267,10 +4270,16 @@ function finishReload() {
   player.reloading = false;
 }
 
+// Track per-weapon magazine state
+const weaponMags = {};
+
 function switchWeapon(idx) {
   if (idx === player.curWeapon || !player.owned[idx]) return;
+  // Save current weapon's mag count
+  weaponMags[player.curWeapon] = player.mag;
   player.curWeapon = idx;
-  player.mag = weapons[idx].mag;
+  // Restore the target weapon's mag (or full if first time)
+  player.mag = (weaponMags[idx] !== undefined) ? weaponMags[idx] : weapons[idx].mag;
   player.reloading = false;
   sfxWeaponSwitch();
 }
