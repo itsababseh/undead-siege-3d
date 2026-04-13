@@ -35,13 +35,21 @@ canvas{display:block}
 #roundBox{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);border:1px solid rgba(200,0,0,0.3);padding:4px 24px;border-radius:4px;text-align:center}
 #roundBox .label{color:#c00;font-size:10px;letter-spacing:2px}
 #roundBox .val{color:#c00;font-size:22px;font-weight:bold}
-#hpBar{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);width:200px;height:8px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);border-radius:4px;overflow:hidden}
-#hpFill{height:100%;background:#c00;transition:width 0.2s;width:100%}
-#hpLabel{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:#666;font-size:9px;letter-spacing:1px}
+#hpBarWrap{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);width:220px;z-index:12}
+#hpBarOuter{width:100%;height:14px;background:rgba(0,0,0,0.75);border:1px solid rgba(180,0,0,0.35);border-radius:3px;overflow:hidden;position:relative;box-shadow:0 0 8px rgba(0,0,0,0.5),inset 0 1px 3px rgba(0,0,0,0.6)}
+#hpFill{height:100%;background:linear-gradient(180deg,#e22 0%,#a00 50%,#811 100%);transition:width 0.15s ease-out;width:100%;position:relative;border-radius:2px}
+#hpFill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:linear-gradient(180deg,rgba(255,255,255,0.2),transparent);border-radius:2px 2px 0 0}
+#hpShimmer{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.07) 45%,rgba(255,255,255,0.13) 50%,rgba(255,255,255,0.07) 55%,transparent 100%);animation:hpShimmer 3s ease-in-out infinite;pointer-events:none;border-radius:2px}
+@keyframes hpShimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+#hpInfo{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+#hpLabel{color:rgba(200,60,60,0.8);font-size:9px;letter-spacing:2px;text-shadow:0 0 4px rgba(200,0,0,0.3)}
+#hpVal{color:rgba(255,255,255,0.6);font-size:9px;letter-spacing:1px}
 #killsLabel{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);color:#555;font-size:10px;letter-spacing:1px}
-#bossBar{position:fixed;top:50px;left:50%;transform:translateX(-50%);width:300px;height:14px;background:rgba(0,0,0,0.7);border:1px solid rgba(255,50,50,0.4);border-radius:4px;overflow:hidden;display:none}
-#bossFill{height:100%;background:linear-gradient(90deg,#a00,#f22);width:100%} 
-#bossLabel{position:fixed;top:36px;left:50%;transform:translateX(-50%);color:#f44;font-size:11px;font-weight:bold;letter-spacing:2px;display:none}
+#bossBarWrap{position:fixed;top:50px;left:50%;transform:translateX(-50%);width:320px;display:none;z-index:12}
+#bossBarOuter{width:100%;height:16px;background:rgba(0,0,0,0.8);border:1px solid rgba(255,50,50,0.4);border-radius:3px;overflow:hidden;position:relative;box-shadow:0 0 12px rgba(200,0,0,0.2),inset 0 1px 3px rgba(0,0,0,0.6)}
+#bossFill{height:100%;background:linear-gradient(180deg,#f44 0%,#c00 50%,#900 100%);width:100%;position:relative;border-radius:2px}
+#bossFill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:linear-gradient(180deg,rgba(255,255,255,0.18),transparent)}
+#bossLabel{position:fixed;top:36px;left:50%;transform:translateX(-50%);color:#f44;font-size:11px;font-weight:bold;letter-spacing:2px;display:none;text-shadow:0 0 8px rgba(255,50,50,0.4)}
 #perkIcons{position:fixed;bottom:68px;left:15px;display:flex;gap:6px}
 .perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5)}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
@@ -116,10 +124,12 @@ canvas{display:block}
   <div id="pointsBox"><div class="label">POINTS</div><div class="val">500</div></div>
   <div id="roundBox"><div class="label">ROUND</div><div class="val">1</div></div>
   <div id="killsLabel">KILLS: 0</div>
-  <div id="hpLabel">HP</div>
-  <div id="hpBar"><div id="hpFill"></div></div>
+  <div id="hpBarWrap">
+    <div id="hpInfo"><span id="hpLabel">HEALTH</span><span id="hpVal">100</span></div>
+    <div id="hpBarOuter"><div id="hpFill"></div><div id="hpShimmer"></div></div>
+  </div>
   <div id="bossLabel">💀 BOSS</div>
-  <div id="bossBar"><div id="bossFill"></div></div>
+  <div id="bossBarWrap"><div id="bossBarOuter"><div id="bossFill"></div></div></div>
   <div id="perkIcons"></div>
   <div id="buyPrompt"></div>
   <div id="centerMsg"><div class="big"></div><div class="small"></div></div>
@@ -150,6 +160,25 @@ canvas{display:block}
 <script type="module">
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+// roundRect polyfill for older browsers
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
+    const r = Array.isArray(radii) ? radii : [radii, radii, radii, radii];
+    const [tl, tr, br, bl] = r.map(v => Math.min(v || 0, w/2, h/2));
+    this.moveTo(x + tl, y);
+    this.lineTo(x + w - tr, y);
+    this.quadraticCurveTo(x + w, y, x + w, y + tr);
+    this.lineTo(x + w, y + h - br);
+    this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+    this.lineTo(x + bl, y + h);
+    this.quadraticCurveTo(x, y + h, x, y + h - bl);
+    this.lineTo(x, y + tl);
+    this.quadraticCurveTo(x, y, x + tl, y);
+    this.closePath();
+    return this;
+  };
+}
 
 // ===== CONSTANTS =====
 const TILE = 4;
@@ -1838,14 +1867,16 @@ function createZombieMesh(z) {
   eyeLight.position.set(0, spriteH * 0.75, 0);
   group.add(eyeLight);
 
-  // HP bar (larger, more visible)
+  // HP bar (polished, wider canvas for detail)
   const hpCanvas = document.createElement('canvas');
-  hpCanvas.width = 128; hpCanvas.height = 16;
+  hpCanvas.width = 256; hpCanvas.height = 24;
   const hpTex = new THREE.CanvasTexture(hpCanvas);
-  const hpMaterial = new THREE.SpriteMaterial({ map: hpTex, transparent: true });
+  hpTex.minFilter = THREE.LinearFilter;
+  const hpMaterial = new THREE.SpriteMaterial({ map: hpTex, transparent: true, depthTest: false });
   const hpSprite = new THREE.Sprite(hpMaterial);
-  hpSprite.scale.set(1.6*scale, 0.22*scale, 1);
-  hpSprite.position.y = spriteH + 0.2;
+  hpSprite.scale.set(1.8*scale, 0.18*scale, 1);
+  hpSprite.position.y = spriteH + 0.22;
+  hpSprite.renderOrder = 999;
   hpSprite.visible = false;
   group.add(hpSprite);
 
@@ -1915,32 +1946,94 @@ function updateZombieMesh(z, dt) {
   // Eye light flicker
   eyeLight.intensity = 0.4 + Math.sin(performance.now() / 200 + z._spriteVariant * 3) * 0.25;
 
-  // HP bar (improved with gradient and border)
+  // HP bar (polished with rounded edges, glow, gradient layers)
   if (z.hp < z.maxHp) {
     hpSprite.visible = true;
     const ctx = hpCanvas.getContext('2d');
-    const W = 128, H = 16;
+    const W = 256, H = 24;
+    const pad = 3, rad = 4;
+    const barH = H - pad * 2;
+    const barW = W - pad * 2;
     ctx.clearRect(0, 0, W, H);
-    // Dark background with border
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, W-1, H-1);
-    // Health fill with gradient
+
+    // Outer shadow / glow
+    ctx.save();
+    ctx.shadowColor = z.isBoss ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, barW, barH, rad);
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fill();
+    ctx.restore();
+
+    // Inner track (subtle inset)
+    const trackGrad = ctx.createLinearGradient(0, pad, 0, pad + barH);
+    trackGrad.addColorStop(0, 'rgba(20,0,0,0.9)');
+    trackGrad.addColorStop(1, 'rgba(40,5,5,0.7)');
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, barW, barH, rad);
+    ctx.fillStyle = trackGrad;
+    ctx.fill();
+
+    // Health fill
     const ratio = Math.max(0, z.hp / z.maxHp);
-    const fillW = (W - 4) * ratio;
-    const hpGrad = ctx.createLinearGradient(2, 0, W - 2, 0);
-    if (z.isBoss) { hpGrad.addColorStop(0, '#ff0000'); hpGrad.addColorStop(1, '#ff4444'); }
-    else if (z.isElite) { hpGrad.addColorStop(0, '#cc6600'); hpGrad.addColorStop(1, '#ff9922'); }
-    else if (ratio > 0.5) { hpGrad.addColorStop(0, '#cc2222'); hpGrad.addColorStop(1, '#ff4444'); }
-    else if (ratio > 0.25) { hpGrad.addColorStop(0, '#cc4400'); hpGrad.addColorStop(1, '#ff6622'); }
-    else { hpGrad.addColorStop(0, '#ff0000'); hpGrad.addColorStop(1, '#ff2222'); }
-    ctx.fillStyle = hpGrad;
-    ctx.fillRect(2, 2, fillW, H - 4);
-    // Sheen highlight on bar
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(2, 2, fillW, (H - 4) / 2);
+    const fillW = Math.max(rad * 2, barW * ratio);
+
+    // Color selection
+    let c1, c2, c3;
+    if (z.isBoss) { c1 = '#ff1a1a'; c2 = '#cc0000'; c3 = '#880000'; }
+    else if (z.isElite) { c1 = '#ff8800'; c2 = '#cc5500'; c3 = '#883300'; }
+    else if (ratio > 0.5) { c1 = '#dd2020'; c2 = '#aa0808'; c3 = '#771010'; }
+    else if (ratio > 0.25) { c1 = '#dd5500'; c2 = '#bb3300'; c3 = '#882200'; }
+    else { c1 = '#ff2222'; c2 = '#cc0000'; c3 = '#880000'; }
+
+    // Main fill gradient (vertical for depth)
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, fillW, barH, [rad, ratio > 0.95 ? rad : 1, ratio > 0.95 ? rad : 1, rad]);
+    ctx.clip();
+    const fillGrad = ctx.createLinearGradient(0, pad, 0, pad + barH);
+    fillGrad.addColorStop(0, c1);
+    fillGrad.addColorStop(0.45, c2);
+    fillGrad.addColorStop(1, c3);
+    ctx.fillStyle = fillGrad;
+    ctx.fillRect(pad, pad, fillW, barH);
+
+    // Top highlight (glass effect)
+    const hlGrad = ctx.createLinearGradient(0, pad, 0, pad + barH * 0.5);
+    hlGrad.addColorStop(0, 'rgba(255,255,255,0.28)');
+    hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hlGrad;
+    ctx.fillRect(pad, pad, fillW, barH * 0.5);
+
+    // Subtle edge light on right side of fill
+    if (ratio < 0.98 && ratio > 0.02) {
+      const edgeGrad = ctx.createLinearGradient(pad + fillW - 4, 0, pad + fillW, 0);
+      edgeGrad.addColorStop(0, 'rgba(255,255,255,0)');
+      edgeGrad.addColorStop(1, 'rgba(255,255,255,0.15)');
+      ctx.fillStyle = edgeGrad;
+      ctx.fillRect(pad + fillW - 4, pad + 1, 4, barH - 2);
+    }
+    ctx.restore();
+
+    // Thin border
+    ctx.beginPath();
+    ctx.roundRect(pad + 0.5, pad + 0.5, barW - 1, barH - 1, rad);
+    ctx.strokeStyle = z.isBoss ? 'rgba(255,80,80,0.4)' : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Tick marks (every 25%)
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const tx = pad + barW * (i / 4);
+      ctx.beginPath();
+      ctx.moveTo(tx, pad + 2);
+      ctx.lineTo(tx, pad + barH - 2);
+      ctx.stroke();
+    }
+
     hpTex.needsUpdate = true;
   } else {
     hpSprite.visible = false;
@@ -2796,13 +2889,18 @@ function updateHUD() {
   document.querySelector('#roundBox .val').textContent = round;
   document.getElementById('killsLabel').textContent = `KILLS: ${totalKills}`;
   
-  // HP bar
-  document.getElementById('hpFill').style.width = `${(player.hp / player.maxHp) * 100}%`;
-  document.getElementById('hpFill').style.background = player.hp < 30 ? '#f00' : '#c00';
+  // HP bar (polished)
+  const hpPct = (player.hp / player.maxHp) * 100;
+  const hpFillEl = document.getElementById('hpFill');
+  hpFillEl.style.width = `${hpPct}%`;
+  if (hpPct < 25) { hpFillEl.style.background = 'linear-gradient(180deg,#f33 0%,#c00 50%,#800 100%)'; }
+  else if (hpPct < 50) { hpFillEl.style.background = 'linear-gradient(180deg,#e62 0%,#b40 50%,#823 100%)'; }
+  else { hpFillEl.style.background = 'linear-gradient(180deg,#e22 0%,#a00 50%,#811 100%)'; }
+  document.getElementById('hpVal').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   
   // Boss bar
   const boss = zombies.find(z => z.isBoss);
-  document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
+  document.getElementById('bossBarWrap').style.display = boss ? 'block' : 'none';
   document.getElementById('bossLabel').style.display = boss ? 'block' : 'none';
   if (boss) {
     document.getElementById('bossFill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
