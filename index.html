@@ -3452,13 +3452,14 @@ function updateScreenShake(dt) {
   if (shakeIntensity > 0.001) {
     shakeOffsetX = (Math.random() - 0.5) * shakeIntensity * 0.015;
     shakeOffsetY = (Math.random() - 0.5) * shakeIntensity * 0.015;
-    camera.rotation.z = shakeOffsetX;
+    // Apply shake via position offset only — NEVER touch camera.rotation.z (roll)
+    camera.position.x += shakeOffsetX;
+    camera.position.y += shakeOffsetY;
     shakeIntensity *= Math.pow(0.05, dt); // exponential decay
   } else {
     shakeIntensity = 0;
     shakeOffsetX = 0;
     shakeOffsetY = 0;
-    camera.rotation.z = 0;
   }
 }
 
@@ -5249,6 +5250,8 @@ function gameLoop(time) {
   // Clamp camera pitch so player can't flip upside-down (PointerLockControls has no built-in limit)
   const maxPitch = Math.PI / 2 - 0.15;
   camera.rotation.x = Math.max(-maxPitch, Math.min(maxPitch, camera.rotation.x));
+  // Force zero roll every frame — FPS cameras should NEVER roll
+  camera.rotation.z = 0;
   updateCenterMsg(dt);
   updateGunModel(dt);
   updateLights(dt);
