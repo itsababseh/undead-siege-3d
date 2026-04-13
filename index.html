@@ -13,7 +13,7 @@
 body{background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-action:none}
 canvas{display:block}
 #blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s}
-#blocker.hidden{opacity:0;pointer-events:none}
+#blocker.hidden{opacity:0 !important;pointer-events:none !important}
 #blocker h1{font-size:clamp(28px,6vw,56px);color:#c00;text-shadow:0 0 40px #c00,0 0 80px rgba(200,0,0,0.4);letter-spacing:8px;margin-bottom:4px}
 #blocker .sub{color:#555;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:30px}
 #blocker button{background:none;border:2px solid #c00;color:#c00;padding:14px 50px;font:bold clamp(12px,2vw,16px) 'Courier New';cursor:pointer;letter-spacing:4px;transition:all 0.3s;text-transform:uppercase}
@@ -4433,17 +4433,26 @@ document.addEventListener('wheel', e => {
 document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked) {
     // Don't trigger pause during the start transition (pointer lock may briefly drop)
+    // Also don't pause if state is 'menu' or 'dead' — those use the blocker overlay
     if ((state === 'playing' || state === 'roundIntro') && !paused && !_startingGame) {
       paused = true;
       showPause();
     }
   }
 });
+// Click on canvas: resume from pause, or re-lock pointer
 renderer.domElement.addEventListener('click', () => {
   if ((state === 'playing' || state === 'roundIntro') && paused) {
     paused = false; hidePause();
     controls.lock();
-  } else if (state === 'playing' && !controls.isLocked) {
+  } else if ((state === 'playing' || state === 'roundIntro') && !controls.isLocked) {
+    controls.lock();
+  }
+});
+// Also allow clicking the pause overlay itself to resume
+document.getElementById('pauseOverlay').addEventListener('click', () => {
+  if ((state === 'playing' || state === 'roundIntro') && paused) {
+    paused = false; hidePause();
     controls.lock();
   }
 });
@@ -5821,7 +5830,12 @@ window._startGame = function() {
   trans.classList.remove('active'); // ensure clean state
   
   stopMenuBackground();
-  document.getElementById('blocker').classList.add('hidden');
+  // CRITICAL: clear inline opacity that finishLoading()/showDeath() set,
+  // otherwise inline style overrides .hidden class's opacity:0
+  const blocker = document.getElementById('blocker');
+  blocker.style.opacity = '';
+  blocker.style.transition = '';
+  blocker.classList.add('hidden');
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
   
