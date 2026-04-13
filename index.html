@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
 <title>UNDEAD SIEGE 3D</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -73,15 +77,46 @@ canvas{display:block}
 #minimapCanvas{width:140px;height:140px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;background:rgba(0,0,0,0.5)}
 /* Mobile controls */
 #mobileControls{display:none;position:fixed;z-index:20;inset:0;pointer-events:none}
-#joystickArea{position:fixed;bottom:20px;left:20px;width:140px;height:140px;pointer-events:all;touch-action:none}
-#joystickBase{width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);position:absolute;bottom:10px;left:10px}
-#joystickKnob{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,0.3);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
-#fireBtn{position:fixed;bottom:40px;right:30px;width:80px;height:80px;border-radius:50%;background:rgba(200,0,0,0.4);border:2px solid rgba(255,0,0,0.5);pointer-events:all;touch-action:none;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.7);font-size:12px;font-weight:bold;letter-spacing:1px;z-index:20}
-#reloadBtn{position:fixed;bottom:40px;right:130px;width:50px;height:50px;border-radius:50%;background:rgba(100,100,0,0.3);border:2px solid rgba(255,200,0,0.4);pointer-events:all;touch-action:none;display:flex;align-items:center;justify-content:center;color:rgba(255,200,0,0.7);font-size:10px;font-weight:bold;z-index:20}
-#buyBtn{position:fixed;bottom:100px;right:130px;width:50px;height:50px;border-radius:50%;background:rgba(0,100,0,0.3);border:2px solid rgba(0,255,0,0.4);pointer-events:all;touch-action:none;display:none;align-items:center;justify-content:center;color:rgba(0,255,0,0.7);font-size:10px;font-weight:bold;z-index:20}
-#weaponSwitcher{position:fixed;bottom:140px;right:20px;pointer-events:all;display:flex;flex-direction:column;gap:4px;z-index:20}
-.wsBtn{padding:6px 12px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.2);color:#aaa;font-size:10px;border-radius:3px;text-align:center}
-.wsBtn.active{border-color:#fc0;color:#fc0}
+#joystickArea{position:fixed;bottom:15px;left:10px;width:160px;height:160px;pointer-events:all;touch-action:none}
+#joystickBase{width:130px;height:130px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.25);position:absolute;bottom:15px;left:15px;backdrop-filter:blur(2px);box-shadow:0 0 20px rgba(0,0,0,0.3)}
+#joystickKnob{width:54px;height:54px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.35) 0%,rgba(255,255,255,0.15) 100%);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,0.2);box-shadow:0 0 10px rgba(255,255,255,0.1)}
+#fireBtn{position:fixed;bottom:25px;right:20px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(220,30,30,0.5) 0%,rgba(180,0,0,0.35) 100%);border:2px solid rgba(255,60,60,0.45);pointer-events:all;touch-action:none;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.8);font-size:13px;font-weight:bold;letter-spacing:2px;z-index:20;box-shadow:0 0 20px rgba(200,0,0,0.2),inset 0 0 15px rgba(200,0,0,0.15)}
+#fireBtn:active{background:radial-gradient(circle,rgba(255,60,60,0.7) 0%,rgba(220,0,0,0.5) 100%);transform:scale(0.93)}
+#reloadBtn{position:fixed;bottom:30px;right:130px;width:54px;height:54px;border-radius:50%;background:rgba(80,80,0,0.3);border:2px solid rgba(255,200,0,0.35);pointer-events:all;touch-action:none;display:flex;align-items:center;justify-content:center;color:rgba(255,200,0,0.8);font-size:11px;font-weight:bold;z-index:20;backdrop-filter:blur(2px)}
+#reloadBtn:active{background:rgba(140,140,0,0.4);transform:scale(0.92)}
+#buyBtn{position:fixed;bottom:100px;right:130px;width:54px;height:54px;border-radius:50%;background:rgba(0,80,0,0.3);border:2px solid rgba(0,200,0,0.35);pointer-events:all;touch-action:none;display:none;align-items:center;justify-content:center;color:rgba(0,255,0,0.8);font-size:11px;font-weight:bold;z-index:20;backdrop-filter:blur(2px)}
+#buyBtn:active{background:rgba(0,140,0,0.4);transform:scale(0.92)}
+#weaponSwitcher{position:fixed;bottom:140px;right:15px;pointer-events:all;display:flex;flex-direction:column;gap:5px;z-index:20}
+.wsBtn{padding:8px 14px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.15);color:#999;font-size:10px;border-radius:4px;text-align:center;backdrop-filter:blur(2px);transition:all 0.15s;min-width:70px}
+.wsBtn.active{border-color:#fc0;color:#fc0;background:rgba(100,80,0,0.25);box-shadow:0 0 8px rgba(255,200,0,0.15)}
+.wsBtn.locked{opacity:0.35;border-style:dashed}
+/* Mobile-specific HUD adjustments */
+@media (max-width:768px),(hover:none){
+  #ammoBox{bottom:10px;right:10px;padding:6px 12px;min-width:120px}
+  #ammoBox .wname{font-size:10px}
+  #ammoBox .ammo{font-size:18px}
+  #pointsBox{bottom:10px;left:10px;padding:6px 12px}
+  #pointsBox .val{font-size:20px}
+  #roundBox{padding:3px 16px}
+  #roundBox .val{font-size:18px}
+  #hpBarWrap{width:160px;bottom:6px}
+  #hpBarOuter{height:10px}
+  #killsLabel{font-size:8px;bottom:24px}
+  #minimap{top:42px;right:6px;width:100px;height:100px}
+  #minimapCanvas{width:100px;height:100px}
+  #bossBarWrap{width:220px}
+  #centerMsg .big{font-size:clamp(22px,5vw,36px)}
+  #radioOverlay{max-width:85%;width:85%;padding:8px 16px;top:45px;font-size:11px}
+  #powerupTimerBar{width:160px}
+  #perkIcons{bottom:56px;left:10px}
+  .perk-icon{width:24px;height:24px;font-size:8px}
+  #reloadBarWrap{width:120px;bottom:48px;right:10px}
+  .controls-info{display:none}
+  #menuLogo h1{font-size:clamp(28px,8vw,48px);letter-spacing:6px}
+  #menuLogo .sub{font-size:clamp(9px,2.5vw,12px)}
+  .menu-stats .stat .val{font-size:16px}
+  #blocker button{padding:12px 36px;font-size:clamp(12px,3vw,16px)}
+}
 /* Vibe Jam portal button */
 #vibePortal{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000}
 /* ===== LOADING SCREEN ===== */
@@ -117,6 +152,26 @@ canvas{display:block}
 #gameTransition{position:fixed;inset:0;background:#000;z-index:99;pointer-events:none;opacity:0;transition:opacity 0.4s ease-in-out}
 #gameTransition.active{opacity:1}
 #deathVeil{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:99;pointer-events:none;transition:background 1s ease-in}
+/* Portrait warning */
+#portraitWarning{display:none;position:fixed;inset:0;background:#000;z-index:10000;flex-direction:column;align-items:center;justify-content:center;font-family:'Courier New',monospace;text-align:center}
+#portraitWarning .icon{font-size:48px;margin-bottom:16px;animation:rotatePhone 2s ease-in-out infinite}
+#portraitWarning .msg{color:#c00;font-size:16px;letter-spacing:3px}
+#portraitWarning .sub{color:#555;font-size:11px;margin-top:8px;letter-spacing:1px}
+@keyframes rotatePhone{0%,100%{transform:rotate(0deg)}50%{transform:rotate(90deg)}}
+@media (max-width:768px) and (orientation:portrait){
+  #portraitWarning{display:flex !important}
+}
+/* Safe area padding for notched phones */
+@supports(padding:env(safe-area-inset-left)){
+  #joystickArea{left:calc(10px + env(safe-area-inset-left))}
+  #pointsBox{left:calc(10px + env(safe-area-inset-left))}
+  #perkIcons{left:calc(10px + env(safe-area-inset-left))}
+  #fireBtn{right:calc(20px + env(safe-area-inset-right))}
+  #reloadBtn{right:calc(130px + env(safe-area-inset-right))}
+  #buyBtn{right:calc(130px + env(safe-area-inset-right))}
+  #weaponSwitcher{right:calc(15px + env(safe-area-inset-right))}
+  #ammoBox{right:calc(10px + env(safe-area-inset-right))}
+}
 /* Floating damage numbers */
 .dmg-num{position:fixed;pointer-events:none;z-index:15;font-family:'Courier New',monospace;font-weight:bold;text-shadow:0 0 6px rgba(0,0,0,0.9),0 0 2px #000;animation:dmgFloat 0.8s ease-out forwards}
 @keyframes dmgFloat{0%{opacity:1;transform:translate(-50%,0) scale(1.2)}30%{opacity:1;transform:translate(-50%,-30px) scale(1)}100%{opacity:0;transform:translate(-50%,-60px) scale(0.7)}}
@@ -132,6 +187,13 @@ canvas{display:block}
 </style>
 </head>
 <body>
+<!-- Portrait Warning (mobile only) -->
+<div id="portraitWarning">
+  <div class="icon">📱</div>
+  <div class="msg">ROTATE YOUR DEVICE</div>
+  <div class="sub">Landscape mode required for combat</div>
+</div>
+
 <!-- Loading Screen -->
 <div id="loadScreen">
   <canvas id="loadCanvas"></canvas>
@@ -485,7 +547,7 @@ camera.position.set(12 * TILE, 1.6, 12 * TILE);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -4398,7 +4460,7 @@ if (isMobile) {
   const ws = document.getElementById('weaponSwitcher');
   weapons.forEach((w, i) => {
     const btn = document.createElement('div');
-    btn.className = `wsBtn${i===0?' active':''}`;
+    btn.className = `wsBtn${i===0?' active':''}${i>0?' locked':''}`;
     btn.textContent = w.name;
     btn.dataset.idx = i;
     btn.addEventListener('touchstart', e => {
@@ -4407,6 +4469,10 @@ if (isMobile) {
     });
     ws.appendChild(btn);
   });
+  
+  // Show mobile-friendly controls on menu
+  const ctrlInfo = document.getElementById('controlsInfo');
+  if (ctrlInfo) ctrlInfo.innerHTML = 'Joystick move · Swipe aim · Tap FIRE<br>Tap buttons to reload/buy/switch';
   
   // Joystick
   const jBase = document.getElementById('joystickBase');
@@ -4453,7 +4519,8 @@ if (isMobile) {
   // Buy button
   document.getElementById('buyBtn').addEventListener('touchstart', e => { e.preventDefault(); tryBuy(); });
   
-  // Touch look (right half of screen)
+  // Touch look (right side of screen — adjusted sensitivity for mobile)
+  const touchSensitivity = 0.004; // slightly higher for responsive feel on mobile
   renderer.domElement.addEventListener('touchstart', e => {
     for (const t of e.changedTouches) {
       if (t.clientX > window.innerWidth * 0.3 && touchLookId === null) {
@@ -4468,8 +4535,8 @@ if (isMobile) {
       if (t.identifier === touchLookId) {
         const dx = t.clientX - touchLookX;
         const dy = t.clientY - touchLookY;
-        controls._yaw -= dx * 0.003;
-        controls._pitch -= dy * 0.003;
+        controls._yaw -= dx * touchSensitivity;
+        controls._pitch -= dy * touchSensitivity;
         controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
         controls._applyRotation();
         touchLookX = t.clientX;
@@ -5205,8 +5272,10 @@ function updateHUD() {
   if (isMobile) {
     document.querySelectorAll('.wsBtn').forEach(btn => {
       const idx = parseInt(btn.dataset.idx);
-      btn.className = `wsBtn${idx === player.curWeapon ? ' active' : ''}`;
-      btn.style.display = player.owned[idx] ? 'block' : 'none';
+      const owned = player.owned[idx];
+      const active = idx === player.curWeapon;
+      btn.className = `wsBtn${active ? ' active' : ''}${!owned ? ' locked' : ''}`;
+      btn.textContent = weapons[idx].name;
     });
   }
 }
