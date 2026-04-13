@@ -167,7 +167,7 @@ canvas{display:block}
 </script>
 <script type="module">
 import * as THREE from 'three';
-import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+// PointerLockControls removed — using custom FPS camera to prevent roll drift
 
 // roundRect polyfill for older browsers
 if (!CanvasRenderingContext2D.prototype.roundRect) {
@@ -250,8 +250,59 @@ renderer.toneMappingExposure = 1.4;
 document.body.appendChild(renderer.domElement);
 
 // ===== CONTROLS =====
-const controls = new PointerLockControls(camera, renderer.domElement);
-// Pitch clamping is done manually in gameLoop (PointerLockControls doesn't support polar angle limits)
+// Custom FPS controls — ONLY yaw (Y) and pitch (X), NEVER roll (Z)
+// Replaces PointerLockControls to prevent all Euler↔quaternion roll drift
+camera.rotation.order = 'YXZ'; // match standard FPS: Y=yaw, X=pitch, Z=roll(locked to 0)
+const controls = {
+  isLocked: false,
+  _yaw: 0,    // horizontal rotation (radians)
+  _pitch: 0,  // vertical rotation (radians, clamped)
+  _maxPitch: Math.PI / 2 - 0.1,
+  
+  lock() {
+    renderer.domElement.requestPointerLock();
+  },
+  unlock() {
+    document.exitPointerLock();
+  },
+  getDirection(v) {
+    return v.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  },
+  getObject() { return camera; },
+  moveForward(dist) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0; dir.normalize();
+    camera.position.addScaledVector(dir, dist);
+  },
+  moveRight(dist) {
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0; dir.normalize();
+    const right = new THREE.Vector3(-dir.z, 0, dir.x);
+    camera.position.addScaledVector(right, dist);
+  },
+  // Apply current yaw/pitch to camera — call every frame
+  _applyRotation() {
+    camera.rotation.set(this._pitch, this._yaw, 0, 'YXZ');
+  }
+};
+
+// Mouse handler
+document.addEventListener('mousemove', (e) => {
+  if (!controls.isLocked) return;
+  const mx = e.movementX || 0;
+  const my = e.movementY || 0;
+  controls._yaw -= mx * 0.002;
+  controls._pitch -= my * 0.002;
+  controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
+  controls._applyRotation();
+});
+
+// Pointer lock state
+document.addEventListener('pointerlockchange', () => {
+  controls.isLocked = document.pointerLockElement === renderer.domElement;
+});
 
 // ===== LIGHTING =====
 const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
@@ -1265,7 +1316,7 @@ const spawnPts = [
   {x:5,z:8,door:'west'},{x:7,z:5,door:'west'},{x:2,z:7,door:'west'},
   // East chamber
   {x:21,z:11,door:'east'},{x:22,z:13,door:'east'},{x:21,z:15,door:'east'},
-  {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:22,z:18,door:'east'},
+  {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:21,z:17.5,door:'east'},
 ];
 
 
@@ -3826,7 +3877,9 @@ function initGame() {
   player.perksOwned = {};
   
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
-  camera.rotation.set(0, 0, 0);
+  controls._yaw = 0;
+  controls._pitch = 0;
+  controls._applyRotation();
   
   // Reset per-weapon mag tracking
   for (const k in weaponMags) delete weaponMags[k];
@@ -3928,9 +3981,18 @@ function spawnZombie() {
     candidates.push({ wx, wz, d });
   }
   if (!candidates.length) return;
-  candidates.sort((a,b) => b.d - a.d);
-  const poolSize = Math.max(2, Math.ceil(candidates.length * 0.5));
-  const pick = candidates[Math.floor(Math.random() * poolSize)];
+  // Filter: must be at least 3 tiles away from player so they don't spawn in your face
+  const minDist = TILE * 3;
+  const viable = candidates.filter(c => c.d >= minDist);
+  const pool = viable.length > 0 ? viable : candidates;
+  // Weighted random: prefer medium distance (not always farthest corner)
+  // Weight = 1/d so closer-viable spawns are slightly more likely → more natural spread
+  const totalWeight = pool.reduce((sum, c) => sum + 1 / Math.max(c.d, 1), 0);
+  let roll = Math.random() * totalWeight, pick = pool[0];
+  for (const c of pool) {
+    roll -= 1 / Math.max(c.d, 1);
+    if (roll <= 0) { pick = c; break; }
+  }
   
   const tier = getDifficultyTier();
   const tierMult = 1 + tier * 0.5;
@@ -4004,9 +4066,9 @@ renderer.domElement.addEventListener('mousedown', () => {
 });
 renderer.domElement.addEventListener('mouseup', () => { mouseDown = false; });
 
-// Pointer lock pause
+// Pointer lock pause (uses controls.isLocked which is set by our custom handler above)
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== renderer.domElement) {
+  if (!controls.isLocked) {
     if ((state === 'playing' || state === 'roundIntro') && !paused) {
       paused = true;
       showPause();
@@ -4105,8 +4167,10 @@ if (isMobile) {
       if (t.identifier === touchLookId) {
         const dx = t.clientX - touchLookX;
         const dy = t.clientY - touchLookY;
-        camera.rotation.y -= dx * 0.003;
-        camera.rotation.x = Math.max(-PI/3, Math.min(PI/3, camera.rotation.x - dy * 0.003));
+        controls._yaw -= dx * 0.003;
+        controls._pitch -= dy * 0.003;
+        controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
+        controls._applyRotation();
         touchLookX = t.clientX;
         touchLookY = t.clientY;
       }
@@ -4496,13 +4560,16 @@ function update(dt) {
         else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
       }
       
-      // Stuck detection
+      // Stuck detection — if zombie barely moved in 3 seconds, relocate out of view
       if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0 };
       z.stuckCheck.timer += dt;
       if (z.stuckCheck.timer >= 3) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
         if (stuckDist < TILE * 0.5) {
-          let bestSp = null, bestSpD = Infinity;
+          // Prefer spawns BEHIND the player (out of FOV) so teleport isn't visible
+          const camDir = new THREE.Vector3();
+          camera.getWorldDirection(camDir);
+          let bestSp = null, bestScore = -Infinity;
           for (const sp of spawnPts) {
             if (sp.door) {
               const door = doors.find(dd => dd.id === sp.door);
@@ -4511,7 +4578,13 @@ function update(dt) {
             const swx = sp.x * TILE, swz = sp.z * TILE;
             if (mapAt(swx, swz) !== 0) continue;
             const spD = Math.hypot(swx - camera.position.x, swz - camera.position.z);
-            if (spD > TILE * 3 && spD < bestSpD) { bestSpD = spD; bestSp = sp; }
+            if (spD < TILE * 3) continue; // too close
+            // Dot product: negative = behind player (preferred)
+            const toSpX = swx - camera.position.x, toSpZ = swz - camera.position.z;
+            const dot = (toSpX * camDir.x + toSpZ * camDir.z) / spD;
+            // Score: prefer behind player (dot < 0) and moderate distance
+            const score = -dot * 10 - spD * 0.01;
+            if (score > bestScore) { bestScore = score; bestSp = sp; }
           }
           if (bestSp) {
             z.wx = bestSp.x * TILE + (Math.random()-0.5)*2;
@@ -5247,11 +5320,9 @@ function gameLoop(time) {
   if (state === 'menu') return;
   
   update(dt);
-  // Clamp camera pitch so player can't flip upside-down (PointerLockControls has no built-in limit)
-  const maxPitch = Math.PI / 2 - 0.15;
-  camera.rotation.x = Math.max(-maxPitch, Math.min(maxPitch, camera.rotation.x));
-  // Force zero roll every frame — FPS cameras should NEVER roll
-  camera.rotation.z = 0;
+  // Enforce zero roll every frame — our custom controls handle yaw/pitch only
+  // This is a safety net in case anything else touches camera.rotation
+  controls._applyRotation();
   updateCenterMsg(dt);
   updateGunModel(dt);
   updateLights(dt);
