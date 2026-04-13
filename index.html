@@ -646,94 +646,295 @@ function createZombieMesh(z) {
   const group = new THREE.Group();
   const scale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
   
-  // Body color
-  let bodyColor = 0x3A4A2D;
-  let headColor = 0x465535;
+  // Each zombie gets unique quirks for variety
+  z._limpLeg = Math.random() < 0.5 ? 'L' : 'R';          // which leg drags
+  z._limpAmount = 0.15 + Math.random() * 0.25;             // how bad the limp is
+  z._headTilt = (Math.random() - 0.5) * 0.5;               // head cocked sideways
+  z._headDroop = -0.2 - Math.random() * 0.35;              // head hanging forward
+  z._shoulderDrop = Math.random() < 0.5 ? 'L' : 'R';      // one shoulder lower
+  z._swayAmount = 0.03 + Math.random() * 0.04;             // body sway intensity
+  z._walkFreq = 3.5 + Math.random() * 2.5;                 // walk cycle speed (slower = more shambling)
+  z._armReach = -0.8 - Math.random() * 0.6;                // how far arms reach forward
+  z._jawOpen = Math.random() < 0.4;                        // gaping jaw
+
+  // Body colors — mottled decayed flesh
+  let skinColor = 0x5A6B4A;   // sickly green-grey
+  let fleshColor = 0x6A7755;  // lighter exposed skin
+  let clothColor = 0x3A3A2D;  // tattered clothes
   let eyeColor = 0xff1e0a;
-  if (z.isBoss) { bodyColor = 0x5A1010; headColor = 0x6A1515; eyeColor = 0xffff00; }
-  else if (z.isElite) { bodyColor = 0x5A5520; headColor = 0x6A6530; eyeColor = 0xff6600; }
-  
-  // Torso
-  const torsoGeo = new THREE.BoxGeometry(0.6*scale, 0.9*scale, 0.35*scale);
-  const torsoMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.9 });
-  const torso = new THREE.Mesh(torsoGeo, torsoMat);
-  torso.position.y = 1.0 * scale;
-  group.add(torso);
-  
-  // Head
-  const headGeo = new THREE.BoxGeometry(0.35*scale, 0.35*scale, 0.35*scale);
-  const headMat = new THREE.MeshStandardMaterial({ color: headColor, roughness: 0.8 });
+  if (z.isBoss) { skinColor = 0x6A2020; fleshColor = 0x7A2828; clothColor = 0x4A1515; eyeColor = 0xffff00; }
+  else if (z.isElite) { skinColor = 0x6A6530; fleshColor = 0x7A7540; clothColor = 0x4A4520; eyeColor = 0xff6600; }
+
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.95, metalness: 0.0 });
+  const fleshMat = new THREE.MeshStandardMaterial({ color: fleshColor, roughness: 0.9, metalness: 0.0 });
+  const clothMat = new THREE.MeshStandardMaterial({ color: clothColor, roughness: 0.95, metalness: 0.0 });
+
+  // === BODY PIVOT (for hunching / leaning forward) ===
+  const bodyPivot = new THREE.Group();
+  bodyPivot.rotation.x = 0.2; // hunched forward
+  group.add(bodyPivot);
+
+  // === TORSO (cylinder, slightly wider at shoulders) ===
+  const torsoGeo = new THREE.CylinderGeometry(0.22*scale, 0.28*scale, 0.85*scale, 8);
+  const torso = new THREE.Mesh(torsoGeo, clothMat);
+  torso.position.y = 1.05 * scale;
+  bodyPivot.add(torso);
+
+  // Shoulder ridge (gives bulk)
+  const shoulderGeo = new THREE.CylinderGeometry(0.35*scale, 0.3*scale, 0.15*scale, 8);
+  const shoulders = new THREE.Mesh(shoulderGeo, clothMat);
+  shoulders.position.y = 1.42 * scale;
+  bodyPivot.add(shoulders);
+
+  // Belly / gut (subtle bulge for bosses)
+  if (z.isBoss) {
+    const gutGeo = new THREE.SphereGeometry(0.32*scale, 8, 6);
+    const gut = new THREE.Mesh(gutGeo, clothMat);
+    gut.position.set(0, 0.85*scale, -0.08*scale);
+    bodyPivot.add(gut);
+  }
+
+  // === NECK (short cylinder) ===
+  const neckGeo = new THREE.CylinderGeometry(0.08*scale, 0.1*scale, 0.12*scale, 6);
+  const neck = new THREE.Mesh(neckGeo, skinMat);
+  neck.position.y = 1.52 * scale;
+  bodyPivot.add(neck);
+
+  // === HEAD PIVOT (for tilting/bobbing) ===
+  const headPivot = new THREE.Group();
+  headPivot.position.y = 1.6 * scale;
+  headPivot.rotation.z = z._headTilt;
+  headPivot.rotation.x = z._headDroop;
+  bodyPivot.add(headPivot);
+
+  // Head (sphere — much more organic than a box)
+  const headGeo = new THREE.SphereGeometry(0.2*scale, 10, 8);
+  const headMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.85 });
   const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = 1.65 * scale;
-  group.add(head);
-  
-  // Eyes (glowing)
-  const eyeGeo = new THREE.BoxGeometry(0.06*scale, 0.06*scale, 0.04*scale);
-  const eyeMat = new THREE.MeshStandardMaterial({ color: eyeColor, emissive: eyeColor, emissiveIntensity: 2 });
+  head.scale.set(1, 1.1, 1); // slightly elongated
+  headPivot.add(head);
+
+  // Brow ridge (gives menacing look)
+  const browGeo = new THREE.BoxGeometry(0.28*scale, 0.04*scale, 0.12*scale);
+  const brow = new THREE.Mesh(browGeo, skinMat);
+  brow.position.set(0, 0.08*scale, -0.14*scale);
+  headPivot.add(brow);
+
+  // Eyes (glowing, sunken)
+  const eyeGeo = new THREE.SphereGeometry(0.035*scale, 6, 6);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: eyeColor, emissive: eyeColor, emissiveIntensity: 2.5 });
   const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(-0.08*scale, 1.68*scale, -0.17*scale);
+  eyeL.position.set(-0.075*scale, 0.04*scale, -0.17*scale);
   const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeR.position.set(0.08*scale, 1.68*scale, -0.17*scale);
-  group.add(eyeL); group.add(eyeR);
-  
-  // Arms
-  const armGeo = new THREE.BoxGeometry(0.18*scale, 0.7*scale, 0.18*scale);
-  const armMat = new THREE.MeshStandardMaterial({ color: headColor, roughness: 0.9 });
-  const armL = new THREE.Mesh(armGeo, armMat);
-  armL.position.set(-0.45*scale, 1.1*scale, -0.1*scale);
-  armL.rotation.x = -0.5; // reaching forward
-  const armR = new THREE.Mesh(armGeo, armMat);
-  armR.position.set(0.45*scale, 1.1*scale, -0.1*scale);
-  armR.rotation.x = -0.5;
-  group.add(armL); group.add(armR);
-  
-  // Legs
-  const legGeo = new THREE.BoxGeometry(0.2*scale, 0.6*scale, 0.2*scale);
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x232A1E, roughness: 0.9 });
-  const legL = new THREE.Mesh(legGeo, legMat);
-  legL.position.set(-0.15*scale, 0.3*scale, 0);
-  const legR = new THREE.Mesh(legGeo, legMat);
-  legR.position.set(0.15*scale, 0.3*scale, 0);
-  group.add(legL); group.add(legR);
+  eyeR.position.set(0.075*scale, 0.04*scale, -0.17*scale);
+  headPivot.add(eyeL); headPivot.add(eyeR);
+
+  // Jaw (open mouth effect)
+  if (z._jawOpen) {
+    const jawGeo = new THREE.BoxGeometry(0.14*scale, 0.06*scale, 0.1*scale);
+    const jawMat = new THREE.MeshStandardMaterial({ color: 0x2A1010, roughness: 1.0 });
+    const jaw = new THREE.Mesh(jawGeo, jawMat);
+    jaw.position.set(0, -0.12*scale, -0.13*scale);
+    jaw.rotation.x = 0.15;
+    headPivot.add(jaw);
+  }
+
+  // === ARM PIVOTS (attached at shoulder height for natural swinging) ===
+  const armLPivot = new THREE.Group();
+  armLPivot.position.set(-0.36*scale, 1.38*scale, 0);
+  bodyPivot.add(armLPivot);
+
+  const armRPivot = new THREE.Group();
+  armRPivot.position.set(0.36*scale, 1.38*scale, 0);
+  bodyPivot.add(armRPivot);
+
+  // Upper arms (cylinders)
+  const upperArmGeo = new THREE.CylinderGeometry(0.07*scale, 0.06*scale, 0.4*scale, 6);
+  const upperArmL = new THREE.Mesh(upperArmGeo, skinMat);
+  upperArmL.position.y = -0.2*scale;
+  armLPivot.add(upperArmL);
+  const upperArmR = new THREE.Mesh(upperArmGeo, skinMat);
+  upperArmR.position.y = -0.2*scale;
+  armRPivot.add(upperArmR);
+
+  // Forearm pivots (for elbow bending)
+  const forearmLPivot = new THREE.Group();
+  forearmLPivot.position.set(0, -0.4*scale, 0);
+  armLPivot.add(forearmLPivot);
+  const forearmRPivot = new THREE.Group();
+  forearmRPivot.position.set(0, -0.4*scale, 0);
+  armRPivot.add(forearmRPivot);
+
+  // Forearms (cylinders, slightly thinner)
+  const forearmGeo = new THREE.CylinderGeometry(0.055*scale, 0.045*scale, 0.38*scale, 6);
+  const forearmL = new THREE.Mesh(forearmGeo, fleshMat);
+  forearmL.position.y = -0.19*scale;
+  forearmLPivot.add(forearmL);
+  const forearmR = new THREE.Mesh(forearmGeo, fleshMat);
+  forearmR.position.y = -0.19*scale;
+  forearmRPivot.add(forearmR);
+
+  // Hands (small spheres, like claws)
+  const handGeo = new THREE.SphereGeometry(0.05*scale, 5, 5);
+  const handMat = new THREE.MeshStandardMaterial({ color: fleshColor, roughness: 1.0 });
+  const handL = new THREE.Mesh(handGeo, handMat);
+  handL.position.y = -0.38*scale;
+  forearmLPivot.add(handL);
+  const handR = new THREE.Mesh(handGeo, handMat);
+  handR.position.y = -0.38*scale;
+  forearmRPivot.add(handR);
+
+  // Set initial arm reach pose
+  armLPivot.rotation.x = z._armReach;
+  armRPivot.rotation.x = z._armReach * 0.8;
+  forearmLPivot.rotation.x = -0.3;
+  forearmRPivot.rotation.x = -0.4;
+
+  // Drop one shoulder
+  if (z._shoulderDrop === 'L') armLPivot.position.y -= 0.06 * scale;
+  else armRPivot.position.y -= 0.06 * scale;
+
+  // === LEG PIVOTS (attached at hip) ===
+  const legLPivot = new THREE.Group();
+  legLPivot.position.set(-0.14*scale, 0.62*scale, 0);
+  bodyPivot.add(legLPivot);
+  const legRPivot = new THREE.Group();
+  legRPivot.position.set(0.14*scale, 0.62*scale, 0);
+  bodyPivot.add(legRPivot);
+
+  // Thighs (cylinders)
+  const thighGeo = new THREE.CylinderGeometry(0.09*scale, 0.08*scale, 0.4*scale, 6);
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x2A321E, roughness: 0.95 });
+  const thighL = new THREE.Mesh(thighGeo, legMat);
+  thighL.position.y = -0.2*scale;
+  legLPivot.add(thighL);
+  const thighR = new THREE.Mesh(thighGeo, legMat);
+  thighR.position.y = -0.2*scale;
+  legRPivot.add(thighR);
+
+  // Shin pivots (knees)
+  const shinLPivot = new THREE.Group();
+  shinLPivot.position.set(0, -0.4*scale, 0);
+  legLPivot.add(shinLPivot);
+  const shinRPivot = new THREE.Group();
+  shinRPivot.position.set(0, -0.4*scale, 0);
+  legRPivot.add(shinRPivot);
+
+  // Shins (cylinders)
+  const shinGeo = new THREE.CylinderGeometry(0.07*scale, 0.055*scale, 0.38*scale, 6);
+  const shinL = new THREE.Mesh(shinGeo, legMat);
+  shinL.position.y = -0.19*scale;
+  shinLPivot.add(shinL);
+  const shinR = new THREE.Mesh(shinGeo, legMat);
+  shinR.position.y = -0.19*scale;
+  shinRPivot.add(shinR);
+
+  // Feet (flat boxes)
+  const footGeo = new THREE.BoxGeometry(0.08*scale, 0.04*scale, 0.16*scale);
+  const footL = new THREE.Mesh(footGeo, legMat);
+  footL.position.set(0, -0.38*scale, -0.03*scale);
+  shinLPivot.add(footL);
+  const footR = new THREE.Mesh(footGeo, legMat);
+  footR.position.set(0, -0.38*scale, -0.03*scale);
+  shinRPivot.add(footR);
+
+  // === GORE DETAIL: blood splatters (random placement) ===
+  const bloodMat = new THREE.MeshStandardMaterial({ color: 0x6B1010, roughness: 1.0 });
+  for (let i = 0; i < 3; i++) {
+    const splat = new THREE.Mesh(new THREE.SphereGeometry(0.04*scale + Math.random()*0.04*scale, 4, 3), bloodMat);
+    splat.position.set(
+      (Math.random()-0.5)*0.3*scale,
+      0.7*scale + Math.random()*0.8*scale,
+      (Math.random()-0.5)*0.2*scale
+    );
+    splat.scale.set(1, 0.4, 1.2); // flattened = wound-like
+    bodyPivot.add(splat);
+  }
   
   // HP bar (billboard sprite)
   const hpCanvas = document.createElement('canvas');
   hpCanvas.width = 64; hpCanvas.height = 8;
   const hpTex = new THREE.CanvasTexture(hpCanvas);
-  const hpMat = new THREE.SpriteMaterial({ map: hpTex, transparent: true });
-  const hpSprite = new THREE.Sprite(hpMat);
+  const hpMaterial = new THREE.SpriteMaterial({ map: hpTex, transparent: true });
+  const hpSprite = new THREE.Sprite(hpMaterial);
   hpSprite.scale.set(1.2*scale, 0.15*scale, 1);
-  hpSprite.position.y = 2.0 * scale;
+  hpSprite.position.y = 2.1 * scale;
   group.add(hpSprite);
   
   group.castShadow = true;
   scene.add(group);
   
-  zombieMeshes.set(z, { group, armL, armR, legL, legR, hpSprite, hpCanvas, hpTex, torso, eyeMat });
+  zombieMeshes.set(z, {
+    group, bodyPivot, torso, headPivot,
+    armLPivot, armRPivot, forearmLPivot, forearmRPivot,
+    legLPivot, legRPivot, shinLPivot, shinRPivot,
+    hpSprite, hpCanvas, hpTex, eyeMat
+  });
   return group;
 }
 
 function updateZombieMesh(z) {
   const data = zombieMeshes.get(z);
   if (!data) return;
-  const { group, armL, armR, legL, legR, hpSprite, hpCanvas, hpTex, torso, eyeMat } = data;
+  const {
+    group, bodyPivot, torso, headPivot,
+    armLPivot, armRPivot, forearmLPivot, forearmRPivot,
+    legLPivot, legRPivot, shinLPivot, shinRPivot,
+    hpSprite, hpCanvas, hpTex, eyeMat
+  } = data;
   
-  // Position
-  group.position.set(z.wx, 0, z.wz);
+  const t = performance.now() / 1000;
+  const freq = z._walkFreq;
+  const phase = t * freq + z._animOffset;
+  const scale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
+
+  // Position with vertical bob (shambling up-down motion)
+  const bob = Math.abs(Math.sin(phase)) * 0.06 * scale;
+  group.position.set(z.wx, -0.02 + bob, z.wz);
   
   // Face player
   const dx = camera.position.x - z.wx;
   const dz = camera.position.z - z.wz;
   group.rotation.y = Math.atan2(dx, dz);
+
+  // === BODY SWAY (lurching side to side) ===
+  bodyPivot.rotation.z = Math.sin(phase * 0.5) * z._swayAmount;
+  bodyPivot.rotation.x = 0.2 + Math.sin(phase) * 0.04; // hunch + subtle forward lurch
+
+  // === HEAD ANIMATION (bobbing, tilting) ===
+  headPivot.rotation.x = z._headDroop + Math.sin(phase * 1.3) * 0.08;
+  headPivot.rotation.z = z._headTilt + Math.sin(phase * 0.7) * 0.06;
+  headPivot.rotation.y = Math.sin(phase * 0.4) * 0.1; // slow head turn
+
+  // === ARM ANIMATION (asymmetric, reaching + swaying) ===
+  // Arms swing loosely, not in sync — like they're dangling
+  const armSwingL = Math.sin(phase) * 0.25;
+  const armSwingR = Math.sin(phase + 1.8) * 0.2;  // offset = asymmetric
+  armLPivot.rotation.x = z._armReach + armSwingL;
+  armRPivot.rotation.x = z._armReach * 0.8 + armSwingR;
+  // Slight sideways sway
+  armLPivot.rotation.z = 0.15 + Math.sin(phase * 0.8) * 0.08;
+  armRPivot.rotation.z = -0.15 + Math.sin(phase * 0.8 + 1) * 0.08;
+  // Forearms dangle / twitch
+  forearmLPivot.rotation.x = -0.3 + Math.sin(phase * 1.5) * 0.15;
+  forearmRPivot.rotation.x = -0.4 + Math.sin(phase * 1.5 + 2) * 0.12;
+
+  // === LEG ANIMATION (shambling, one leg drags) ===
+  const legSwing = Math.sin(phase) * 0.45;
+  const limpMul = z._limpAmount;
   
-  // Walk animation
-  const walkSpeed = 8;
-  const t = performance.now() / 1000;
-  const walk = Math.sin(t * walkSpeed + z._animOffset) * 0.4;
-  armL.rotation.x = -0.5 + walk * 0.3;
-  armR.rotation.x = -0.5 - walk * 0.3;
-  legL.rotation.x = walk;
-  legR.rotation.x = -walk;
+  if (z._limpLeg === 'L') {
+    // Left leg drags — less range of motion, delayed
+    legLPivot.rotation.x = legSwing * (1 - limpMul);
+    legRPivot.rotation.x = -legSwing;
+    shinLPivot.rotation.x = Math.max(0, Math.sin(phase + 0.5) * 0.2);  // stiff knee
+    shinRPivot.rotation.x = Math.max(0, Math.sin(phase + 0.5) * 0.5);  // normal bend
+  } else {
+    legLPivot.rotation.x = legSwing;
+    legRPivot.rotation.x = -legSwing * (1 - limpMul);
+    shinLPivot.rotation.x = Math.max(0, Math.sin(phase + 0.5) * 0.5);
+    shinRPivot.rotation.x = Math.max(0, Math.sin(phase + 0.5) * 0.2);
+  }
   
   // Hit flash
   if (z.flash > 0) {
