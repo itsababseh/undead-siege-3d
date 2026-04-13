@@ -3446,6 +3446,16 @@ function removeZombieMesh(z) {
   const data = zombieMeshes.get(z);
   if (data) {
     scene.remove(data.group);
+    // Dispose geometry, materials, textures to prevent memory leaks
+    data.group.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    });
+    if (data.hpTex) data.hpTex.dispose();
+    if (data.tex) data.tex.dispose();
     zombieMeshes.delete(z);
   }
 }
@@ -3571,30 +3581,30 @@ function updateMuzzleSparks(dt) {
 const dyingZombies = [];
 
 function startZombieDeathAnim(z) {
-  if (!z._mesh) return;
-  // Keep mesh alive for death animation, remove from active zombie tracking
-  const mesh = z._mesh;
-  const hpBar = z._hpBar;
-  const eyeLight = z._eyeLight;
+  const data = zombieMeshes.get(z);
+  if (!data) return;
+  const { group, mesh, planeMat, tex, frameCanvas, hpSprite, hpCanvas, hpTex, eyeLight, spriteH } = data;
   
-  // Remove HP bar and eye light immediately
-  if (hpBar) scene.remove(hpBar);
-  if (eyeLight) scene.remove(eyeLight);
+  // Hide HP bar and dim eye light immediately
+  if (hpSprite) hpSprite.visible = false;
+  if (eyeLight) eyeLight.intensity = 0;
   
   dyingZombies.push({
-    mesh,
+    mesh: group,        // the Group (contains plane + lights)
+    planeMat,           // for fading
+    tex,                // for disposal
+    hpTex,              // for disposal
+    frameCanvas,        // for disposal
     timer: 0,
     duration: 0.6 + Math.random() * 0.3,
-    startY: mesh.position.y,
+    startY: group.position.y,
     fallDir: (Math.random() - 0.5) * 0.5,
     isBoss: z.isBoss,
     wx: z.wx, wz: z.wz,
   });
   
-  // Detach from zombie object so removeZombieMesh won't double-remove
-  z._mesh = null;
-  z._hpBar = null;
-  z._eyeLight = null;
+  // Detach from Map so removeZombieMesh won't double-remove
+  zombieMeshes.delete(z);
 }
 
 function updateDyingZombies(dt) {
@@ -3605,10 +3615,15 @@ function updateDyingZombies(dt) {
     
     if (t >= 1) {
       scene.remove(dz.mesh);
-      if (dz.mesh.material) {
-        if (dz.mesh.material.map) dz.mesh.material.map.dispose();
-        dz.mesh.material.dispose();
-      }
+      // Dispose all children properly
+      dz.mesh.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (child.material.map) child.material.map.dispose();
+          child.material.dispose();
+        }
+      });
+      if (dz.hpTex) dz.hpTex.dispose();
       dyingZombies.splice(i, 1);
       continue;
     }
@@ -3619,10 +3634,10 @@ function updateDyingZombies(dt) {
     dz.mesh.rotation.z = dz.fallDir * t * 2;
     dz.mesh.scale.y = Math.max(0.1, 1 - t * 0.7);
     
-    // Fade out
-    if (dz.mesh.material) {
-      dz.mesh.material.transparent = true;
-      dz.mesh.material.opacity = 1 - t;
+    // Fade out via planeMat (the billboard material)
+    if (dz.planeMat) {
+      dz.planeMat.transparent = true;
+      dz.planeMat.opacity = 1 - t;
     }
   }
 }
@@ -3842,6 +3857,7 @@ function updateParticles(dt) {
     p.life -= dt;
     if (p.life <= 0) {
       scene.remove(p.mesh);
+      p.mesh.material.dispose();
       particles.splice(i, 1);
       continue;
     }
@@ -3889,7 +3905,7 @@ function initGame() {
   zombies.length = 0;
   
   // Clear particles
-  particles.forEach(p => scene.remove(p.mesh));
+  particles.forEach(p => { scene.remove(p.mesh); p.mesh.material.dispose(); });
   particles.length = 0;
   floatTexts.length = 0;
   
@@ -3929,7 +3945,14 @@ function initGame() {
   // Clear visual juice
   muzzleSparks.forEach(s => { scene.remove(s.mesh); s.mesh.material.dispose(); });
   muzzleSparks.length = 0;
-  dyingZombies.forEach(dz => { scene.remove(dz.mesh); });
+  dyingZombies.forEach(dz => {
+    scene.remove(dz.mesh);
+    dz.mesh.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) { if (child.material.map) child.material.map.dispose(); child.material.dispose(); }
+    });
+    if (dz.hpTex) dz.hpTex.dispose();
+  });
   dyingZombies.length = 0;
   bloodDecals.forEach(d => { scene.remove(d.mesh); d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
   bloodDecals.length = 0;
