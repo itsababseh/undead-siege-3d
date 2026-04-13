@@ -77,7 +77,7 @@ canvas{display:block}
   <button id="startBtn">ENLIST</button>
   <div class="controls-info">
     WASD move · Mouse aim · Click shoot · R reload<br>
-    1-3 weapons · E buy/interact · ESC pause
+    1-4 weapons · E buy/interact · ESC pause
   </div>
   <div class="menu-scores" id="menuScores"></div>
 </div>
@@ -436,6 +436,23 @@ function beep(freq, type, dur, vol) {
 }
 
 function sfxShoot() { beep(600,'square',0.06,0.12); beep(150,'sawtooth',0.1,0.15); }
+function sfxRayGun() {
+  if (!actx || !masterGain) return;
+  try {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(1800, actx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(200, actx.currentTime + 0.3);
+    g.gain.setValueAtTime(0.15, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.3);
+    o.connect(g); g.connect(masterGain); o.start(); o.stop(actx.currentTime + 0.3);
+    // Zap layer
+    const o2 = actx.createOscillator(), g2 = actx.createGain();
+    o2.type = 'square'; o2.frequency.value = 120;
+    g2.gain.setValueAtTime(0.08, actx.currentTime);
+    g2.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.15);
+    o2.connect(g2); g2.connect(masterGain); o2.start(); o2.stop(actx.currentTime + 0.15);
+  } catch(e) {}
+}
 function sfxHit() { beep(300,'sine',0.06,0.1); }
 function sfxKill() { beep(100,'sawtooth',0.2,0.15); }
 function sfxHurt() { beep(160,'sawtooth',0.15,0.2); }
@@ -545,11 +562,13 @@ const player = {
 const weapons = [
   { name: 'M1911', dmg: 40, rate: 0.3, mag: 8, maxAmmo: 999, reload: 1.5, auto: false, spread: 0.02, color: '#fc0' },
   { name: 'MP40', dmg: 25, rate: 0.08, mag: 32, maxAmmo: 192, reload: 2.0, auto: true, spread: 0.06, color: '#6cf' },
-  { name: 'Shotgun', dmg: 120, rate: 0.7, mag: 6, maxAmmo: 54, reload: 2.5, auto: false, spread: 0.1, pellets: 5, color: '#f84' },
+  { name: 'Trench Gun', dmg: 120, rate: 0.7, mag: 6, maxAmmo: 54, reload: 2.5, auto: false, spread: 0.1, pellets: 5, color: '#f84' },
+  { name: 'Ray Gun', dmg: 300, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true },
 ];
 const wallBuys = [
   { tx: 12, tz: 4, wi: 1, cost: 1000 },
   { tx: 12, tz: 19, wi: 2, cost: 1500 },
+  { tx: 15, tz: 7, wi: 3, cost: 10000, minRound: 10 },
 ];
 
 // ===== PERKS =====
@@ -610,11 +629,18 @@ buildPerkMachines();
 
 // ===== WALL BUY MARKERS =====
 wallBuys.forEach(wb => {
+  const isRay = weapons[wb.wi].isRayGun;
+  const mColor = isRay ? 0x00ff44 : 0xffcc00;
   const markerGeo = new THREE.PlaneGeometry(1.5, 1);
-  const markerMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 0.3, transparent: true, opacity: 0.7 });
+  const markerMat = new THREE.MeshStandardMaterial({ color: mColor, emissive: mColor, emissiveIntensity: isRay ? 0.5 : 0.3, transparent: true, opacity: 0.7 });
   const marker = new THREE.Mesh(markerGeo, markerMat);
   marker.position.set(wb.tx * TILE + TILE/2, 1.8, wb.tz * TILE + TILE/2 + 0.1);
   scene.add(marker);
+  if (isRay) {
+    const glow = new THREE.PointLight(0x00ff44, 1.5, 10);
+    glow.position.set(wb.tx * TILE + TILE/2, 2, wb.tz * TILE + TILE/2);
+    scene.add(glow);
+  }
 });
 
 // ===== DOORS =====
@@ -682,17 +708,17 @@ function drawZombieFrame(ctx, size, variant, type, frame) {
   const headBob = Math.sin(walkPhase * 0.5) * 2;
   const shoulderTilt = Math.sin(walkPhase) * 2;
 
-  // Color palettes per type
+  // Color palettes per type — dark, decayed, menacing
   let skin, skinDark, skinLight, cloth, clothDark, blood, eyeGlow;
   if (type === 'boss') {
-    skin='#6A2828'; skinDark='#4A1515'; skinLight='#8A3535';
-    cloth='#2A1010'; clothDark='#1A0808'; blood='#AA0000'; eyeGlow='#FFFF00';
+    skin='#3A1515'; skinDark='#250808'; skinLight='#4A1A1A';
+    cloth='#1A0808'; clothDark='#0E0404'; blood='#880000'; eyeGlow='#FFFF00';
   } else if (type === 'elite') {
-    skin='#7A7540'; skinDark='#5A5520'; skinLight='#9A9560';
-    cloth='#4A4520'; clothDark='#3A3510'; blood='#882200'; eyeGlow='#FF6600';
+    skin='#3A3820'; skinDark='#2A2810'; skinLight='#4A4830';
+    cloth='#252310'; clothDark='#1A1808'; blood='#661800'; eyeGlow='#FF6600';
   } else {
-    skin='#5A6B4A'; skinDark='#3A4B2A'; skinLight='#7A8B6A';
-    cloth='#3A3A2D'; clothDark='#2A2A1D'; blood='#6B1010'; eyeGlow='#FF1E0A';
+    skin='#2E3528'; skinDark='#1A2012'; skinLight='#3A4232';
+    cloth='#1E1E18'; clothDark='#121210'; blood='#4A0808'; eyeGlow='#FF1E0A';
   }
 
   // Variant-specific quirks (each looks distinctly different)
@@ -1168,29 +1194,42 @@ function createZombieMesh(z) {
   return group;
 }
 
-function updateZombieMesh(z) {
+function updateZombieMesh(z, dt) {
   const data = zombieMeshes.get(z);
   if (!data) return;
   const { group, mesh, planeMat, tex, frameCanvas,
     hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet, spriteH } = data;
 
-  // Position — firmly on the floor (y=0)
+  // Position — firmly on the floor (y=0), smooth interpolation
   let yOff = 0;
   if (z._hasLimp) {
     yOff = Math.abs(Math.sin(z._limpPhase)) * 0.08 * z._limpSeverity;
-    mesh.rotation.z = Math.sin(z._limpPhase) * 0.06 * z._limpSeverity;
+    mesh.rotation.z = Math.sin(z._limpPhase) * 0.04 * z._limpSeverity;
   } else {
     mesh.rotation.z = 0;
   }
-  group.position.set(z.wx, yOff, z.wz);
 
-  // Billboard: rotate mesh to always face camera (Y-axis only)
+  // Smooth position interpolation to reduce glitchiness
+  if (!z._renderX) { z._renderX = z.wx; z._renderZ = z.wz; }
+  const lerpFactor = Math.min(1, dt * 15);
+  z._renderX += (z.wx - z._renderX) * lerpFactor;
+  z._renderZ += (z.wz - z._renderZ) * lerpFactor;
+  group.position.set(z._renderX, yOff, z._renderZ);
+
+  // Billboard: smooth Y-axis rotation to face camera
   const dx = camera.position.x - group.position.x;
   const dz = camera.position.z - group.position.z;
-  mesh.rotation.y = Math.atan2(dx, dz);
+  const targetRotY = Math.atan2(dx, dz);
+  if (!z._renderRotY) z._renderRotY = targetRotY;
+  // Shortest angle lerp
+  let rotDiff = targetRotY - z._renderRotY;
+  while (rotDiff > Math.PI) rotDiff -= PI2;
+  while (rotDiff < -Math.PI) rotDiff += PI2;
+  z._renderRotY += rotDiff * Math.min(1, dt * 12);
+  mesh.rotation.y = z._renderRotY;
 
-  // Animate walk cycle
-  z._frameTimer += 0.016;
+  // Animate walk cycle using real dt
+  z._frameTimer += dt;
   if (z._frameTimer >= z._frameSpeed) {
     z._frameTimer -= z._frameSpeed;
     z._spriteFrame = (z._spriteFrame + 1) % ZOMBIE_FRAMES;
@@ -1256,6 +1295,23 @@ function spawnBloodParticles(x, y, z, count = 5) {
   }
 }
 
+function spawnEnergyParticles(x, y, z, count = 8) {
+  for (let i = 0; i < count; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00ff44, transparent: true, opacity: 1 });
+    const mesh = new THREE.Mesh(particleGeo, mat);
+    mesh.position.set(x, y, z);
+    mesh.scale.setScalar(1.5);
+    scene.add(mesh);
+    particles.push({
+      mesh,
+      vx: (Math.random()-0.5)*5,
+      vy: Math.random()*4 + 2,
+      vz: (Math.random()-0.5)*5,
+      life: 0.7 + Math.random()*0.5,
+    });
+  }
+}
+
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -1284,8 +1340,8 @@ function addFloatText(text, color, duration = 1.5) {
 function initGame() {
   player.hp = 100; player.maxHp = 100;
   player.curWeapon = 0; player.mag = weapons[0].mag;
-  player.ammo = [999, 0, 0];
-  player.owned = [true, false, false];
+  player.ammo = [999, 0, 0, 0];
+  player.owned = [true, false, false, false];
   player.reloading = false; player.reloadTimer = 0;
   player.fireTimer = 0; player.fireRateMult = 1; player.reloadMult = 1;
   player.hpRegen = false; player.hpRegenTimer = 0;
@@ -1408,7 +1464,7 @@ function spawnZombie() {
 
 
 // ===== INPUT =====
-const gameKeys = ['w','a','s','d','r','e','1','2','3'];
+const gameKeys = ['w','a','s','d','r','e','1','2','3','4'];
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   keys[k] = true;
@@ -1547,11 +1603,12 @@ function tryShoot() {
   
   player.mag--;
   player.fireTimer = w.rate * player.fireRateMult;
-  sfxShoot();
+  if (w.isRayGun) sfxRayGun(); else sfxShoot();
   gunKick = 1;
   
   // Muzzle flash
   muzzleLight.intensity = 3;
+  muzzleLight.color.set(w.isRayGun ? 0x00ff44 : 0xffcc44);
   muzzleLight.position.copy(camera.position);
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
@@ -1622,7 +1679,12 @@ function tryShoot() {
           const pts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
           points += pts;
           sfxKill();
-          spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+          if (w.isRayGun) {
+            // Green energy explosion
+            spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10);
+          } else {
+            spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+          }
           const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
           addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
           removeZombieMesh(bestZ);
@@ -1678,6 +1740,10 @@ function tryBuy() {
     const bx = (wb.tx + 0.5) * TILE, bz = (wb.tz + 0.5) * TILE;
     const d = Math.hypot(bx - px, bz - pz);
     if (d < TILE * 2) {
+      if (wb.minRound && round < wb.minRound) {
+        addFloatText(`${weapons[wb.wi].name} unlocks Round ${wb.minRound}`, '#888');
+        return;
+      }
       if (!player.owned[wb.wi] && points >= wb.cost) {
         points -= wb.cost;
         player.owned[wb.wi] = true;
@@ -1685,8 +1751,14 @@ function tryBuy() {
         player.mag = weapons[wb.wi].mag;
         player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
         player.reloading = false;
-        beep(600,'sine',0.08,0.12); setTimeout(()=>beep(900,'sine',0.08,0.12),100);
-        addFloatText(`${weapons[wb.wi].name}!`, '#6f6', 1.5);
+        if (weapons[wb.wi].isRayGun) {
+          beep(800,'sine',0.15,0.15); setTimeout(()=>beep(1200,'sine',0.15,0.15),100);
+          setTimeout(()=>beep(1600,'sine',0.2,0.12),200);
+          addFloatText(`⚡ RAY GUN ⚡`, '#0f0', 2.5);
+        } else {
+          beep(600,'sine',0.08,0.12); setTimeout(()=>beep(900,'sine',0.08,0.12),100);
+          addFloatText(`${weapons[wb.wi].name}!`, '#6f6', 1.5);
+        }
       } else if (player.owned[wb.wi] && points >= Math.floor(wb.cost/2)) {
         points -= Math.floor(wb.cost/2);
         player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
@@ -1807,6 +1879,7 @@ function update(dt) {
   if (keyPressed('1') && player.owned[0]) switchWeapon(0);
   if (keyPressed('2') && player.owned[1]) switchWeapon(1);
   if (keyPressed('3') && player.owned[2]) switchWeapon(2);
+  if (keyPressed('4') && player.owned[3]) switchWeapon(3);
   if (keyPressed('r')) doReload();
   if (keyPressed('e')) tryBuy();
   
@@ -1907,7 +1980,7 @@ function update(dt) {
       }
     }
     
-    updateZombieMesh(z);
+    updateZombieMesh(z, dt);
   }
   
   // Particles
@@ -2017,9 +2090,13 @@ function updateHUD() {
   for (const wb of wallBuys) {
     const bx = (wb.tx+0.5)*TILE, bz = (wb.tz+0.5)*TILE;
     if (Math.hypot(bx-px, bz-pz) < TILE*2) {
-      buyText = player.owned[wb.wi] ?
-        `${keyLabel} Ammo ${weapons[wb.wi].name} - $${Math.floor(wb.cost/2)}` :
-        `${keyLabel} Buy ${weapons[wb.wi].name} - $${wb.cost}`;
+      if (wb.minRound && round < wb.minRound) {
+        buyText = `${weapons[wb.wi].name} - Unlocks Round ${wb.minRound}`;
+      } else {
+        buyText = player.owned[wb.wi] ?
+          `${keyLabel} Ammo ${weapons[wb.wi].name} - $${Math.floor(wb.cost/2)}` :
+          `${keyLabel} Buy ${weapons[wb.wi].name} - $${wb.cost}`;
+      }
       break;
     }
   }
@@ -2189,26 +2266,205 @@ function showDeath() {
   document.getElementById('hud').classList.add('hidden');
 }
 
-// ===== GUN MODEL (3D) =====
+// ===== GUN MODELS (weapon-specific 3D) =====
 const gunGroup = new THREE.Group();
-// Gun body
-const gunBodyGeo = new THREE.BoxGeometry(0.08, 0.06, 0.4);
-const gunBodyMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.8 });
-const gunBody = new THREE.Mesh(gunBodyGeo, gunBodyMat);
-gunGroup.add(gunBody);
-// Gun barrel
-const gunBarrelGeo = new THREE.CylinderGeometry(0.015, 0.02, 0.25, 8);
-const gunBarrelMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.9 });
-const gunBarrel = new THREE.Mesh(gunBarrelGeo, gunBarrelMat);
-gunBarrel.rotation.x = PI / 2;
-gunBarrel.position.set(0, 0.01, -0.3);
-gunGroup.add(gunBarrel);
-// Gun grip
-const gunGripGeo = new THREE.BoxGeometry(0.06, 0.12, 0.06);
-const gunGripMat = new THREE.MeshStandardMaterial({ color: 0x4A3520, roughness: 0.9 });
-const gunGrip = new THREE.Mesh(gunGripGeo, gunGripMat);
-gunGrip.position.set(0, -0.08, 0.1);
-gunGroup.add(gunGrip);
+const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.85 });
+const metalLightMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.35, metalness: 0.9 });
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x4A3218, roughness: 0.85, metalness: 0.05 });
+const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x2E1E0E, roughness: 0.9, metalness: 0.05 });
+const rayGunMat = new THREE.MeshStandardMaterial({ color: 0x226633, roughness: 0.3, metalness: 0.7 });
+const rayGlowMat = new THREE.MeshBasicMaterial({ color: 0x00ff44, transparent: true, opacity: 0.8 });
+
+const gunModels = [];
+
+// --- M1911 Pistol ---
+function buildM1911() {
+  const g = new THREE.Group();
+  // Slide (top)
+  const slide = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.04, 0.28), metalMat);
+  slide.position.set(0, 0.02, -0.04);
+  g.add(slide);
+  // Frame (lower)
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.22), metalLightMat);
+  frame.position.set(0, -0.01, -0.01);
+  g.add(frame);
+  // Barrel
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.014, 0.12, 8), metalMat);
+  barrel.rotation.x = PI / 2; barrel.position.set(0, 0.02, -0.22);
+  g.add(barrel);
+  // Grip
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.1, 0.06), woodMat);
+  grip.position.set(0, -0.065, 0.06); grip.rotation.x = 0.15;
+  g.add(grip);
+  // Grip panels (wood texture detail)
+  const panelL = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.075, 0.045), woodDarkMat);
+  panelL.position.set(-0.026, -0.06, 0.06);
+  g.add(panelL);
+  const panelR = panelL.clone(); panelR.position.x = 0.026;
+  g.add(panelR);
+  // Trigger guard
+  const tg = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.004, 6, 8, PI), metalMat);
+  tg.position.set(0, -0.035, 0.02); tg.rotation.x = PI;
+  g.add(tg);
+  // Hammer
+  const hammer = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.025, 0.01), metalMat);
+  hammer.position.set(0, 0.05, 0.1);
+  g.add(hammer);
+  // Sights
+  const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.012, 0.006), metalMat);
+  frontSight.position.set(0, 0.05, -0.16);
+  g.add(frontSight);
+  return g;
+}
+
+// --- MP40 Submachine Gun ---
+function buildMP40() {
+  const g = new THREE.Group();
+  // Receiver body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.06, 0.38), metalMat);
+  body.position.set(0, 0, -0.05);
+  g.add(body);
+  // Barrel shroud (perforated look)
+  const shroud = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.025, 0.22, 8), metalLightMat);
+  shroud.rotation.x = PI / 2; shroud.position.set(0, 0.005, -0.33);
+  g.add(shroud);
+  // Inner barrel
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.01, 0.3, 8), metalMat);
+  barrel.rotation.x = PI / 2; barrel.position.set(0, 0.005, -0.35);
+  g.add(barrel);
+  // Magazine (angled stick mag — iconic MP40)
+  const mag = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.18, 0.025), metalMat);
+  mag.position.set(0, -0.12, -0.04); mag.rotation.x = -0.08;
+  g.add(mag);
+  // Pistol grip (bakelite)
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.09, 0.05), woodDarkMat);
+  grip.position.set(0, -0.065, 0.1); grip.rotation.x = 0.25;
+  g.add(grip);
+  // Folding stock (wire frame)
+  const stockBar = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.006, 0.25), metalLightMat);
+  stockBar.position.set(0.02, -0.02, 0.25);
+  g.add(stockBar);
+  const stockBar2 = stockBar.clone(); stockBar2.position.x = -0.02;
+  g.add(stockBar2);
+  const stockEnd = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.01), metalLightMat);
+  stockEnd.position.set(0, -0.02, 0.375);
+  g.add(stockEnd);
+  // Cocking handle
+  const cock = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.015, 0.015), metalMat);
+  cock.position.set(0.04, 0.025, -0.08);
+  g.add(cock);
+  return g;
+}
+
+// --- Trench Gun (Winchester 1897 Pump Shotgun) ---
+function buildTrenchGun() {
+  const g = new THREE.Group();
+  // Receiver
+  const recv = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.2), metalMat);
+  recv.position.set(0, 0, 0);
+  g.add(recv);
+  // Long barrel
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.45, 8), metalMat);
+  barrel.rotation.x = PI / 2; barrel.position.set(0, 0.01, -0.32);
+  g.add(barrel);
+  // Magazine tube (under barrel)
+  const magTube = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.35, 8), metalLightMat);
+  magTube.rotation.x = PI / 2; magTube.position.set(0, -0.02, -0.27);
+  g.add(magTube);
+  // Pump/forend (wood)
+  const pump = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.12), woodMat);
+  pump.position.set(0, -0.005, -0.18);
+  g.add(pump);
+  // Heat shield (top of barrel — iconic trench gun feature)
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.008, 0.35), metalLightMat);
+  shield.position.set(0, 0.03, -0.25);
+  g.add(shield);
+  // Ventilation holes in shield
+  for (let i = 0; i < 5; i++) {
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.01, 0.015), new THREE.MeshStandardMaterial({color:0x111111,roughness:1}));
+    hole.position.set(0, 0.031, -0.12 - i * 0.06);
+    g.add(hole);
+  }
+  // Stock (wood)
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.065, 0.22), woodMat);
+  stock.position.set(0, -0.01, 0.2); stock.rotation.x = -0.05;
+  g.add(stock);
+  // Buttplate
+  const butt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.07, 0.01), metalMat);
+  butt.position.set(0, -0.015, 0.31);
+  g.add(butt);
+  // Grip
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.08, 0.04), woodDarkMat);
+  grip.position.set(0, -0.06, 0.06); grip.rotation.x = 0.3;
+  g.add(grip);
+  // Trigger guard
+  const tg = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.004, 6, 8, PI), metalMat);
+  tg.position.set(0, -0.04, 0.03); tg.rotation.x = PI;
+  g.add(tg);
+  // Bayonet lug (small nub)
+  const lug = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.02, 0.015), metalMat);
+  lug.position.set(0, -0.03, -0.53);
+  g.add(lug);
+  return g;
+}
+
+// --- Ray Gun (retro sci-fi pistol) ---
+function buildRayGun() {
+  const g = new THREE.Group();
+  // Main body (bulbous retro shape)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.065, 0.25), rayGunMat);
+  body.position.set(0, 0, -0.02);
+  g.add(body);
+  // Rounded top
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.22, 8), rayGunMat);
+  top.rotation.x = PI / 2; top.position.set(0, 0.035, -0.02);
+  g.add(top);
+  // Dish/emitter (wide cone at front)
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.02, 0.1, 12), metalLightMat);
+  dish.rotation.x = PI / 2; dish.position.set(0, 0.01, -0.2);
+  g.add(dish);
+  // Glowing emitter core
+  const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 10), rayGlowMat);
+  emitter.position.set(0, 0.01, -0.25);
+  g.add(emitter);
+  // Energy tubes (side details)
+  const tubeL = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.15, 6), rayGlowMat);
+  tubeL.rotation.x = PI / 2; tubeL.position.set(0.04, 0.01, -0.06);
+  g.add(tubeL);
+  const tubeR = tubeL.clone(); tubeR.position.x = -0.04;
+  g.add(tubeR);
+  // Power cell (bulge at back)
+  const cell = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshStandardMaterial({color: 0x115522, roughness: 0.3, metalness: 0.6}));
+  cell.position.set(0, 0.01, 0.12);
+  g.add(cell);
+  // Grip
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.045), new THREE.MeshStandardMaterial({color: 0x334433, roughness: 0.7, metalness: 0.3}));
+  grip.position.set(0, -0.065, 0.06); grip.rotation.x = 0.2;
+  g.add(grip);
+  // Antenna/fin
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.05, 0.12), rayGunMat);
+  fin.position.set(0, 0.06, 0.02);
+  g.add(fin);
+  // Small glow light
+  const glow = new THREE.PointLight(0x00ff44, 0.5, 3);
+  glow.position.set(0, 0.01, -0.25);
+  g.add(glow);
+  g._rayGlow = glow;
+  g._rayEmitter = emitter;
+  return g;
+}
+
+// Build all gun models
+gunModels.push(buildM1911());
+gunModels.push(buildMP40());
+gunModels.push(buildTrenchGun());
+gunModels.push(buildRayGun());
+
+// Add all to gunGroup, hide non-active
+gunModels.forEach((m, i) => {
+  m.visible = (i === 0);
+  gunGroup.add(m);
+});
 
 // Muzzle flash mesh
 const muzzleGeo = new THREE.SphereGeometry(0.06, 6, 6);
@@ -2221,7 +2477,14 @@ camera.add(gunGroup);
 gunGroup.position.set(0.25, -0.2, -0.5);
 scene.add(camera);
 
+let _prevWeapon = -1;
 function updateGunModel(dt) {
+  // Show correct gun model
+  if (_prevWeapon !== player.curWeapon) {
+    gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
+    _prevWeapon = player.curWeapon;
+  }
+
   // Bob
   const bobX = Math.sin(player.bobPhase) * 0.01;
   const bobY = Math.abs(Math.cos(player.bobPhase)) * 0.008;
@@ -2236,11 +2499,23 @@ function updateGunModel(dt) {
   gunGroup.rotation.x = kick * 0.3;
   
   // Muzzle flash
+  const w = weapons[player.curWeapon];
   if (gunKick > 0.5) {
+    muzzleMat.color.set(w.isRayGun ? 0x00ff44 : 0xffcc44);
     muzzleMat.opacity = gunKick;
     muzzleMesh.scale.setScalar(1 + gunKick * 2);
   } else {
     muzzleMat.opacity = 0;
+  }
+
+  // Ray Gun glow pulse
+  const rgModel = gunModels[3];
+  if (rgModel._rayGlow) {
+    const t = performance.now() / 1000;
+    rgModel._rayGlow.intensity = 0.3 + Math.sin(t * 4) * 0.25;
+    if (rgModel._rayEmitter) {
+      rgModel._rayEmitter.material.opacity = 0.6 + Math.sin(t * 6) * 0.3;
+    }
   }
 }
 
