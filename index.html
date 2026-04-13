@@ -1159,6 +1159,9 @@ const weapons = [
   { name: 'Trench Gun', dmg: 120, rate: 0.7, mag: 6, maxAmmo: 54, reload: 2.5, auto: false, spread: 0.1, pellets: 5, color: '#f84' },
   { name: 'Ray Gun', dmg: 300, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true },
 ];
+// Store original weapon stats for PaP reset
+const origWeaponStats = weapons.map(w => ({ name: w.name, dmg: w.dmg, mag: w.mag, maxAmmo: w.maxAmmo }));
+
 const wallBuys = [
   { tx: 12, tz: 4, wi: 1, cost: 1000 },
   { tx: 12, tz: 19, wi: 2, cost: 1500 },
@@ -1257,6 +1260,449 @@ const spawnPts = [
   {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:22,z:18,door:'east'},
 ];
 
+
+// ===== MYSTERY BOX SYSTEM =====
+const mysteryBox = {
+  tx: 14, tz: 14, // location on map
+  cost: 950,
+  isOpen: false,
+  isSpinning: false,
+  spinTimer: 0,
+  spinDuration: 3.0,
+  currentSpinIdx: 0,
+  resultWeaponIdx: -1,
+  collectTimer: 0,
+  collectDuration: 8, // seconds to grab weapon before it closes
+};
+
+const mysteryBoxMeshes = {};
+
+function buildMysteryBox() {
+  // Clean up old
+  if (mysteryBoxMeshes.body) {
+    scene.remove(mysteryBoxMeshes.body);
+    scene.remove(mysteryBoxMeshes.lid);
+    scene.remove(mysteryBoxMeshes.glow);
+    scene.remove(mysteryBoxMeshes.light);
+    if (mysteryBoxMeshes.weaponDisplay) scene.remove(mysteryBoxMeshes.weaponDisplay);
+  }
+  
+  const bx = mysteryBox.tx * TILE + TILE / 2;
+  const bz = mysteryBox.tz * TILE + TILE / 2;
+  
+  // Box body (ornate chest)
+  const bodyGeo = new THREE.BoxGeometry(1.6, 0.9, 1.0);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x442200, roughness: 0.6, metalness: 0.3 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(bx, 0.45, bz);
+  body.castShadow = true;
+  scene.add(body);
+  
+  // Gold trim
+  const trimGeo = new THREE.BoxGeometry(1.65, 0.05, 1.05);
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xddaa00, roughness: 0.3, metalness: 0.8, emissive: 0xddaa00, emissiveIntensity: 0.15 });
+  const trim = new THREE.Mesh(trimGeo, trimMat);
+  trim.position.set(bx, 0.9, bz);
+  scene.add(trim);
+  
+  // Lid
+  const lidGeo = new THREE.BoxGeometry(1.6, 0.15, 1.0);
+  const lidMat = new THREE.MeshStandardMaterial({ color: 0x442200, roughness: 0.6, metalness: 0.3 });
+  const lid = new THREE.Mesh(lidGeo, lidMat);
+  lid.position.set(bx, 0.97, bz);
+  scene.add(lid);
+  
+  // Glow beam (visible when spinning/collecting)
+  const glowGeo = new THREE.CylinderGeometry(0.3, 0.6, 3, 8);
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0, side: THREE.DoubleSide });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.position.set(bx, 2.5, bz);
+  scene.add(glow);
+  
+  // Point light
+  const light = new THREE.PointLight(0x4488ff, 0, 12);
+  light.position.set(bx, 2, bz);
+  scene.add(light);
+  
+  mysteryBoxMeshes.body = body;
+  mysteryBoxMeshes.lid = lid;
+  mysteryBoxMeshes.trim = trim;
+  mysteryBoxMeshes.glow = glow;
+  mysteryBoxMeshes.light = light;
+  mysteryBoxMeshes.weaponDisplay = null;
+}
+
+function tryMysteryBox() {
+  if (mysteryBox.isSpinning || mysteryBox.collectTimer > 0) return false;
+  const bx = mysteryBox.tx * TILE + TILE / 2;
+  const bz = mysteryBox.tz * TILE + TILE / 2;
+  const d = Math.hypot(bx - camera.position.x, bz - camera.position.z);
+  if (d > TILE * 2.5) return false;
+  
+  if (points < mysteryBox.cost) {
+    addFloatText(`Need $${mysteryBox.cost} for Mystery Box`, '#f88');
+    return true;
+  }
+  
+  points -= mysteryBox.cost;
+  mysteryBox.isSpinning = true;
+  mysteryBox.spinTimer = 0;
+  // Random result (weighted: ray gun rare)
+  const roll = Math.random();
+  if (roll < 0.1) mysteryBox.resultWeaponIdx = 3; // 10% Ray Gun
+  else if (roll < 0.4) mysteryBox.resultWeaponIdx = 2; // 30% Trench Gun
+  else if (roll < 0.7) mysteryBox.resultWeaponIdx = 1; // 30% MP40
+  else mysteryBox.resultWeaponIdx = 0; // 30% M1911 (teddy bear / dud equivalent)
+  
+  beep(600, 'sine', 0.15, 0.1);
+  addFloatText('🎰 Mystery Box...', '#48f', 2);
+  return true;
+}
+
+function collectMysteryBoxWeapon() {
+  if (mysteryBox.collectTimer <= 0 || mysteryBox.resultWeaponIdx < 0) return false;
+  const bx = mysteryBox.tx * TILE + TILE / 2;
+  const bz = mysteryBox.tz * TILE + TILE / 2;
+  const d = Math.hypot(bx - camera.position.x, bz - camera.position.z);
+  if (d > TILE * 2.5) return false;
+  
+  const wi = mysteryBox.resultWeaponIdx;
+  player.owned[wi] = true;
+  player.curWeapon = wi;
+  player.mag = weapons[wi].mag;
+  player.ammo[wi] = weapons[wi].maxAmmo;
+  player.reloading = false;
+  
+  sfxBuyWeapon(weapons[wi].isRayGun);
+  const wName = weapons[wi].name;
+  addFloatText(weapons[wi].isRayGun ? `⚡ ${wName} ⚡` : `${wName}!`, weapons[wi].color, 2);
+  
+  mysteryBox.collectTimer = 0;
+  mysteryBox.resultWeaponIdx = -1;
+  // Remove weapon display
+  if (mysteryBoxMeshes.weaponDisplay) {
+    scene.remove(mysteryBoxMeshes.weaponDisplay);
+    mysteryBoxMeshes.weaponDisplay = null;
+  }
+  return true;
+}
+
+function updateMysteryBox(dt) {
+  const bx = mysteryBox.tx * TILE + TILE / 2;
+  const bz = mysteryBox.tz * TILE + TILE / 2;
+  
+  if (mysteryBox.isSpinning) {
+    mysteryBox.spinTimer += dt;
+    const t = mysteryBox.spinTimer / mysteryBox.spinDuration;
+    
+    // Open lid
+    if (mysteryBoxMeshes.lid) {
+      mysteryBoxMeshes.lid.rotation.x = Math.min(t * 3, 1) * -0.8;
+      mysteryBoxMeshes.lid.position.y = 0.97 + Math.min(t * 3, 1) * 0.3;
+    }
+    
+    // Glow beam
+    mysteryBoxMeshes.glow.material.opacity = 0.15 + Math.sin(t * 20) * 0.1;
+    mysteryBoxMeshes.light.intensity = 1.5 + Math.sin(t * 15) * 0.5;
+    
+    // Spinning weapon name display (text-based, shown via floatText)
+    const spinRate = Math.max(0.05, 0.3 - t * 0.25); // speeds up then slows
+    if (mysteryBox.spinTimer % spinRate < dt) {
+      mysteryBox.currentSpinIdx = (mysteryBox.currentSpinIdx + 1) % weapons.length;
+    }
+    
+    // Spinning sound clicks
+    if (Math.floor(mysteryBox.spinTimer * 8) !== Math.floor((mysteryBox.spinTimer - dt) * 8)) {
+      beep(800 + Math.random() * 400, 'square', 0.02, 0.04);
+    }
+    
+    if (t >= 1) {
+      // Spin complete — show result
+      mysteryBox.isSpinning = false;
+      mysteryBox.collectTimer = mysteryBox.collectDuration;
+      
+      // Create floating weapon indicator
+      const indicatorGeo = new THREE.BoxGeometry(0.8, 0.3, 0.15);
+      const w = weapons[mysteryBox.resultWeaponIdx];
+      const indicatorMat = new THREE.MeshBasicMaterial({ 
+        color: new THREE.Color(w.color), transparent: true, opacity: 0.8 
+      });
+      const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+      indicator.position.set(bx, 2, bz);
+      scene.add(indicator);
+      mysteryBoxMeshes.weaponDisplay = indicator;
+      
+      // Result sound
+      if (weapons[mysteryBox.resultWeaponIdx].isRayGun) {
+        beep(800, 'sine', 0.15, 0.12);
+        setTimeout(() => beep(1200, 'sine', 0.15, 0.12), 100);
+        setTimeout(() => beep(1600, 'sine', 0.2, 0.1), 200);
+      } else {
+        beep(500, 'sine', 0.1, 0.1);
+        setTimeout(() => beep(700, 'sine', 0.15, 0.1), 120);
+      }
+      
+      addFloatText(`${w.name}! [E] to grab`, w.color, 5);
+    }
+  } else if (mysteryBox.collectTimer > 0) {
+    mysteryBox.collectTimer -= dt;
+    
+    // Weapon display bobs up and down
+    if (mysteryBoxMeshes.weaponDisplay) {
+      mysteryBoxMeshes.weaponDisplay.position.y = 2 + Math.sin(performance.now() / 500) * 0.2;
+      mysteryBoxMeshes.weaponDisplay.rotation.y += dt * 2;
+    }
+    
+    // Glow
+    mysteryBoxMeshes.glow.material.opacity = 0.1;
+    mysteryBoxMeshes.light.intensity = 1;
+    
+    // Flash warning when about to close
+    if (mysteryBox.collectTimer < 3 && Math.sin(mysteryBox.collectTimer * 8) > 0) {
+      mysteryBoxMeshes.light.intensity = 2;
+    }
+    
+    if (mysteryBox.collectTimer <= 0) {
+      // Weapon despawns
+      mysteryBox.resultWeaponIdx = -1;
+      if (mysteryBoxMeshes.weaponDisplay) {
+        scene.remove(mysteryBoxMeshes.weaponDisplay);
+        mysteryBoxMeshes.weaponDisplay = null;
+      }
+      // Close lid
+      if (mysteryBoxMeshes.lid) {
+        mysteryBoxMeshes.lid.rotation.x = 0;
+        mysteryBoxMeshes.lid.position.y = 0.97;
+      }
+      mysteryBoxMeshes.glow.material.opacity = 0;
+      mysteryBoxMeshes.light.intensity = 0;
+      beep(200, 'sine', 0.2, 0.08);
+    }
+  } else {
+    // Idle state — gentle glow pulse
+    const t = performance.now() / 1000;
+    mysteryBoxMeshes.glow.material.opacity = 0;
+    mysteryBoxMeshes.light.intensity = 0.3 + Math.sin(t * 1.5) * 0.15;
+    // Reset lid
+    if (mysteryBoxMeshes.lid) {
+      mysteryBoxMeshes.lid.rotation.x = 0;
+      mysteryBoxMeshes.lid.position.y = 0.97;
+    }
+  }
+}
+
+// ===== PACK-A-PUNCH SYSTEM =====
+const packAPunch = {
+  tx: 7, tz: 18, // location on map
+  cost: 5000,
+  upgraded: {}, // weaponIdx -> true
+};
+
+const papMeshes = {};
+
+function buildPackAPunch() {
+  if (papMeshes.body) {
+    scene.remove(papMeshes.body); scene.remove(papMeshes.panel); scene.remove(papMeshes.light);
+  }
+  
+  const px = packAPunch.tx * TILE + TILE / 2;
+  const pz = packAPunch.tz * TILE + TILE / 2;
+  
+  // Machine body (purple/orange theme like CoD)
+  const bodyGeo = new THREE.BoxGeometry(1.4, 2.6, 1.4);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a1a3a, roughness: 0.5, metalness: 0.4 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.set(px, 1.3, pz);
+  body.castShadow = true;
+  scene.add(body);
+  
+  // Glowing panel (purple/electric)
+  const panelGeo = new THREE.PlaneGeometry(1.0, 1.4);
+  const panelMat = new THREE.MeshStandardMaterial({ 
+    color: 0x8800ff, emissive: 0x8800ff, emissiveIntensity: 0.6, roughness: 0.2 
+  });
+  const panel = new THREE.Mesh(panelGeo, panelMat);
+  panel.position.set(px, 1.5, pz - 0.71);
+  scene.add(panel);
+  
+  // Light
+  const light = new THREE.PointLight(0x8800ff, 2, 16);
+  light.position.set(px, 2.5, pz);
+  scene.add(light);
+  
+  papMeshes.body = body;
+  papMeshes.panel = panel;
+  papMeshes.light = light;
+}
+
+function tryPackAPunch() {
+  const px = packAPunch.tx * TILE + TILE / 2;
+  const pz = packAPunch.tz * TILE + TILE / 2;
+  const d = Math.hypot(px - camera.position.x, pz - camera.position.z);
+  if (d > TILE * 2.5) return false;
+  
+  const wi = player.curWeapon;
+  if (packAPunch.upgraded[wi]) {
+    addFloatText(`${weapons[wi].name} already upgraded!`, '#888');
+    return true;
+  }
+  if (points < packAPunch.cost) {
+    addFloatText(`Need $${packAPunch.cost} for Pack-a-Punch`, '#f88');
+    return true;
+  }
+  
+  points -= packAPunch.cost;
+  packAPunch.upgraded[wi] = true;
+  
+  // Apply upgrade: 2x damage, +50% mag, enhanced effects
+  weapons[wi].dmg = Math.floor(weapons[wi].dmg * 2);
+  weapons[wi].mag = Math.floor(weapons[wi].mag * 1.5);
+  weapons[wi].maxAmmo = Math.floor(weapons[wi].maxAmmo * 1.5);
+  player.mag = weapons[wi].mag;
+  player.ammo[wi] = weapons[wi].maxAmmo;
+  
+  // Rename weapon (CoD style)
+  const papNames = { 'M1911': 'Mustang & Sally', 'MP40': 'The Afterburner', 'Trench Gun': 'Gut Shot', 'Ray Gun': 'Porter\'s X2' };
+  const origName = weapons[wi].name;
+  weapons[wi].name = papNames[origName] || weapons[wi].name + ' PaP';
+  
+  // Visual/audio feedback
+  triggerScreenShake(1.0, 6);
+  beep(200, 'sine', 0.2, 0.12);
+  setTimeout(() => beep(400, 'sine', 0.2, 0.12), 200);
+  setTimeout(() => beep(800, 'sine', 0.3, 0.15), 400);
+  setTimeout(() => beep(1200, 'sine', 0.2, 0.1), 600);
+  
+  addFloatText(`⚡ PACK-A-PUNCHED! ⚡`, '#a0f', 3);
+  addFloatText(`${weapons[wi].name} - 2x DMG`, '#fc0', 2.5);
+  
+  return true;
+}
+
+// ===== POWER-UP DROPS =====
+const powerUps = [];
+const POWERUP_TYPES = [
+  { id: 'instakill', name: 'INSTA-KILL', color: '#ff4444', duration: 30, icon: '💀',
+    apply() { player._instaKill = true; player._instaKillTimer = 30; },
+    remove() { player._instaKill = false; } },
+  { id: 'maxammo', name: 'MAX AMMO', color: '#44ff44', duration: 0, icon: '🔫',
+    apply() { for (let i = 0; i < weapons.length; i++) { if (player.owned[i]) player.ammo[i] = weapons[i].maxAmmo; } player.mag = weapons[player.curWeapon].mag; },
+    remove() {} },
+  { id: 'doublepoints', name: 'DOUBLE POINTS', color: '#ffff44', duration: 30, icon: '💰',
+    apply() { player._doublePoints = true; player._doublePointsTimer = 30; },
+    remove() { player._doublePoints = false; } },
+  { id: 'nuke', name: 'NUKE', color: '#ff8800', duration: 0, icon: '☢️',
+    apply() { 
+      // Kill all zombies
+      const pts = zombies.length * 400;
+      for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        totalKills++;
+        startZombieDeathAnim(z);
+        spawnBloodParticles(z.wx, 1, z.wz, 3);
+        removeZombieMesh(z);
+      }
+      zombies.length = 0;
+      points += pts;
+      triggerScreenShake(3, 4);
+      addFloatText(`+${pts}`, '#ff8', 2);
+      // White flash
+      const flash = document.getElementById('roundFlash');
+      flash.style.display = 'block';
+      flash.style.opacity = 0.5;
+      flash.style.background = 'rgba(255,200,100,0.4)';
+      setTimeout(() => { flash.style.opacity = 0; setTimeout(() => { flash.style.display = 'none'; flash.style.background = 'rgba(255,255,255,0.3)'; }, 500); }, 200);
+    },
+    remove() {} },
+];
+
+const powerUpMeshes = [];
+
+function spawnPowerUp(wx, wz) {
+  // 12% chance to drop a power-up when a zombie dies
+  if (Math.random() > 0.12) return;
+  
+  const typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
+  const type = POWERUP_TYPES[typeIdx];
+  
+  // Create 3D pickup
+  const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+  const mat = new THREE.MeshStandardMaterial({ 
+    color: new THREE.Color(type.color), 
+    emissive: new THREE.Color(type.color), emissiveIntensity: 0.5,
+    transparent: true, opacity: 0.85
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(wx, 0.8, wz);
+  scene.add(mesh);
+  
+  // Glow light
+  const light = new THREE.PointLight(new THREE.Color(type.color).getHex(), 2, 8);
+  light.position.set(wx, 1.2, wz);
+  scene.add(light);
+  
+  const pu = { typeIdx, wx, wz, mesh, light, life: 20, bobPhase: Math.random() * Math.PI * 2 };
+  powerUps.push(pu);
+  powerUpMeshes.push(pu);
+}
+
+function updatePowerUps(dt) {
+  for (let i = powerUps.length - 1; i >= 0; i--) {
+    const pu = powerUps[i];
+    pu.life -= dt;
+    pu.bobPhase += dt * 3;
+    
+    // Bob and rotate
+    pu.mesh.position.y = 0.8 + Math.sin(pu.bobPhase) * 0.15;
+    pu.mesh.rotation.y += dt * 2;
+    pu.mesh.rotation.x = Math.sin(pu.bobPhase * 0.7) * 0.2;
+    
+    // Pulse glow
+    pu.light.intensity = 1.5 + Math.sin(pu.bobPhase * 2) * 0.5;
+    
+    // Flash when about to expire
+    if (pu.life < 5) {
+      pu.mesh.material.opacity = 0.4 + Math.sin(pu.life * 6) * 0.4;
+    }
+    
+    // Check pickup (player walks over)
+    const d = Math.hypot(pu.wx - camera.position.x, pu.wz - camera.position.z);
+    if (d < 2) {
+      // Collect!
+      const type = POWERUP_TYPES[pu.typeIdx];
+      type.apply();
+      addFloatText(`${type.icon} ${type.name}!`, type.color, 3);
+      beep(600, 'sine', 0.1, 0.12);
+      setTimeout(() => beep(900, 'sine', 0.15, 0.12), 100);
+      triggerScreenShake(0.3, 10);
+      
+      scene.remove(pu.mesh); scene.remove(pu.light);
+      pu.mesh.material.dispose(); pu.mesh.geometry.dispose();
+      powerUps.splice(i, 1);
+      continue;
+    }
+    
+    // Despawn
+    if (pu.life <= 0) {
+      scene.remove(pu.mesh); scene.remove(pu.light);
+      pu.mesh.material.dispose(); pu.mesh.geometry.dispose();
+      powerUps.splice(i, 1);
+    }
+  }
+  
+  // Update timed power-ups
+  if (player._instaKill && player._instaKillTimer > 0) {
+    player._instaKillTimer -= dt;
+    if (player._instaKillTimer <= 0) { player._instaKill = false; addFloatText('Insta-Kill ended', '#888', 1.5); }
+  }
+  if (player._doublePoints && player._doublePointsTimer > 0) {
+    player._doublePointsTimer -= dt;
+    if (player._doublePointsTimer <= 0) { player._doublePoints = false; addFloatText('Double Points ended', '#888', 1.5); }
+  }
+}
+
+buildMysteryBox();
+buildPackAPunch();
 
 // ===== ZOMBIES =====
 const zombies = [];
@@ -3027,6 +3473,29 @@ function initGame() {
   particles.length = 0;
   floatTexts.length = 0;
   
+  // Reset weapons to original stats (undo PaP)
+  for (let i = 0; i < weapons.length; i++) {
+    weapons[i].name = origWeaponStats[i].name;
+    weapons[i].dmg = origWeaponStats[i].dmg;
+    weapons[i].mag = origWeaponStats[i].mag;
+    weapons[i].maxAmmo = origWeaponStats[i].maxAmmo;
+  }
+  packAPunch.upgraded = {};
+  
+  // Reset mystery box
+  mysteryBox.isSpinning = false; mysteryBox.spinTimer = 0;
+  mysteryBox.collectTimer = 0; mysteryBox.resultWeaponIdx = -1;
+  
+  // Clear power-ups
+  powerUps.forEach(pu => { scene.remove(pu.mesh); scene.remove(pu.light); pu.mesh.material.dispose(); pu.mesh.geometry.dispose(); });
+  powerUps.length = 0;
+  player._instaKill = false; player._instaKillTimer = 0;
+  player._doublePoints = false; player._doublePointsTimer = 0;
+  
+  // Build mystery box & PaP
+  buildMysteryBox();
+  buildPackAPunch();
+  
   // Clear visual juice
   muzzleSparks.forEach(s => { scene.remove(s.mesh); s.mesh.material.dispose(); });
   muzzleSparks.length = 0;
@@ -3352,7 +3821,9 @@ function tryShoot() {
       bestZ.hp -= w.dmg;
       bestZ.flash = 1;
       sfxHit();
-      points += 10;
+      points += player._doublePoints ? 20 : 10;
+      // Insta-kill: any hit kills
+      if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
       spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
       showHitmarker(false);
       spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
@@ -3361,7 +3832,8 @@ function tryShoot() {
         const idx = zombies.indexOf(bestZ);
         if (idx >= 0) {
           totalKills++;
-          const pts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
+          const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
+          const pts = player._doublePoints ? basePts * 2 : basePts;
           points += pts;
           sfxKill();
           showHitmarker(true);
@@ -3378,6 +3850,8 @@ function tryShoot() {
           startZombieDeathAnim(bestZ);
           // Blood splatter on nearby walls
           spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
+          // Chance to drop power-up
+          spawnPowerUp(bestZ.wx, bestZ.wz);
           // Screen shake on kills (bigger for boss)
           triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
           removeZombieMesh(bestZ);
@@ -3483,6 +3957,13 @@ function tryBuy() {
       return;
     }
   }
+  
+  // Mystery Box
+  if (tryMysteryBox()) return;
+  if (collectMysteryBoxWeapon()) return;
+  
+  // Pack-a-Punch
+  if (tryPackAPunch()) return;
   
   // Doors
   tryBuyDoor();
@@ -3689,6 +4170,10 @@ function update(dt) {
   // Ambient sounds (zombie groans, wind, distant screams)
   updateAmbientSounds(dt);
   
+  // Mystery box + power-ups
+  updateMysteryBox(dt);
+  updatePowerUps(dt);
+  
   // Round complete
   if (zSpawned >= zToSpawn && zombies.length === 0) {
     const bonus = round * 100;
@@ -3792,6 +4277,13 @@ function updateHUD() {
       perkHTML += `<div class="perk-icon" style="border-color:${p.color};color:${p.color}">${p.name.substring(0,3).toUpperCase()}</div>`;
     }
   }
+  // Active power-ups
+  if (player._instaKill && player._instaKillTimer > 0) {
+    perkHTML += `<div class="perk-icon" style="border-color:#f44;color:#f44;animation:hpShimmer 1s infinite">💀${Math.ceil(player._instaKillTimer)}s</div>`;
+  }
+  if (player._doublePoints && player._doublePointsTimer > 0) {
+    perkHTML += `<div class="perk-icon" style="border-color:#ff4;color:#ff4;animation:hpShimmer 1s infinite">💰${Math.ceil(player._doublePointsTimer)}s</div>`;
+  }
   perkEl.innerHTML = perkHTML;
   
   // Buy prompt
@@ -3837,6 +4329,31 @@ function updateHUD() {
         }
       }
       if (buyText) break;
+    }
+  }
+  // Mystery Box prompt
+  if (!buyText) {
+    const mbx = (mysteryBox.tx+0.5)*TILE, mbz = (mysteryBox.tz+0.5)*TILE;
+    if (Math.hypot(mbx-px, mbz-pz) < TILE*2.5) {
+      if (mysteryBox.collectTimer > 0 && mysteryBox.resultWeaponIdx >= 0) {
+        buyText = `${keyLabel} Grab ${weapons[mysteryBox.resultWeaponIdx].name}`;
+      } else if (mysteryBox.isSpinning) {
+        buyText = '🎰 Spinning...';
+      } else {
+        buyText = `${keyLabel} Mystery Box - $${mysteryBox.cost}`;
+      }
+    }
+  }
+  // Pack-a-Punch prompt
+  if (!buyText) {
+    const ppx = (packAPunch.tx+0.5)*TILE, ppz = (packAPunch.tz+0.5)*TILE;
+    if (Math.hypot(ppx-px, ppz-pz) < TILE*2.5) {
+      const wi = player.curWeapon;
+      if (packAPunch.upgraded[wi]) {
+        buyText = `${weapons[wi].name} (UPGRADED)`;
+      } else {
+        buyText = `${keyLabel} Pack-a-Punch ${weapons[wi].name} - $${packAPunch.cost}`;
+      }
     }
   }
   
@@ -3908,6 +4425,26 @@ function drawMinimap() {
     const perk = perks[pm.perkIdx];
     mmCtx.fillStyle = player.perksOwned[perk.id] ? 'rgba(100,100,100,0.5)' : perk.color;
     mmCtx.fillRect((pm.tx + 0.5) * tileS - 2, (pm.tz + 0.5) * tileS - 2, 4, 4);
+  }
+  
+  // Mystery Box (blue diamond)
+  const mbMmX = (mysteryBox.tx + 0.5) * tileS;
+  const mbMmZ = (mysteryBox.tz + 0.5) * tileS;
+  mmCtx.fillStyle = '#48f';
+  mmCtx.beginPath(); mmCtx.arc(mbMmX, mbMmZ, 3, 0, PI2); mmCtx.fill();
+  
+  // Pack-a-Punch (purple diamond)
+  const ppMmX = (packAPunch.tx + 0.5) * tileS;
+  const ppMmZ = (packAPunch.tz + 0.5) * tileS;
+  mmCtx.fillStyle = '#a0f';
+  mmCtx.beginPath(); mmCtx.arc(ppMmX, ppMmZ, 3, 0, PI2); mmCtx.fill();
+  
+  // Power-up drops (flashing)
+  for (const pu of powerUps) {
+    const puX = (pu.wx / (MAP_W * TILE)) * mmW;
+    const puZ = (pu.wz / (MAP_H * TILE)) * mmH;
+    mmCtx.fillStyle = POWERUP_TYPES[pu.typeIdx].color;
+    mmCtx.beginPath(); mmCtx.arc(puX, puZ, 2, 0, PI2); mmCtx.fill();
   }
   
   // Zombies
