@@ -257,7 +257,8 @@ const controls = {
   isLocked: false,
   _yaw: 0,    // horizontal rotation (radians)
   _pitch: 0,  // vertical rotation (radians, clamped)
-  _maxPitch: Math.PI / 3,  // 60° — standard FPS pitch limit
+  _maxPitch: Math.PI / 2.4,  // 75° — comfortable FPS pitch limit
+  _skipFrames: 0,  // skip N mousemove events after pointer lock acquired (spike guard)
   
   lock() {
     renderer.domElement.requestPointerLock();
@@ -288,20 +289,33 @@ const controls = {
   }
 };
 
-// Mouse handler
+// Mouse handler — with spike guard and movement cap
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked) return;
-  const mx = e.movementX || 0;
-  const my = e.movementY || 0;
+  // Skip first few mousemove events after pointer lock — browsers send huge spikes
+  if (controls._skipFrames > 0) {
+    controls._skipFrames--;
+    return;
+  }
+  let mx = e.movementX || 0;
+  let my = e.movementY || 0;
+  // Cap individual mouse deltas to prevent sudden snaps (max ~15° per frame)
+  const maxDelta = 150;
+  mx = Math.max(-maxDelta, Math.min(maxDelta, mx));
+  my = Math.max(-maxDelta, Math.min(maxDelta, my));
   controls._yaw -= mx * 0.002;
   controls._pitch -= my * 0.002;
   controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
   controls._applyRotation();
 });
 
-// Pointer lock state
+// Pointer lock state — skip first 3 mousemove events after lock to avoid spike
 document.addEventListener('pointerlockchange', () => {
+  const wasLocked = controls.isLocked;
   controls.isLocked = document.pointerLockElement === renderer.domElement;
+  if (controls.isLocked && !wasLocked) {
+    controls._skipFrames = 3; // ignore first 3 mousemove events (browser spike guard)
+  }
 });
 
 // ===== LIGHTING =====
