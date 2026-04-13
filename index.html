@@ -1110,7 +1110,9 @@ function createZombieMesh(z) {
   z._spriteVariant = Math.floor(Math.random() * sheets.length);
   z._spriteFrame = 0;
   z._frameTimer = 0;
-  z._frameSpeed = 0.12 + Math.random() * 0.08;
+  // Frame speed tied to movement: fast zombies animate faster, limpers slower
+  const spdRatio = z._baseSpd ? (z.spd / z._baseSpd) : 1;
+  z._frameSpeed = z._hasLimp ? (0.22 + Math.random() * 0.12) : (0.08 + (1 - Math.min(spdRatio, 1.5) / 1.5) * 0.12 + Math.random() * 0.04);
 
   const spriteSheet = sheets[z._spriteVariant];
 
@@ -1135,24 +1137,25 @@ function createZombieMesh(z) {
   const sprite = new THREE.Sprite(spriteMat);
   const spriteH = 2.2 * scale;
   sprite.scale.set(spriteH, spriteH, 1);
-  sprite.position.y = spriteH / 2;
-  sprite.center.set(0.5, 0.0); // anchor at bottom center
+  // Anchor at bottom-center so sprite stands on the ground (no extra y offset)
+  sprite.center.set(0.5, 0.0);
+  sprite.position.y = 0;
   group.add(sprite);
 
-  // Eye glow point light
+  // Eye glow point light (at head height ~70% of sprite)
   const eyeColor = z.isBoss ? 0xffff00 : z.isElite ? 0xff6600 : 0xff1e0a;
   const eyeLight = new THREE.PointLight(eyeColor, 0.6, 4);
-  eyeLight.position.set(0, spriteH * 0.7, -0.3);
+  eyeLight.position.set(0, spriteH * 0.75, -0.3);
   group.add(eyeLight);
 
-  // HP bar
+  // HP bar (above head)
   const hpCanvas = document.createElement('canvas');
   hpCanvas.width = 64; hpCanvas.height = 8;
   const hpTex = new THREE.CanvasTexture(hpCanvas);
   const hpMaterial = new THREE.SpriteMaterial({ map: hpTex, transparent: true });
   const hpSprite = new THREE.Sprite(hpMaterial);
   hpSprite.scale.set(1.2*scale, 0.15*scale, 1);
-  hpSprite.position.y = spriteH + 0.3;
+  hpSprite.position.y = spriteH + 0.15;
   hpSprite.visible = false;
   group.add(hpSprite);
 
@@ -1172,8 +1175,16 @@ function updateZombieMesh(z) {
     hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet } = data;
   const scale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
 
-  // Position
-  group.position.set(z.wx, 0, z.wz);
+  // Position — grounded on floor
+  let yOff = 0;
+  if (z._hasLimp) {
+    // Limping visual: bob up/down and slight tilt
+    yOff = Math.abs(Math.sin(z._limpPhase)) * 0.08 * z._limpSeverity;
+    sprite.material.rotation = Math.sin(z._limpPhase) * 0.06 * z._limpSeverity;
+  } else {
+    sprite.material.rotation = 0;
+  }
+  group.position.set(z.wx, yOff, z.wz);
 
   // Animate walk cycle
   z._frameTimer += 0.016;
@@ -1349,6 +1360,30 @@ function spawnZombie() {
     isElite = true; hp = Math.floor(hp * 2.5); spd *= 1.15; dmg = Math.floor(dmg * 1.8);
   }
   
+  // Speed variation: some fast runners, some slow shamblers, some limpers
+  const speedRoll = Math.random();
+  let speedMult, hasLimp;
+  if (speedRoll < 0.15) {
+    // Fast runner (15%)
+    speedMult = 1.3 + Math.random() * 0.3;
+    hasLimp = false;
+  } else if (speedRoll < 0.35) {
+    // Slow shambler (20%)
+    speedMult = 0.45 + Math.random() * 0.2;
+    hasLimp = false;
+  } else if (speedRoll < 0.55) {
+    // Limper (20%)
+    speedMult = 0.5 + Math.random() * 0.3;
+    hasLimp = true;
+  } else {
+    // Normal variation (45%)
+    speedMult = 0.75 + Math.random() * 0.5;
+    hasLimp = false;
+  }
+  if (isBoss) { speedMult = 0.7; hasLimp = false; }
+  if (isElite) { speedMult = 1.15 + Math.random() * 0.2; hasLimp = false; }
+  spd *= speedMult;
+
   const z = {
     wx: pick.wx + (Math.random()-0.5)*2,
     wz: pick.wz + (Math.random()-0.5)*2,
@@ -1357,6 +1392,10 @@ function spawnZombie() {
     radius: isBoss ? 1.5 : 0.8,
     isBoss, isElite,
     _animOffset: Math.random() * PI2,
+    _hasLimp: hasLimp,
+    _limpPhase: Math.random() * Math.PI * 2,
+    _limpSeverity: hasLimp ? (0.3 + Math.random() * 0.5) : 0,
+    _baseSpd: spd,
     stuckCheck: null,
   };
   zombies.push(z);
@@ -1527,12 +1566,16 @@ function tryShoot() {
     
     let bestZ = null, bestD = Infinity;
     for (const z of zombies) {
-      const toZ = new THREE.Vector3(z.wx - camera.position.x, 1 - camera.position.y, z.wz - camera.position.z);
+      // Target zombie center mass (half sprite height above ground)
+      const zCenterY = z.isBoss ? 1.7 : z.isElite ? 1.3 : 1.1;
+      const toZ = new THREE.Vector3(z.wx - camera.position.x, zCenterY - camera.position.y, z.wz - camera.position.z);
       const dot = toZ.dot(shootDir);
       if (dot < 0.5) continue;
       const perpV = toZ.clone().sub(shootDir.clone().multiplyScalar(dot));
       const perpD = perpV.length();
-      if (perpD < z.radius && dot < bestD) {
+      // Use generous hitbox — full sprite height check
+      const hitRadius = z.isBoss ? 1.8 : z.isElite ? 1.2 : 1.0;
+      if (perpD < hitRadius && dot < bestD) {
         // Check wall occlusion
         let blocked = false;
         const step = TILE * 0.25;
@@ -1766,8 +1809,15 @@ function update(dt) {
     const d = Math.hypot(dx, dz);
     
     if (d > 1.5) {
-      let mx = (dx / d) * z.spd * dt;
-      let mz = (dz / d) * z.spd * dt;
+      // Limp: oscillate speed, causing stutter-step movement
+      let curSpd = z.spd;
+      if (z._hasLimp) {
+        z._limpPhase += dt * (3 + z._limpSeverity * 2);
+        const limpFactor = 1 - z._limpSeverity * (0.5 + 0.5 * Math.sin(z._limpPhase));
+        curSpd = z._baseSpd * Math.max(0.1, limpFactor);
+      }
+      let mx = (dx / d) * curSpd * dt;
+      let mz = (dz / d) * curSpd * dt;
       
       // Separation
       for (const oz of zombies) {
