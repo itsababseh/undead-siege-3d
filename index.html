@@ -1779,11 +1779,14 @@ function collectMysteryBoxWeapon() {
   if (d > TILE * 2.5) return false;
   
   const wi = mysteryBox.resultWeaponIdx;
+  // Save current weapon's magazine before switching
+  weaponMags[player.curWeapon] = player.mag;
   player.owned[wi] = true;
   player.curWeapon = wi;
   player.mag = weapons[wi].mag;
   player.ammo[wi] = weapons[wi].maxAmmo;
   player.reloading = false;
+  player.reloadTimer = 0;
   
   sfxBuyWeapon(weapons[wi].isRayGun);
   const wName = weapons[wi].name;
@@ -4906,11 +4909,14 @@ function tryBuy() {
       }
       if (!player.owned[wb.wi] && points >= wb.cost) {
         points -= wb.cost;
+        // Save current weapon's magazine before switching
+        weaponMags[player.curWeapon] = player.mag;
         player.owned[wb.wi] = true;
         player.curWeapon = wb.wi;
         player.mag = weapons[wb.wi].mag;
         player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
         player.reloading = false;
+        player.reloadTimer = 0;
         sfxBuyWeapon(weapons[wb.wi].isRayGun);
         if (weapons[wb.wi].isRayGun) {
           addFloatText(`⚡ RAY GUN ⚡`, '#0f0', 2.5);
@@ -5104,57 +5110,47 @@ function update(dt) {
         else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
       }
       
-      // Stuck detection — if zombie barely moved, relocate or kill as safety net
+      // Stuck detection — conservative: only act on truly stuck zombies
+      // Uses longer timers to avoid false positives from corner navigation
       if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
       z.stuckCheck.timer += dt;
-      if (z.stuckCheck.timer >= 2) {
+      if (z.stuckCheck.timer >= 4) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
-        if (stuckDist < TILE * 0.5) {
+        // Only flag if zombie moved less than 0.3 tiles in 4 seconds (truly stuck)
+        if (stuckDist < TILE * 0.3) {
           z.stuckCheck.totalStuck += z.stuckCheck.timer;
           
-          // Safety net: if stuck for 8+ seconds total, silently kill the zombie
-          if (z.stuckCheck.totalStuck >= 8) {
+          // Safety net: if stuck for 12+ seconds total, silently kill
+          if (z.stuckCheck.totalStuck >= 12) {
             z.hp = 0;
             removeZombieMesh(z);
             zombies.splice(i, 1);
             continue;
           }
           
-          // Try to teleport to spawn behind the player (out of FOV)
-          const camDir = new THREE.Vector3();
-          camera.getWorldDirection(camDir);
-          let bestSp = null, bestScore = -Infinity;
-          for (const sp of spawnPts) {
-            if (sp.door) {
-              const door = doors.find(dd => dd.id === sp.door);
-              if (!door || !door.opened) continue;
-            }
-            const swx = sp.x * TILE, swz = sp.z * TILE;
-            if (mapAt(swx, swz) !== 0) continue;
-            const spD = Math.hypot(swx - camera.position.x, swz - camera.position.z);
-            if (spD < TILE * 3) continue; // too close
-            const toSpX = swx - camera.position.x, toSpZ = swz - camera.position.z;
-            const dot = (toSpX * camDir.x + toSpZ * camDir.z) / spD;
-            const score = -dot * 10 - spD * 0.01;
-            if (score > bestScore) { bestScore = score; bestSp = sp; }
-          }
-          if (bestSp) {
-            z.wx = bestSp.x * TILE + (Math.random()-0.5)*1.5;
-            z.wz = bestSp.z * TILE + (Math.random()-0.5)*1.5;
-            // Validate teleport destination isn't inside a wall
-            if (mapAt(z.wx, z.wz) !== 0) {
-              z.wx = bestSp.x * TILE;
-              z.wz = bestSp.z * TILE;
-            }
+          // Give the zombie a nudge toward the player rather than teleporting
+          // This looks natural — zombie "breaks free" and continues toward you
+          const nudgeStr = TILE * 1.5;
+          const nudgeX = (dx / d) * nudgeStr;
+          const nudgeZ = (dz / d) * nudgeStr;
+          // Try nudging toward player
+          if (mapAt(z.wx + nudgeX, z.wz + nudgeZ) === 0) {
+            z.wx += nudgeX;
+            z.wz += nudgeZ;
+          } else if (mapAt(z.wx + nudgeX, z.wz) === 0) {
+            z.wx += nudgeX;
+          } else if (mapAt(z.wx, z.wz + nudgeZ) === 0) {
+            z.wz += nudgeZ;
           } else {
-            // No valid spawn found — teleport directly toward player at moderate distance
-            const ang = Math.atan2(camera.position.z - z.wz, camera.position.x - z.wx);
-            const tryX = camera.position.x - Math.cos(ang) * TILE * 4;
-            const tryZ = camera.position.z - Math.sin(ang) * TILE * 4;
-            if (mapAt(tryX, tryZ) === 0) {
-              z.wx = tryX;
-              z.wz = tryZ;
+            // Try perpendicular directions to get unstuck
+            const perpX = (-dz / d) * nudgeStr;
+            const perpZ = (dx / d) * nudgeStr;
+            if (mapAt(z.wx + perpX, z.wz + perpZ) === 0) {
+              z.wx += perpX; z.wz += perpZ;
+            } else if (mapAt(z.wx - perpX, z.wz - perpZ) === 0) {
+              z.wx -= perpX; z.wz -= perpZ;
             }
+            // If everything fails, just wait for the safety net kill
           }
         } else {
           z.stuckCheck.totalStuck = 0; // reset if zombie moved
