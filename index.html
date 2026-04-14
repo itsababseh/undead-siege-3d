@@ -2031,10 +2031,19 @@ const POWERUP_TYPES = [
     remove() {} },
 ];
 
+let roundPowerUpsDropped = 0; // track drops per round for guaranteed minimum
+
 function spawnPowerUp(wx, wz) {
-  // Power-up drop chance scales with round: ~4% at round 1, up to ~18% by round 15+
-  const dropChance = Math.min(0.04 + (round - 1) * 0.01, 0.18);
-  if (Math.random() > dropChance) return;
+  // Power-up drop chance scales with round
+  // Round 1: 8%, Round 3: 12%, Round 5: 16%, Round 10: 23%, caps at 28%
+  const dropChance = Math.min(0.08 + (round - 1) * 0.02, 0.28);
+  
+  // Guarantee at least 1 power-up per round starting round 2, and 2+ per round starting round 5
+  const minDrops = round >= 5 ? 2 : round >= 2 ? 1 : 0;
+  const zombiesRemaining = zToSpawn - zSpawned + zombies.length;
+  const needGuarantee = roundPowerUpsDropped < minDrops && zombiesRemaining <= Math.max(3, Math.floor(zToSpawn * 0.15));
+  
+  if (!needGuarantee && Math.random() > dropChance) return;
   
   const typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
   const type = POWERUP_TYPES[typeIdx];
@@ -2057,6 +2066,7 @@ function spawnPowerUp(wx, wz) {
   
   const pu = { typeIdx, wx, wz, mesh, light, life: 20, bobPhase: Math.random() * Math.PI * 2 };
   powerUps.push(pu);
+  roundPowerUpsDropped++;
 }
 
 function updatePowerUps(dt) {
@@ -4462,6 +4472,7 @@ function nextRound() {
   round++;
   zToSpawn = Math.floor(6 + round * 3 + doorsOpenedCount * 2);
   zSpawned = 0;
+  roundPowerUpsDropped = 0;
   maxAlive = Math.min(6 + round * 2 + doorsOpenedCount * 2, 30);
   spawnTimer = 0;
   state = 'roundIntro';
