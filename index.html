@@ -604,7 +604,9 @@ function suppressMouse(ms) {
   _mouseSuppress = performance.now() + (ms || 120);
 }
 
-// Mouse handler — aggressive spike guard + focus/visibility suppression
+// Mouse handler — smoothed input with spike rejection for bogus browser deltas
+let _prevMX = 0, _prevMY = 0;  // previous frame deltas for smoothing
+const MOUSE_SMOOTH = 0.3;       // blend factor: 0 = full smoothing, 1 = raw input
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked) return;
 
@@ -620,13 +622,20 @@ document.addEventListener('mousemove', (e) => {
   let mx = e.movementX || 0;
   let my = e.movementY || 0;
 
-  // Drop any single-axis spike > 40 px — no real human move does this in one event
-  if (Math.abs(mx) > 40 || Math.abs(my) > 40) return;
+  // Drop truly bogus spikes (browser bugs on focus/lock changes)
+  // Normal fast flicks at 800-1600 DPI rarely exceed 150px per event
+  if (Math.abs(mx) > 250 || Math.abs(my) > 250) return;
 
-  // Soft cap remaining deltas (safety net)
-  const maxDelta = 35;
+  // Soft cap: allow fast aiming but prevent extreme single-frame jumps
+  const maxDelta = 120;
   mx = Math.max(-maxDelta, Math.min(maxDelta, mx));
   my = Math.max(-maxDelta, Math.min(maxDelta, my));
+
+  // Light smoothing to reduce jitter without adding noticeable lag
+  mx = _prevMX + (mx - _prevMX) * (1 - MOUSE_SMOOTH);
+  my = _prevMY + (my - _prevMY) * (1 - MOUSE_SMOOTH);
+  _prevMX = mx;
+  _prevMY = my;
 
   controls._yaw -= mx * 0.002;
   controls._pitch -= my * 0.002;
