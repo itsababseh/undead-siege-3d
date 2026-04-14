@@ -594,34 +594,61 @@ const controls = {
   }
 };
 
-// Mouse handler — with spike guard and movement cap
+// --- Mouse spike suppression state ---
+let _mouseSuppress = 0;  // timestamp until which mouse input is suppressed
+
+// Suppress mouse input briefly after events that cause bogus movementX/Y spikes
+function suppressMouse(ms) {
+  _mouseSuppress = performance.now() + (ms || 120);
+}
+
+// Mouse handler — aggressive spike guard + focus/visibility suppression
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked) return;
-  // Skip first few mousemove events after pointer lock — browsers send huge spikes
+
+  // Skip first N mousemove events after pointer lock acquired
   if (controls._skipFrames > 0) {
     controls._skipFrames--;
     return;
   }
+
+  // Time-based suppression (after pointer lock, focus, visibility changes)
+  if (performance.now() < _mouseSuppress) return;
+
   let mx = e.movementX || 0;
   let my = e.movementY || 0;
-  // Cap individual mouse deltas to prevent sudden snaps (max ~15° per frame)
-  const maxDelta = 150;
+
+  // Drop any single-axis spike > 40 px — no real human move does this in one event
+  if (Math.abs(mx) > 40 || Math.abs(my) > 40) return;
+
+  // Soft cap remaining deltas (safety net)
+  const maxDelta = 35;
   mx = Math.max(-maxDelta, Math.min(maxDelta, mx));
   my = Math.max(-maxDelta, Math.min(maxDelta, my));
+
   controls._yaw -= mx * 0.002;
   controls._pitch -= my * 0.002;
   controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
   controls._applyRotation();
 });
 
-// Pointer lock state — skip first 3 mousemove events after lock to avoid spike
+// Pointer lock state — skip first events + time-suppress after lock/unlock
 document.addEventListener('pointerlockchange', () => {
   const wasLocked = controls.isLocked;
   controls.isLocked = document.pointerLockElement === renderer.domElement;
   if (controls.isLocked && !wasLocked) {
-    controls._skipFrames = 3; // ignore first 3 mousemove events (browser spike guard)
+    controls._skipFrames = 5;  // skip first 5 events (up from 3)
+    suppressMouse(200);         // also suppress for 200 ms
+  }
+  if (!controls.isLocked && wasLocked) {
+    suppressMouse(200);         // suppress after unlock too
   }
 });
+
+// Suppress mouse after tab/window focus changes — browsers send huge phantom deltas
+document.addEventListener('visibilitychange', () => suppressMouse(200));
+window.addEventListener('focus', () => suppressMouse(200));
+window.addEventListener('blur', () => suppressMouse(200));
 
 // ===== LIGHTING =====
 const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
@@ -3826,7 +3853,7 @@ function spawnDmgNumber(worldX, worldY, worldZ, dmg, isKill) {
 // --- Screen Shake ---
 let shakeIntensity = 0;
 let shakeDecay = 8;
-let shakeOffsetX = 0, shakeOffsetY = 0;
+let _prevShakeX = 0, _prevShakeY = 0;  // previous frame's offset (to undo before applying new)
 
 function triggerScreenShake(intensity, decay) {
   shakeIntensity = Math.max(shakeIntensity, intensity);
@@ -3834,17 +3861,20 @@ function triggerScreenShake(intensity, decay) {
 }
 
 function updateScreenShake(dt) {
+  // Always undo last frame's offset first — prevents cumulative drift
+  camera.position.x -= _prevShakeX;
+  camera.position.y -= _prevShakeY;
+
   if (shakeIntensity > 0.001) {
-    shakeOffsetX = (Math.random() - 0.5) * shakeIntensity * 0.015;
-    shakeOffsetY = (Math.random() - 0.5) * shakeIntensity * 0.015;
-    // Apply shake via position offset only — NEVER touch camera.rotation.z (roll)
-    camera.position.x += shakeOffsetX;
-    camera.position.y += shakeOffsetY;
+    _prevShakeX = (Math.random() - 0.5) * shakeIntensity * 0.015;
+    _prevShakeY = (Math.random() - 0.5) * shakeIntensity * 0.015;
+    camera.position.x += _prevShakeX;
+    camera.position.y += _prevShakeY;
     shakeIntensity *= Math.pow(0.05, dt); // exponential decay
   } else {
     shakeIntensity = 0;
-    shakeOffsetX = 0;
-    shakeOffsetY = 0;
+    _prevShakeX = 0;
+    _prevShakeY = 0;
   }
 }
 
@@ -4281,7 +4311,7 @@ function initGame() {
   dyingZombies.length = 0;
   bloodDecals.forEach(d => { scene.remove(d.mesh); if (d.mesh.material.map) d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
   bloodDecals.length = 0;
-  shakeIntensity = 0; vignetteIntensity = 0;
+  shakeIntensity = 0; _prevShakeX = 0; _prevShakeY = 0; vignetteIntensity = 0;
   roundTransitionPhase = 'none';
   document.getElementById('roundFlash').style.display = 'none';
   
