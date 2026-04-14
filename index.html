@@ -64,6 +64,7 @@ canvas{display:block}
 @keyframes msgSlideUp{0%{transform:translateY(10px);opacity:0}100%{transform:translateY(0);opacity:0.8}}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
+#hitDirCanvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
 #powerupTimerBar{position:fixed;top:48px;left:50%;transform:translateX(-50%);width:220px;height:6px;border-radius:3px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);z-index:13;pointer-events:none;display:none;overflow:hidden}
 #powerupTimerFill{height:100%;border-radius:3px;transition:width 0.25s linear}
 #powerupTimerLabel{position:fixed;top:34px;left:50%;transform:translateX(-50%);z-index:13;pointer-events:none;display:none;font-size:11px;letter-spacing:2px;font-weight:bold;text-shadow:0 0 8px currentColor,0 1px 4px rgba(0,0,0,0.8)}
@@ -256,6 +257,7 @@ canvas{display:block}
   <div id="buyPrompt"></div>
   <div id="centerMsg"><div class="big"></div><div class="small"></div></div>
   <div id="dmgOverlay"></div>
+  <canvas id="hitDirCanvas"></canvas>
   <div id="powerupTimerLabel"></div>
   <div id="powerupTimerBar"><div id="powerupTimerFill"></div></div>
   <div id="roundFlash" style="position:fixed;inset:0;background:rgba(255,255,255,0.3);pointer-events:none;z-index:8;display:none;opacity:0"></div>
@@ -4167,6 +4169,127 @@ function updateLowHealthEffect(dt) {
   }
 }
 
+// --- Directional Hit Indicators (CoD-style red arcs) ---
+const hitIndicators = [];
+const hitDirCanvas = document.getElementById('hitDirCanvas');
+const hitDirCtx = hitDirCanvas.getContext('2d');
+
+function resizeHitDirCanvas() {
+  hitDirCanvas.width = window.innerWidth;
+  hitDirCanvas.height = window.innerHeight;
+}
+resizeHitDirCanvas();
+window.addEventListener('resize', resizeHitDirCanvas);
+
+function triggerHitIndicator(zombieX, zombieZ) {
+  // Calculate angle from player to zombie in world space
+  const px = camera.position.x;
+  const pz = camera.position.z;
+  const dx = zombieX - px;
+  const dz = zombieZ - pz;
+  // World angle to the zombie (atan2 gives angle from +Z axis)
+  const worldAngle = Math.atan2(dx, dz);
+  // Relative angle = world angle minus camera yaw
+  // controls._yaw is the camera's yaw (rotation around Y axis)
+  const relAngle = worldAngle - controls._yaw;
+  
+  // Check if we should merge with existing indicator at similar angle
+  for (let i = 0; i < hitIndicators.length; i++) {
+    const hi = hitIndicators[i];
+    let angleDiff = Math.abs(hi.angle - relAngle);
+    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+    if (angleDiff < 0.4) {
+      // Refresh existing indicator
+      hi.life = 1.0;
+      hi.intensity = Math.min(1.5, hi.intensity + 0.3);
+      return;
+    }
+  }
+  
+  hitIndicators.push({
+    angle: relAngle,
+    life: 1.0,      // fades from 1 to 0
+    intensity: 1.0   // extra brightness for stacking hits
+  });
+}
+
+function updateHitIndicators(dt) {
+  hitDirCtx.clearRect(0, 0, hitDirCanvas.width, hitDirCanvas.height);
+  
+  const cx = hitDirCanvas.width / 2;
+  const cy = hitDirCanvas.height / 2;
+  // Distance from center to edge where arcs are drawn
+  const radiusX = hitDirCanvas.width * 0.38;
+  const radiusY = hitDirCanvas.height * 0.38;
+  const arcLen = 0.55; // radians, width of the arc
+  
+  for (let i = hitIndicators.length - 1; i >= 0; i--) {
+    const hi = hitIndicators[i];
+    hi.life -= dt * 1.2; // fade over ~0.8 seconds
+    
+    if (hi.life <= 0) {
+      hitIndicators.splice(i, 1);
+      continue;
+    }
+    
+    // The angle points FROM center TOWARD the attacker
+    // In screen space: 0 = top, PI/2 = right, PI = bottom, -PI/2 = left
+    const screenAngle = -hi.angle; // negate because screen Y is inverted
+    
+    // Calculate position on an ellipse at the screen edge
+    const edgeX = cx + Math.sin(screenAngle) * radiusX;
+    const edgeY = cy - Math.cos(screenAngle) * radiusY;
+    
+    // Alpha based on remaining life (quick fade in, slow fade out)
+    const fadeIn = Math.min(1, (1 - hi.life) * 8); // quick fade in
+    const fadeOut = Math.min(1, hi.life * 2.5);     // slower fade out  
+    const alpha = fadeIn * fadeOut * hi.intensity * 0.85;
+    
+    if (alpha < 0.01) continue;
+    
+    hitDirCtx.save();
+    hitDirCtx.translate(edgeX, edgeY);
+    hitDirCtx.rotate(screenAngle);
+    
+    // Draw a CoD-style crescent/arc shape
+    // The arc points inward toward the attacker direction
+    const arcRadius = Math.min(hitDirCanvas.width, hitDirCanvas.height) * 0.12;
+    
+    // Outer arc
+    hitDirCtx.beginPath();
+    hitDirCtx.arc(0, 0, arcRadius, -arcLen, arcLen);
+    // Inner arc (smaller radius, reversed direction to close the shape)
+    const innerRadius = arcRadius * 0.55;
+    hitDirCtx.arc(0, 0, innerRadius, arcLen, -arcLen, true);
+    hitDirCtx.closePath();
+    
+    // Red gradient fill
+    const grad = hitDirCtx.createRadialGradient(0, 0, innerRadius, 0, 0, arcRadius * 1.3);
+    grad.addColorStop(0, `rgba(220, 20, 0, ${alpha})`);
+    grad.addColorStop(0.5, `rgba(180, 0, 0, ${alpha * 0.8})`);
+    grad.addColorStop(1, `rgba(120, 0, 0, 0)`);
+    hitDirCtx.fillStyle = grad;
+    hitDirCtx.fill();
+    
+    // Brighter core for emphasis
+    hitDirCtx.beginPath();
+    hitDirCtx.arc(0, 0, arcRadius * 0.92, -arcLen * 0.7, arcLen * 0.7);
+    hitDirCtx.arc(0, 0, innerRadius * 1.15, arcLen * 0.7, -arcLen * 0.7, true);
+    hitDirCtx.closePath();
+    hitDirCtx.fillStyle = `rgba(255, 40, 20, ${alpha * 0.6})`;
+    hitDirCtx.fill();
+    
+    hitDirCtx.restore();
+    
+    // Decay intensity for stacked hits
+    hi.intensity = Math.max(0.5, hi.intensity - dt * 0.3);
+  }
+}
+
+function clearHitIndicators() {
+  hitIndicators.length = 0;
+  hitDirCtx.clearRect(0, 0, hitDirCanvas.width, hitDirCanvas.height);
+}
 
 // ===== PARTICLES =====
 const particles = [];
@@ -4311,7 +4434,7 @@ function initGame() {
   dyingZombies.length = 0;
   bloodDecals.forEach(d => { scene.remove(d.mesh); if (d.mesh.material.map) d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
   bloodDecals.length = 0;
-  shakeIntensity = 0; _prevShakeX = 0; _prevShakeY = 0; vignetteIntensity = 0;
+  shakeIntensity = 0; _prevShakeX = 0; _prevShakeY = 0; vignetteIntensity = 0; clearHitIndicators();
   roundTransitionPhase = 'none';
   document.getElementById('roundFlash').style.display = 'none';
   
@@ -5017,6 +5140,7 @@ function update(dt) {
         dmgFlash = 1;
         triggerScreenShake(0.8, 6);
         triggerDamageVignette(z.dmg);
+        triggerHitIndicator(z.wx, z.wz);
         z.atkTimer = 1;
         if (player.hp <= 0) {
           player.hp = 0;
@@ -5826,6 +5950,7 @@ function gameLoop(time) {
   updateRoundTransition(dt);
   updateDamageVignette(dt);
   updateLowHealthEffect(dt);
+  updateHitIndicators(dt);
   // Skip HUD updates once death screen is shown (prevents DOM thrashing)
   if (!_deathShown) {
     updateHUD();
