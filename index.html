@@ -54,8 +54,9 @@ canvas{display:block}
 #bossFill{height:100%;background:linear-gradient(180deg,#f44 0%,#c00 50%,#900 100%);width:100%;position:relative;border-radius:2px}
 #bossFill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:linear-gradient(180deg,rgba(255,255,255,0.18),transparent)}
 #bossLabel{position:fixed;top:36px;left:50%;transform:translateX(-50%);color:#f44;font-size:11px;font-weight:bold;letter-spacing:2px;display:none;text-shadow:0 0 8px rgba(255,50,50,0.4)}
-#perkIcons{position:fixed;bottom:68px;left:15px;display:flex;gap:6px}
-.perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5)}
+#perkIcons{position:fixed;bottom:68px;left:15px;display:flex;flex-wrap:wrap;gap:5px;z-index:13;max-width:calc(50vw - 30px)}
+.perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5);flex-shrink:0}
+.perk-icon.powerup-active{width:auto;min-width:28px;padding:0 6px;gap:3px;font-size:9px;white-space:nowrap;animation:hpShimmer 1s infinite}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
 #centerMsg{position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}
 #centerMsg .big{font-size:clamp(28px,5vw,48px);font-weight:bold;letter-spacing:4px;text-shadow:0 0 30px currentColor,0 0 60px currentColor;animation:msgPulseIn 0.4s ease-out}
@@ -65,9 +66,9 @@ canvas{display:block}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
 #hitDirCanvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
-#powerupTimerBar{position:fixed;top:48px;left:50%;transform:translateX(-50%);width:220px;height:6px;border-radius:3px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);z-index:13;pointer-events:none;display:none;overflow:hidden}
-#powerupTimerFill{height:100%;border-radius:3px;transition:width 0.25s linear}
-#powerupTimerLabel{position:fixed;top:34px;left:50%;transform:translateX(-50%);z-index:13;pointer-events:none;display:none;font-size:11px;letter-spacing:2px;font-weight:bold;text-shadow:0 0 8px currentColor,0 1px 4px rgba(0,0,0,0.8)}
+#powerupTimerBar{position:fixed;top:50px;left:50%;transform:translateX(-50%);width:240px;height:5px;border-radius:3px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.12);z-index:13;pointer-events:none;display:none;overflow:hidden;box-shadow:0 0 10px rgba(0,0,0,0.4)}
+#powerupTimerFill{height:100%;border-radius:3px;transition:width 0.25s linear;box-shadow:0 0 6px currentColor}
+#powerupTimerLabel{position:fixed;top:34px;left:50%;transform:translateX(-50%);z-index:13;pointer-events:none;display:none;font-size:10px;letter-spacing:2px;font-weight:bold;text-shadow:0 0 8px currentColor,0 0 16px currentColor,0 1px 4px rgba(0,0,0,0.9)}
 #pauseOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50}
 #pauseOverlay h2{color:#fff;font-size:48px;letter-spacing:6px;margin-bottom:10px}
 #pauseOverlay .info{color:#888;font-size:14px;letter-spacing:2px}
@@ -109,8 +110,9 @@ canvas{display:block}
   #centerMsg .big{font-size:clamp(22px,5vw,36px)}
   #radioOverlay{max-width:85%;width:85%;padding:8px 16px;top:45px;font-size:11px}
   #powerupTimerBar{width:160px}
-  #perkIcons{bottom:56px;left:10px}
+  #perkIcons{bottom:56px;left:10px;max-width:calc(50vw - 20px)}
   .perk-icon{width:24px;height:24px;font-size:8px}
+  .perk-icon.powerup-active{width:auto;min-width:24px;padding:0 4px;font-size:7px}
   #reloadBarWrap{width:120px;bottom:48px;right:10px}
   .controls-info{display:none}
   #menuLogo h1{font-size:clamp(28px,8vw,48px);letter-spacing:6px}
@@ -958,34 +960,66 @@ function sfxShootTrenchGun() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    // Massive boom
-    const bufLen = actx.sampleRate * 0.15;
+    // Layer 1: Initial blast — long white noise burst with lowpass (the "boom")
+    const bufLen = Math.floor(actx.sampleRate * 0.35);
     const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < bufLen; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.15));
+      const env = Math.exp(-i / (bufLen * 0.08)); // fast attack, medium decay
+      data[i] = (Math.random() * 2 - 1) * env;
     }
     const noise = actx.createBufferSource();
     noise.buffer = buf;
     const gN = actx.createGain();
-    gN.gain.setValueAtTime(0.2, t);
-    gN.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    const fN = actx.createBiquadFilter(); fN.type = 'lowpass'; fN.frequency.value = 800;
+    gN.gain.setValueAtTime(0.35, t);
+    gN.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+    const fN = actx.createBiquadFilter(); fN.type = 'lowpass'; fN.frequency.value = 1200; fN.Q.value = 1;
     noise.connect(fN); fN.connect(gN); gN.connect(masterGain); noise.start(t);
-    // Deep concussive bass
+    
+    // Layer 2: Deep concussive sub-bass thump
     const o1 = actx.createOscillator(), g1 = actx.createGain();
-    o1.type = 'sine'; o1.frequency.setValueAtTime(100, t);
-    o1.frequency.exponentialRampToValueAtTime(35, t + 0.2);
-    g1.gain.setValueAtTime(0.22, t);
-    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-    o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.25);
-    // Pump rattle (delayed)
+    o1.type = 'sine'; o1.frequency.setValueAtTime(120, t);
+    o1.frequency.exponentialRampToValueAtTime(30, t + 0.3);
+    g1.gain.setValueAtTime(0.3, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.4);
+    
+    // Layer 3: Mid-crack (shotgun "snap" - gives it that pellet spread feel)
+    const bufSnap = Math.floor(actx.sampleRate * 0.05);
+    const snapBuf = actx.createBuffer(1, bufSnap, actx.sampleRate);
+    const snapData = snapBuf.getChannelData(0);
+    for (let i = 0; i < bufSnap; i++) {
+      snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSnap * 0.3));
+    }
+    const snapSrc = actx.createBufferSource(); snapSrc.buffer = snapBuf;
+    const gSnap = actx.createGain();
+    gSnap.gain.setValueAtTime(0.2, t);
+    gSnap.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    const fSnap = actx.createBiquadFilter(); fSnap.type = 'bandpass'; fSnap.frequency.value = 3000; fSnap.Q.value = 2;
+    snapSrc.connect(fSnap); fSnap.connect(gSnap); gSnap.connect(masterGain); snapSrc.start(t);
+    
+    // Layer 4: Metallic pump-action rattle (delayed — the iconic "chk-chk")
     const o2 = actx.createOscillator(), g2 = actx.createGain();
-    o2.type = 'square'; o2.frequency.value = 300;
+    o2.type = 'square'; o2.frequency.value = 350;
     g2.gain.setValueAtTime(0, t);
-    g2.gain.setValueAtTime(0.06, t + 0.15);
-    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.25);
+    g2.gain.setValueAtTime(0.08, t + 0.2);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    const fPump = actx.createBiquadFilter(); fPump.type = 'bandpass'; fPump.frequency.value = 2500; fPump.Q.value = 5;
+    o2.connect(fPump); fPump.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.4);
+    
+    // Layer 5: Room reverb tail (echo/decay)
+    const bufRev = Math.floor(actx.sampleRate * 0.5);
+    const revBuf = actx.createBuffer(1, bufRev, actx.sampleRate);
+    const revData = revBuf.getChannelData(0);
+    for (let i = 0; i < bufRev; i++) {
+      revData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufRev * 0.15));
+    }
+    const revSrc = actx.createBufferSource(); revSrc.buffer = revBuf;
+    const gRev = actx.createGain();
+    gRev.gain.setValueAtTime(0.08, t + 0.05);
+    gRev.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    const fRev = actx.createBiquadFilter(); fRev.type = 'lowpass'; fRev.frequency.value = 600;
+    revSrc.connect(fRev); fRev.connect(gRev); gRev.connect(masterGain); revSrc.start(t);
   } catch(e) {}
 }
 
@@ -2032,6 +2066,7 @@ const POWERUP_TYPES = [
 ];
 
 let roundPowerUpsDropped = 0; // track drops per round for guaranteed minimum
+let _lastPowerUpIdx = -1; // anti-repeat tracker
 
 function spawnPowerUp(wx, wz) {
   // Power-up drop chance scales with round
@@ -2045,7 +2080,12 @@ function spawnPowerUp(wx, wz) {
   
   if (!needGuarantee && Math.random() > dropChance) return;
   
-  const typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
+  // Anti-repeat: avoid same power-up 2x in a row — re-roll once if duplicate
+  let typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
+  if (typeIdx === _lastPowerUpIdx) {
+    typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
+  }
+  _lastPowerUpIdx = typeIdx;
   const type = POWERUP_TYPES[typeIdx];
   
   // Create 3D pickup
@@ -5322,12 +5362,12 @@ function updateHUD() {
       perkHTML += `<div class="perk-icon" style="border-color:${p.color};color:${p.color}">${p.name.substring(0,3).toUpperCase()}</div>`;
     }
   }
-  // Active power-ups
+  // Active power-ups — use wider pill-style icons so text doesn't clip
   if (player._instaKill && player._instaKillTimer > 0) {
-    perkHTML += `<div class="perk-icon" style="border-color:#f44;color:#f44;animation:hpShimmer 1s infinite">💀${Math.ceil(player._instaKillTimer)}s</div>`;
+    perkHTML += `<div class="perk-icon powerup-active" style="border-color:#f44;color:#f44">💀 ${Math.ceil(player._instaKillTimer)}s</div>`;
   }
   if (player._doublePoints && player._doublePointsTimer > 0) {
-    perkHTML += `<div class="perk-icon" style="border-color:#ff4;color:#ff4;animation:hpShimmer 1s infinite">💰${Math.ceil(player._doublePointsTimer)}s</div>`;
+    perkHTML += `<div class="perk-icon powerup-active" style="border-color:#ff4;color:#ff4">💰 ${Math.ceil(player._doublePointsTimer)}s</div>`;
   }
   perkEl.innerHTML = perkHTML;
   
