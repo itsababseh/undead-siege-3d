@@ -15,11 +15,11 @@ canvas{display:block}
 #blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s}
 #blocker.hidden{opacity:0 !important;pointer-events:none !important}
 #blocker h1{font-size:clamp(28px,6vw,56px);color:#c00;text-shadow:0 0 40px #c00,0 0 80px rgba(200,0,0,0.4);letter-spacing:8px;margin-bottom:4px}
-#blocker .sub{color:#555;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:30px}
+#blocker .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:30px}
 #blocker button{background:none;border:2px solid #c00;color:#c00;padding:14px 50px;font:bold clamp(12px,2vw,16px) 'Courier New';cursor:pointer;letter-spacing:4px;transition:all 0.3s;text-transform:uppercase}
 #blocker button:hover{background:#c00;color:#000;box-shadow:0 0 30px rgba(200,0,0,0.5)}
-.controls-info{color:#444;font-size:clamp(9px,1.5vw,11px);margin-top:20px;letter-spacing:1px;line-height:2;text-align:center}
-.menu-scores{color:#777;font-size:11px;margin-top:18px;letter-spacing:1px;line-height:1.8;text-align:center}
+.controls-info{color:#aaa;font-size:clamp(9px,1.5vw,11px);margin-top:20px;letter-spacing:1px;line-height:2;text-align:center}
+.menu-scores{color:#aaa;font-size:11px;margin-top:18px;letter-spacing:1px;line-height:1.8;text-align:center}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
 #crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:11;pointer-events:none}
 .ch{position:absolute;background:rgba(255,255,255,0.7);border-radius:1px}
@@ -120,8 +120,13 @@ canvas{display:block}
   .menu-stats .stat .val{font-size:16px}
   #blocker button{padding:12px 36px;font-size:clamp(12px,3vw,16px)}
 }
-/* Vibe Jam portal button */
-#vibePortal{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000}
+/* Footer badges */
+#footerBadges{position:fixed;bottom:0;left:0;right:0;z-index:1000;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;pointer-events:none}
+#footerBadges a{pointer-events:all;text-decoration:none;display:flex;align-items:center;gap:6px;font-family:'Courier New',monospace;font-size:11px;letter-spacing:1px;opacity:0.7;transition:opacity 0.3s}
+#footerBadges a:hover{opacity:1}
+#footerBadges .badge-left a{color:#aaa}
+#footerBadges .badge-left img{height:20px;width:auto;filter:brightness(0.9)}
+#footerBadges .badge-right a{color:#f0c040;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(240,192,64,0.3)}
 /* ===== LOADING SCREEN ===== */
 #loadScreen{position:fixed;inset:0;background:#050505;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.6s ease-out}
 #loadScreen.done{opacity:0;pointer-events:none}
@@ -138,19 +143,19 @@ canvas{display:block}
 #blocker .menu-bg canvas{width:100%;height:100%}
 #menuLogo{position:relative;text-align:center;margin-bottom:10px}
 #menuLogo h1{font-size:clamp(32px,7vw,64px);color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.25),0 4px 8px rgba(0,0,0,0.6);letter-spacing:10px;line-height:1.1}
-#menuLogo .sub{color:#555;font-size:clamp(10px,2vw,14px);letter-spacing:6px;margin-top:4px}
-#menuLogo .version{color:#333;font-size:9px;letter-spacing:3px;margin-top:2px}
+#menuLogo .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:6px;margin-top:4px}
+#menuLogo .version{color:#888;font-size:9px;letter-spacing:3px;margin-top:2px}
 .menu-divider{width:120px;height:1px;background:linear-gradient(90deg,transparent,rgba(200,0,0,0.3),transparent);margin:16px auto}
 #startBtn{position:relative;overflow:hidden}
 #startBtn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);transition:left 0.5s}
 #startBtn:hover::before{left:100%}
 .menu-rank{margin-top:8px;text-align:center}
 .menu-rank .rank-title{font-size:14px;letter-spacing:3px;font-weight:bold}
-.menu-rank .rank-desc{font-size:10px;color:#555;margin-top:2px}
+.menu-rank .rank-desc{font-size:10px;color:#aaa;margin-top:2px}
 .menu-stats{display:flex;gap:24px;justify-content:center;margin-top:12px;flex-wrap:wrap}
 .menu-stats .stat{text-align:center}
 .menu-stats .stat .val{font-size:18px;font-weight:bold;color:#c00}
-.menu-stats .stat .lbl{font-size:9px;color:#555;letter-spacing:2px;margin-top:2px}
+.menu-stats .stat .lbl{font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px}
 /* ===== STATE TRANSITIONS ===== */
 #gameTransition{position:fixed;inset:0;background:#000;z-index:99;pointer-events:none;opacity:0;transition:opacity 0.4s ease-in-out}
 #gameTransition.active{opacity:1}
@@ -288,6 +293,21 @@ canvas{display:block}
   <div id="reloadBtn">R</div>
   <div id="buyBtn">E</div>
   <div id="weaponSwitcher"></div>
+</div>
+
+<!-- Footer Badges -->
+<div id="footerBadges">
+  <div class="badge-left">
+    <a href="https://agpt.co/" target="_blank" rel="noopener">
+      <img src="https://framerusercontent.com/images/han4m0kmVxp02pTxgpG58puv8.png" alt="AutoGPT">
+      Made by AutoGPT
+    </a>
+  </div>
+  <div class="badge-right">
+    <a href="https://vibej.am/2026/" target="_blank" rel="noopener">
+      🎮 VIBE JAM 2026
+    </a>
+  </div>
 </div>
 
 <script type="importmap">
@@ -2032,13 +2052,13 @@ function tryPackAPunch() {
 const powerUps = [];
 const POWERUP_TYPES = [
   { id: 'instakill', name: 'INSTA-KILL', color: '#ff4444', duration: 30, icon: '💀',
-    apply() { player._instaKill = true; player._instaKillTimer = 15; },
+    apply() { player._instaKill = true; player._instaKillTimer = 15; /* refresh, never stack */ },
     remove() { player._instaKill = false; } },
   { id: 'maxammo', name: 'MAX AMMO', color: '#44ff44', duration: 0, icon: '🔫',
     apply() { for (let i = 0; i < weapons.length; i++) { if (player.owned[i]) player.ammo[i] = weapons[i].maxAmmo; } player.mag = weapons[player.curWeapon].mag; },
     remove() {} },
   { id: 'doublepoints', name: 'DOUBLE POINTS', color: '#ffff44', duration: 30, icon: '💰',
-    apply() { player._doublePoints = true; player._doublePointsTimer = 15; },
+    apply() { player._doublePoints = true; player._doublePointsTimer = 15; /* refresh, never stack */ },
     remove() { player._doublePoints = false; } },
   { id: 'nuke', name: 'NUKE', color: '#ff8800', duration: 0, icon: '☢️',
     apply() { 
@@ -2080,11 +2100,26 @@ function spawnPowerUp(wx, wz) {
   
   if (!needGuarantee && Math.random() > dropChance) return;
   
-  // Anti-repeat: avoid same power-up 2x in a row — re-roll once if duplicate
-  let typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
-  if (typeIdx === _lastPowerUpIdx) {
-    typeIdx = Math.floor(Math.random() * POWERUP_TYPES.length);
+  // Anti-repeat: never drop the same power-up twice in a row
+  // Also avoid dropping a timed power-up that's currently active (prevents stacking)
+  let typeIdx;
+  const available = [];
+  for (let ti = 0; ti < POWERUP_TYPES.length; ti++) {
+    if (ti === _lastPowerUpIdx) continue; // no repeat
+    const pid = POWERUP_TYPES[ti].id;
+    // Skip timed power-ups that are currently active (prevents double stacking)
+    if (pid === 'instakill' && player._instaKill) continue;
+    if (pid === 'doublepoints' && player._doublePoints) continue;
+    available.push(ti);
   }
+  if (available.length === 0) {
+    // Fallback: allow any except last
+    for (let ti = 0; ti < POWERUP_TYPES.length; ti++) {
+      if (ti !== _lastPowerUpIdx) available.push(ti);
+    }
+  }
+  if (available.length === 0) available.push(0); // absolute fallback
+  typeIdx = available[Math.floor(Math.random() * available.length)];
   _lastPowerUpIdx = typeIdx;
   const type = POWERUP_TYPES[typeIdx];
   
@@ -2505,9 +2540,9 @@ function showMenuRank() {
   const rank = getPlayerRank();
   const unlocks = getUnlocks();
   let html = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px;margin-bottom:4px">${rank.rank}</div>`;
-  html += `<div style="color:#555;font-size:10px">${rank.desc}</div>`;
+  html += `<div style="color:#aaa;font-size:10px">${rank.desc}</div>`;
   if (unlocks.highestRound) {
-    html += `<div style="color:#444;font-size:9px;margin-top:4px">Best: R${unlocks.highestRound} · ${unlocks.totalKillsAllTime || 0} lifetime kills</div>`;
+    html += `<div style="color:#999;font-size:9px;margin-top:4px">Best: R${unlocks.highestRound} · ${unlocks.totalKillsAllTime || 0} lifetime kills</div>`;
   }
   if (unlocks.easterEggComplete) {
     html += `<div style="color:#0ff;font-size:9px;margin-top:2px">🏆 Easter Egg Completed</div>`;
@@ -4560,7 +4595,11 @@ function spawnZombie() {
   
   let isBoss = false, isElite = false;
   if (round % 5 === 0 && zSpawned === zToSpawn - 1) {
-    isBoss = true; hp *= 5; spd *= 0.7; dmg *= 3;
+    isBoss = true;
+    // Boss HP scales aggressively: R5=12x, R10=17x, R15=22x, R20=27x, R25=32x
+    const bossHpMult = 12 + Math.floor((round - 5) / 5) * 5;
+    hp *= bossHpMult;
+    spd *= 0.6; dmg *= 4;
   } else if (round >= 3 && Math.random() < 0.15) {
     isElite = true; hp = Math.floor(hp * 2.5); spd *= 1.15; dmg = Math.floor(dmg * 1.8);
   }
@@ -5693,9 +5732,9 @@ function showDeath() {
       <div class="menu-divider"></div>
       <div style="color:#888;font-size:14px;margin:10px 0;line-height:2;text-align:center;position:relative">
         <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap">
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${round}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">ROUND</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${totalKills}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">KILLS</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${points}</div><div style="font-size:9px;color:#555;letter-spacing:2px;margin-top:2px">POINTS</div></div>
+          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${round}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">ROUND</div></div>
+          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${totalKills}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">KILLS</div></div>
+          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${points}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">POINTS</div></div>
         </div>
       </div>
       <div class="menu-divider"></div>
@@ -5708,7 +5747,7 @@ function showDeath() {
     const rank = getPlayerRank();
     const rankEl = document.createElement('div');
     rankEl.style.cssText = 'margin-top:10px;text-align:center;position:relative;';
-    rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#555;font-size:10px">${rank.desc}</div>`;
+    rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#aaa;font-size:10px">${rank.desc}</div>`;
     blocker.appendChild(rankEl);
     
     document.getElementById('hud').classList.add('hidden');
@@ -6110,16 +6149,7 @@ updateLoadBar(95, 'Waking the undead...');
 // Finish loading — show menu after brief delay for smooth transition
 setTimeout(() => finishLoading(), 600);
 
-// ===== VIBE JAM PORTAL =====
-// Adds the vibejam.com portal widget for competition entry
-(function() {
-  try {
-    const script = document.createElement('script');
-    script.src = 'https://vibejam.boringai.app/embed.js';
-    script.setAttribute('data-game-id', 'undead-siege-3d');
-    document.body.appendChild(script);
-  } catch(e) {}
-})();
+// Footer badges are in static HTML — no dynamic embed needed
 
 </script>
 </body>
