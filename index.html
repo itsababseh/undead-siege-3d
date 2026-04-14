@@ -573,6 +573,140 @@ function mapAt(wx, wz) {
 // Wall colors (Three.js hex): 1=grey, 2=brown, 3=green, 4=door-west(red), 5=door-east(red)
 const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
+// ===== VIBE JAM PORTAL SYSTEM =====
+const _vjPortalParams = new URLSearchParams(window.location.search);
+const _arrivedViaPortal = _vjPortalParams.get('portal') === 'true' || _vjPortalParams.get('portal') === '1';
+const _portalReferer = _vjPortalParams.get('ref') || '';
+let _exitPortalGroup = null;
+let _startPortalGroup = null;
+let _startPortalActiveAt = 0;
+let _portalInited = false;
+
+function _makePortalMesh(color, pos, label) {
+  const group = new THREE.Group();
+  group.position.set(pos.x, pos.y, pos.z);
+  // Glowing torus ring
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(2.5, 0.35, 16, 64),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, transparent: true, opacity: 0.85 })
+  );
+  group.add(ring);
+  // Inner swirling disc
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(2.2, 32),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+  );
+  group.add(disc);
+  // Particle ring
+  const pCount = 300;
+  const geom = new THREE.BufferGeometry();
+  const positions = new Float32Array(pCount * 3);
+  const pColors = new Float32Array(pCount * 3);
+  const pr = ((color >> 16) & 0xff) / 255, pg = ((color >> 8) & 0xff) / 255, pb = (color & 0xff) / 255;
+  for (let i = 0; i < pCount * 3; i += 3) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 2.5 + (Math.random() - 0.5) * 0.8;
+    positions[i] = Math.cos(angle) * radius;
+    positions[i + 1] = Math.sin(angle) * radius;
+    positions[i + 2] = (Math.random() - 0.5) * 0.6;
+    const jitter = 0.8 + Math.random() * 0.2;
+    pColors[i] = pr * jitter; pColors[i + 1] = pg * jitter; pColors[i + 2] = pb * jitter;
+  }
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+  group.add(new THREE.Points(geom, new THREE.PointsMaterial({ size: 0.08, vertexColors: true, transparent: true, opacity: 0.6 })));
+  // Label above portal
+  if (label) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center';
+    ctx.fillText(label, 256, 42);
+    const labelMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(5, 0.8),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, side: THREE.DoubleSide })
+    );
+    labelMesh.position.y = 3.5;
+    group.add(labelMesh);
+  }
+  const light = new THREE.PointLight(color, 2, 12);
+  light.position.copy(group.position);
+  return { group, light, particles: geom };
+}
+
+function initVibeJamPortals() {
+  if (_portalInited) return;
+  _portalInited = true;
+  // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
+  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
+  const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM PORTAL');
+  _exitPortalGroup = ep;
+  scene.add(ep.group); scene.add(ep.light);
+  // Start (return) portal — only if player arrived via another jam game
+  if (_arrivedViaPortal && _portalReferer) {
+    const startPos = { x: 12 * TILE, y: 1.6, z: 13 * TILE };
+    const sp = _makePortalMesh(0xff4444, startPos, 'RETURN PORTAL');
+    _startPortalGroup = sp;
+    scene.add(sp.group); scene.add(sp.light);
+    _startPortalActiveAt = Date.now() + 5000;
+  }
+}
+
+function animateVibeJamPortals(dt) {
+  if (!_portalInited) return;
+  const t = Date.now() * 0.001;
+  if (_exitPortalGroup) {
+    _exitPortalGroup.group.rotation.z += dt * 0.5;
+    const pp = _exitPortalGroup.particles.attributes.position.array;
+    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
+    _exitPortalGroup.particles.attributes.position.needsUpdate = true;
+    _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
+    // Check proximity
+    if (state === 'playing' || state === 'roundIntro') {
+      const dx = camera.position.x - _exitPortalGroup.group.position.x;
+      const dz = camera.position.z - _exitPortalGroup.group.position.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
+    }
+  }
+  if (_startPortalGroup) {
+    _startPortalGroup.group.rotation.z -= dt * 0.5;
+    const pp = _startPortalGroup.particles.attributes.position.array;
+    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i * 0.7);
+    _startPortalGroup.particles.attributes.position.needsUpdate = true;
+    _startPortalGroup.light.intensity = 2 + Math.sin(t * 2.5) * 0.8;
+    if (Date.now() >= _startPortalActiveAt && (state === 'playing' || state === 'roundIntro')) {
+      const dx = camera.position.x - _startPortalGroup.group.position.x;
+      const dz = camera.position.z - _startPortalGroup.group.position.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerReturnPortal();
+    }
+  }
+}
+
+function _triggerExitPortal() {
+  const params = new URLSearchParams();
+  params.set('portal', 'true');
+  params.set('ref', window.location.hostname);
+  params.set('username', 'Survivor');
+  params.set('color', 'red');
+  window.location.href = 'https://vibej.am/portal/2026?' + params.toString();
+}
+
+function _triggerReturnPortal() {
+  let url = _portalReferer;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const params = new URLSearchParams(window.location.search);
+  params.delete('ref');
+  const s = params.toString();
+  window.location.href = url + (s ? '?' + s : '');
+}
+
+function cleanupVibeJamPortals() {
+  if (_exitPortalGroup) { scene.remove(_exitPortalGroup.group); scene.remove(_exitPortalGroup.light); _exitPortalGroup = null; }
+  if (_startPortalGroup) { scene.remove(_startPortalGroup.group); scene.remove(_startPortalGroup.light); _startPortalGroup = null; }
+  _portalInited = false;
+}
+
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111118);
@@ -4549,6 +4683,10 @@ function initGame() {
   buildMap();
   buildPerkMachines();
   
+  // Vibe Jam portals
+  cleanupVibeJamPortals();
+  initVibeJamPortals();
+  
   round = 0; points = 500; totalKills = 0;
   zToSpawn = 0; zSpawned = 0; maxAlive = 0; spawnTimer = 0;
   
@@ -5753,6 +5891,8 @@ function showDeath() {
       <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666;position:relative">🏆 HIGH SCORES</div>
       <div style="font-size:12px;line-height:1.8;position:relative">${lbHTML}</div>
       <button onclick="window._startGame()" style="margin-top:16px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;position:relative;overflow:hidden;transition:all 0.3s">FIGHT AGAIN</button>
+      <br>
+      <button onclick="window._vibeJamPortal()" style="margin-top:10px;background:none;border:2px solid #0f4;color:#0f4;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🌀 VIBE JAM PORTAL</button>
     `;
     
     // Show rank on death screen
@@ -6084,6 +6224,7 @@ function gameLoop(time) {
   updateDamageVignette(dt);
   updateLowHealthEffect(dt);
   updateHitIndicators(dt);
+  animateVibeJamPortals(dt);
   // Skip HUD updates once death screen is shown (prevents DOM thrashing)
   if (!_deathShown) {
     updateHUD();
@@ -6146,6 +6287,26 @@ window._startGame = function() {
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
+
+// Vibe Jam Portal — triggered from death screen button
+window._vibeJamPortal = function() {
+  _triggerExitPortal();
+};
+
+// Auto-start game if player arrived via portal (skip menu for seamless experience)
+if (_arrivedViaPortal) {
+  // Wait for loading to finish, then auto-start
+  const _portalAutoStart = setInterval(() => {
+    const btn = document.getElementById('startBtn');
+    if (btn && btn.offsetParent !== null) {
+      clearInterval(_portalAutoStart);
+      // Small delay so the game is fully ready
+      setTimeout(() => {
+        if (typeof window._startGame === 'function') window._startGame();
+      }, 300);
+    }
+  }, 200);
+}
 
 // Handle resize
 window.addEventListener('resize', () => {
