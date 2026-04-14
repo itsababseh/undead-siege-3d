@@ -604,9 +604,7 @@ function suppressMouse(ms) {
   _mouseSuppress = performance.now() + (ms || 120);
 }
 
-// Mouse handler — smoothed input with spike rejection for bogus browser deltas
-let _prevMX = 0, _prevMY = 0;  // previous frame deltas for smoothing
-const MOUSE_SMOOTH = 0.3;       // blend factor: 0 = full smoothing, 1 = raw input
+// Mouse handler — raw input with spike rejection only (no smoothing)
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked) return;
 
@@ -631,12 +629,7 @@ document.addEventListener('mousemove', (e) => {
   mx = Math.max(-maxDelta, Math.min(maxDelta, mx));
   my = Math.max(-maxDelta, Math.min(maxDelta, my));
 
-  // Light smoothing to reduce jitter without adding noticeable lag
-  mx = _prevMX + (mx - _prevMX) * (1 - MOUSE_SMOOTH);
-  my = _prevMY + (my - _prevMY) * (1 - MOUSE_SMOOTH);
-  _prevMX = mx;
-  _prevMY = my;
-
+  // Apply directly — no smoothing, no delta blending
   controls._yaw -= mx * 0.002;
   controls._pitch -= my * 0.002;
   controls._pitch = Math.max(-controls._maxPitch, Math.min(controls._maxPitch, controls._pitch));
@@ -4543,8 +4536,8 @@ function spawnZombie() {
   spd *= speedMult;
 
   const z = {
-    wx: pick.wx + (Math.random()-0.5)*2,
-    wz: pick.wz + (Math.random()-0.5)*2,
+    wx: pick.wx,
+    wz: pick.wz,
     hp, maxHp: hp, spd, dmg,
     atkTimer: 1, flash: 0,
     radius: isBoss ? 1.5 : 0.8,
@@ -4556,6 +4549,13 @@ function spawnZombie() {
     _baseSpd: spd,
     stuckCheck: null,
   };
+  // Add small random offset but validate it's not inside a wall
+  const offX = (Math.random()-0.5)*1.5;
+  const offZ = (Math.random()-0.5)*1.5;
+  if (mapAt(z.wx + offX, z.wz + offZ) === 0) { z.wx += offX; z.wz += offZ; }
+  else if (mapAt(z.wx + offX, z.wz) === 0) { z.wx += offX; }
+  else if (mapAt(z.wx, z.wz + offZ) === 0) { z.wz += offZ; }
+  // else: stay at exact spawn point (guaranteed valid)
   zombies.push(z);
   zSpawned++;
   createZombieMesh(z);
@@ -5104,13 +5104,23 @@ function update(dt) {
         else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
       }
       
-      // Stuck detection — if zombie barely moved in 3 seconds, relocate out of view
-      if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0 };
+      // Stuck detection — if zombie barely moved, relocate or kill as safety net
+      if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
       z.stuckCheck.timer += dt;
-      if (z.stuckCheck.timer >= 3) {
+      if (z.stuckCheck.timer >= 2) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
         if (stuckDist < TILE * 0.5) {
-          // Prefer spawns BEHIND the player (out of FOV) so teleport isn't visible
+          z.stuckCheck.totalStuck += z.stuckCheck.timer;
+          
+          // Safety net: if stuck for 8+ seconds total, silently kill the zombie
+          if (z.stuckCheck.totalStuck >= 8) {
+            z.hp = 0;
+            removeZombieMesh(z);
+            zombies.splice(i, 1);
+            continue;
+          }
+          
+          // Try to teleport to spawn behind the player (out of FOV)
           const camDir = new THREE.Vector3();
           camera.getWorldDirection(camDir);
           let bestSp = null, bestScore = -Infinity;
@@ -5123,19 +5133,35 @@ function update(dt) {
             if (mapAt(swx, swz) !== 0) continue;
             const spD = Math.hypot(swx - camera.position.x, swz - camera.position.z);
             if (spD < TILE * 3) continue; // too close
-            // Dot product: negative = behind player (preferred)
             const toSpX = swx - camera.position.x, toSpZ = swz - camera.position.z;
             const dot = (toSpX * camDir.x + toSpZ * camDir.z) / spD;
-            // Score: prefer behind player (dot < 0) and moderate distance
             const score = -dot * 10 - spD * 0.01;
             if (score > bestScore) { bestScore = score; bestSp = sp; }
           }
           if (bestSp) {
-            z.wx = bestSp.x * TILE + (Math.random()-0.5)*2;
-            z.wz = bestSp.z * TILE + (Math.random()-0.5)*2;
+            z.wx = bestSp.x * TILE + (Math.random()-0.5)*1.5;
+            z.wz = bestSp.z * TILE + (Math.random()-0.5)*1.5;
+            // Validate teleport destination isn't inside a wall
+            if (mapAt(z.wx, z.wz) !== 0) {
+              z.wx = bestSp.x * TILE;
+              z.wz = bestSp.z * TILE;
+            }
+          } else {
+            // No valid spawn found — teleport directly toward player at moderate distance
+            const ang = Math.atan2(camera.position.z - z.wz, camera.position.x - z.wx);
+            const tryX = camera.position.x - Math.cos(ang) * TILE * 4;
+            const tryZ = camera.position.z - Math.sin(ang) * TILE * 4;
+            if (mapAt(tryX, tryZ) === 0) {
+              z.wx = tryX;
+              z.wz = tryZ;
+            }
           }
+        } else {
+          z.stuckCheck.totalStuck = 0; // reset if zombie moved
         }
-        z.stuckCheck = { x: z.wx, z: z.wz, timer: 0 };
+        z.stuckCheck.x = z.wx;
+        z.stuckCheck.z = z.wz;
+        z.stuckCheck.timer = 0;
       }
     }
     
