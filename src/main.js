@@ -1097,8 +1097,15 @@ function tryBuyDoor() {
           // In MP let the reducer be the source of truth — the onDoorUpdate
           // callback will run openDoorLocal for everyone (including us).
           if (netcode.isConnected()) {
-            try { netcode.callOpenDoor(door.id); }
+            // Server expects numeric doorId (i32). We use the array index
+            // as the canonical id — local door.id is a string label like
+            // 'west'/'east' which the reducer would silently reject.
+            const numericId = doors.indexOf(door);
+            try { netcode.callOpenDoor(numericId); }
             catch (e) { console.warn('[mp] openDoor failed', e); openDoorLocal(door); }
+            // Apply visuals immediately so the buyer doesn't feel lag; the
+            // onDoorUpdate callback for others is idempotent on `opened`.
+            openDoorLocal(door);
           } else {
             openDoorLocal(door);
           }
@@ -1234,6 +1241,17 @@ function _update(dt) {
     const z = zombies[i];
     z.flash = Math.max(0, z.flash - dt * 5);
 
+    // Non-host zombies (server-driven) smoothly track their target wx/wz
+    // toward the last-received server position. Without this they only
+    // move when a subscription update arrives (~20 Hz), producing visible
+    // step/stutter motion. Lerp factor 10 gives ~100ms catch-up — fast
+    // enough to feel responsive, slow enough to smooth the steps.
+    if (z._remote && z._targetWx !== undefined) {
+      const lerp = Math.min(1, dt * 10);
+      z.wx += (z._targetWx - z.wx) * lerp;
+      z.wz += (z._targetWz - z.wz) * lerp;
+    }
+
     // Local distance — used by the attack check and some FX. Always the
     // local camera, because each client applies attacks to its own player.
     const localDx = camera.position.x - z.wx;
@@ -1241,19 +1259,32 @@ function _update(dt) {
     const localD = Math.hypot(localDx, localDz);
 
     // AI distance — used by the movement loop. On host, this is the
-    // NEAREST player (local or remote) so zombies don't all chase one guy.
-    // On SP / non-host this is just the local camera.
+    // NEAREST player (local or remote) so zombies don't all chase one
+    // guy. Each zombie commits to its chosen target for ~0.5-1s to
+    // prevent frame-to-frame oscillation when two players are near-
+    // equidistant (the old code re-picked every frame and zombies
+    // walked in place between two players).
     let dx, dz, d;
     if (_isHostOrSP && _mpActive) {
-      let bestD = Infinity, bestT = targets[0];
-      for (const t of targets) {
-        const tx = t.x - z.wx, tz = t.z - z.wz;
-        const td = tx * tx + tz * tz;
-        if (td < bestD) { bestD = td; bestT = t; }
+      z._targetPickTimer = (z._targetPickTimer || 0) - dt;
+      const needRepick =
+        z._aiTargetIdx === undefined ||
+        z._aiTargetIdx >= targets.length ||
+        z._targetPickTimer <= 0;
+      if (needRepick) {
+        let bestD = Infinity, bestI = 0;
+        for (let ti = 0; ti < targets.length; ti++) {
+          const tx = targets[ti].x - z.wx, tz = targets[ti].z - z.wz;
+          const td = tx * tx + tz * tz;
+          if (td < bestD) { bestD = td; bestI = ti; }
+        }
+        z._aiTargetIdx = bestI;
+        z._targetPickTimer = 0.5 + Math.random() * 0.5;
       }
-      dx = bestT.x - z.wx;
-      dz = bestT.z - z.wz;
-      d = Math.sqrt(bestD);
+      const t = targets[z._aiTargetIdx] || targets[0];
+      dx = t.x - z.wx;
+      dz = t.z - z.wz;
+      d = Math.hypot(dx, dz);
     } else {
       dx = localDx;
       dz = localDz;

@@ -23,7 +23,7 @@ function resolveUri() {
 const MODULE_NAME = 'undead-siege';
 const TOKEN_KEY = 'undead-siege.stdb.token';
 const TRANSFORM_HZ = 20;
-const ZOMBIE_SYNC_HZ = 15;
+const ZOMBIE_SYNC_HZ = 20;
 const HOST_HEARTBEAT_HZ = 0.5; // every 2s
 
 // ── State ─────────────────────────────────────────────────────────────────

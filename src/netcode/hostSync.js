@@ -32,7 +32,11 @@ function makeLocalZombieFromRow(row, PI2) {
   const isElite = row.zombieType === 1;
   return {
     hostZid: row.hostZid,
+    // Start render position at the spawn location so the first frame
+    // doesn't have a jump. The interpolator in main.js tracks _targetWx
+    // toward wx.
     wx: row.wx, wz: row.wz,
+    _targetWx: row.wx, _targetWz: row.wz,
     hp: row.hp, maxHp: row.maxHp,
     spd: 0, dmg: 10,
     atkTimer: 1, flash: row.flashLevel || 0,
@@ -44,7 +48,7 @@ function makeLocalZombieFromRow(row, PI2) {
     _limpSeverity: 0,
     _baseSpd: 0,
     stuckCheck: null,
-    _remote: true,
+    _remote: true, // marks this as server-driven — main.js interpolates
   };
 }
 
@@ -123,8 +127,19 @@ export function createHostSync(ctx) {
         createZombieMesh(nz);
         return;
       }
-      z.wx = row.wx;
-      z.wz = row.wz;
+      // For remote (non-host) zombies, don't snap z.wx/z.wz to the
+      // server value — store the target and let the main loop lerp
+      // toward it each frame. Snapping causes the "jitters every
+      // 50ms" look because the mesh sits still between syncs.
+      // Host's own zombies have _remote=false (they came from
+      // spawnZombie, not this callback) so they bypass this path.
+      if (z._remote) {
+        z._targetWx = row.wx;
+        z._targetWz = row.wz;
+      } else {
+        z.wx = row.wx;
+        z.wz = row.wz;
+      }
       z.hp = row.hp;
       z.maxHp = row.maxHp;
       z.flash = Math.max(z.flash, row.flashLevel || 0);
@@ -135,7 +150,9 @@ export function createHostSync(ctx) {
     });
 
     netcode.setOnDoorUpdate((row) => {
-      const d = doors.find(dd => dd.id === row.doorId);
+      // row.doorId is the numeric index into the local doors array (see
+      // tryBuyDoor — we normalize string ids to indices on the wire).
+      const d = doors[row.doorId];
       if (d && row.opened && !d.opened) {
         openDoorLocal(d);
       }
