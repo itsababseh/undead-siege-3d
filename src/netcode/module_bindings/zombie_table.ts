@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   hostZid: __t.u64().primaryKey().name("host_zid"),
+  lobbyId: __t.u64().name("lobby_id"),
   zombieType: __t.i32().name("zombie_type"),
   wx: __t.f32(),
   wz: __t.f32(),

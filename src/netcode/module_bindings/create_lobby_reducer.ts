@@ -10,7 +10,6 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  doorId: __t.i32().primaryKey().name("door_id"),
-  opened: __t.bool(),
-});
+export default {
+  isPublic: __t.bool(),
+};

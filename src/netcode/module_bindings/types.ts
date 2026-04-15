@@ -12,27 +12,13 @@ import {
 
 export const ChatMessage = __t.object("ChatMessage", {
   msgId: __t.u64(),
+  lobbyId: __t.u64(),
   sender: __t.identity(),
   senderName: __t.string(),
   text: __t.string(),
   createdAt: __t.timestamp(),
 });
 export type ChatMessage = __Infer<typeof ChatMessage>;
-
-export const Door = __t.object("Door", {
-  doorId: __t.i32(),
-  opened: __t.bool(),
-});
-export type Door = __Infer<typeof Door>;
-
-export const GameState = __t.object("GameState", {
-  gameId: __t.u64(),
-  hostIdentity: __t.option(__t.identity()),
-  round: __t.i32(),
-  status: __t.string(),
-  hostLastSeen: __t.timestamp(),
-});
-export type GameState = __Infer<typeof GameState>;
 
 export const HighScore = __t.object("HighScore", {
   scoreId: __t.u64(),
@@ -44,9 +30,25 @@ export const HighScore = __t.object("HighScore", {
 });
 export type HighScore = __Infer<typeof HighScore>;
 
+export const Lobby = __t.object("Lobby", {
+  lobbyId: __t.u64(),
+  inviteCode: __t.string(),
+  hostIdentity: __t.option(__t.identity()),
+  hostName: __t.string(),
+  status: __t.string(),
+  round: __t.i32(),
+  isPublic: __t.bool(),
+  openedDoors: __t.array(__t.i32()),
+  playerCount: __t.i32(),
+  createdAt: __t.timestamp(),
+  hostLastSeen: __t.timestamp(),
+});
+export type Lobby = __Infer<typeof Lobby>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),
+  lobbyId: __t.u64(),
   wx: __t.f32(),
   wz: __t.f32(),
   ry: __t.f32(),
@@ -62,6 +64,7 @@ export type Player = __Infer<typeof Player>;
 
 export const PowerUp = __t.object("PowerUp", {
   puId: __t.u64(),
+  lobbyId: __t.u64(),
   typeIdx: __t.i32(),
   wx: __t.f32(),
   wz: __t.f32(),
@@ -71,6 +74,7 @@ export type PowerUp = __Infer<typeof PowerUp>;
 
 export const Zombie = __t.object("Zombie", {
   hostZid: __t.u64(),
+  lobbyId: __t.u64(),
   zombieType: __t.i32(),
   wx: __t.f32(),
   wz: __t.f32(),

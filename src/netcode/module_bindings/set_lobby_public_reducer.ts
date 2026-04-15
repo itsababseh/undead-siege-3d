@@ -10,11 +10,6 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  puId: __t.u64().primaryKey().name("pu_id"),
-  lobbyId: __t.u64().name("lobby_id"),
-  typeIdx: __t.i32().name("type_idx"),
-  wx: __t.f32(),
-  wz: __t.f32(),
-  spawnedAt: __t.timestamp().name("spawned_at"),
-});
+export default {
+  isPublic: __t.bool(),
+};

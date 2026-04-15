@@ -1617,62 +1617,110 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
   renderLb();
 })();
 
-// ===== MULTIPLAYER LOBBY + BUTTON =====
+// ===== MULTIPLAYER: MENU + LOBBY (M4 multi-room) =====
 //
-// Flow:
-//   1. Click MULTIPLAYER
-//      - if no name set, flash the name input and abort (user types name)
-//      - otherwise netcode.connect()
-//   2. On 'connected' status → state = 'mpLobby', show lobby panel
-//   3. Lobby panel renders the player list + START GAME (host only)
-//   4. Host clicks START GAME → callStartGame() → server flips status
-//      to 'playing' → hostSync fires _onMatchStarted on all clients →
-//      window._startGame() runs on each tab.
-//   5. On session reset (wipe / all leave) → _onMatchEnded → back to
-//      lobby panel.
+// States:
+//   menu    → main menu (ENLIST / MULTIPLAYER / name input)
+//   mpMenu  → multiplayer sub-menu (FILL SQUAD / CREATE / JOIN / BROWSE)
+//   mpLobby → inside a specific lobby waiting for host START GAME
+//   playing / roundIntro / dead — as before
 //
-// Mid-game joiners land with Player.spectating=true; the spectator
-// update logic below snaps their camera to a live teammate until the
-// next advance_round flips them into the action.
+// Transitions:
+//   menu  ──MULTIPLAYER──▶ connect → mpMenu
+//   mpMenu ──CREATE/JOIN/FILL──▶ server sets player.lobbyId → mpLobby
+//   mpMenu ──BACK──▶ disconnect → menu
+//   mpLobby ──host START──▶ lobby.status = playing → _onMatchStarted → game
+//   mpLobby ──LEAVE──▶ leave_lobby → player.lobbyId=0 → mpMenu
+//   playing ──all wipe──▶ resetLobbyMatch → status=lobby → _onMatchEnded → mpLobby
+//
+// The lobbyId transitions are driven by netcode.setOnMyLobbyChange —
+// main.js doesn't poll, it reacts.
 
 const _mainMenuPanel = document.getElementById('mainMenuPanel');
+const _mpMenuPanel = document.getElementById('mpMenuPanel');
 const _lobbyPanel = document.getElementById('lobbyPanel');
 const _lobbyPlayerList = document.getElementById('lobbyPlayerList');
 const _lobbyStartBtn = document.getElementById('lobbyStartBtn');
 const _lobbyLeaveBtn = document.getElementById('lobbyLeaveBtn');
 const _lobbyHostHint = document.getElementById('lobbyHostHint');
 const _lobbyStatusLine = document.getElementById('lobbyStatusLine');
+const _lobbyInviteCodeEl = document.getElementById('lobbyInviteCode');
+const _lobbyCopyCodeBtn = document.getElementById('lobbyCopyCodeBtn');
+const _lobbyCopyHint = document.getElementById('lobbyCopyHint');
+const _lobbyPublicToggleBtn = document.getElementById('lobbyPublicToggleBtn');
 const _multiBtnEl = document.getElementById('multiBtn');
 const _multiStatusEl = document.getElementById('multiStatus');
 const _menuNameInputEl = document.getElementById('menuNameInput');
+const _mpMenuStatusEl = document.getElementById('mpMenuStatus');
+const _mpFillSquadBtn = document.getElementById('mpFillSquadBtn');
+const _mpCreateLobbyBtn = document.getElementById('mpCreateLobbyBtn');
+const _mpJoinCodeInput = document.getElementById('mpJoinCodeInput');
+const _mpJoinByCodeBtn = document.getElementById('mpJoinByCodeBtn');
+const _mpBackBtn = document.getElementById('mpBackBtn');
+const _mpPublicListEl = document.getElementById('mpPublicList');
 
+function escapeMenuHtmlMp(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Panel show/hide (one of three is visible inside #blocker at any
+// given time: mainMenu / mpMenu / lobbyPanel). ─────────────────────
+function hideAllMpPanels() {
+  if (_mainMenuPanel) _mainMenuPanel.style.display = 'none';
+  if (_mpMenuPanel) _mpMenuPanel.style.display = 'none';
+  if (_lobbyPanel) _lobbyPanel.style.display = 'none';
+}
+function showMainMenuPanel() {
+  hideAllMpPanels();
+  if (_mainMenuPanel) _mainMenuPanel.style.display = 'contents';
+  const blocker = document.getElementById('blocker');
+  if (blocker) blocker.classList.remove('hidden');
+  document.getElementById('hud')?.classList.add('hidden');
+}
+function showMpMenuPanel() {
+  state = 'mpMenu';
+  hideAllMpPanels();
+  if (_mpMenuPanel) _mpMenuPanel.style.display = 'block';
+  const blocker = document.getElementById('blocker');
+  if (blocker) blocker.classList.remove('hidden');
+  document.getElementById('hud')?.classList.add('hidden');
+  renderPublicLobbiesList();
+  if (_mpMenuStatusEl) _mpMenuStatusEl.textContent = '';
+}
 function showLobbyPanel() {
   state = 'mpLobby';
-  if (_mainMenuPanel) _mainMenuPanel.style.display = 'none';
+  hideAllMpPanels();
   if (_lobbyPanel) _lobbyPanel.style.display = 'block';
-  // Make sure the blocker is visible (lobby is shown as menu replacement).
   const blocker = document.getElementById('blocker');
   if (blocker) blocker.classList.remove('hidden');
   document.getElementById('hud')?.classList.add('hidden');
   renderLobbyPanel();
 }
 
-function hideLobbyPanel() {
-  if (_mainMenuPanel) _mainMenuPanel.style.display = 'contents';
-  if (_lobbyPanel) _lobbyPanel.style.display = 'none';
-}
-
+// ── Lobby panel renderer ──────────────────────────────────────────
 function renderLobbyPanel() {
   if (!_lobbyPanel || _lobbyPanel.style.display === 'none') return;
+  const lobby = netcode.getMyLobby();
+  if (!lobby) return;
   const isHost = netcode.isHost();
   const localName = getLocalPlayerName();
   const remotes = Array.from(netcode.getRemotePlayers().values());
   const totalCount = 1 + remotes.length;
+
   if (_lobbyStatusLine) {
     _lobbyStatusLine.textContent =
-      isHost ? `YOU ARE THE HOST · ${totalCount} PLAYER${totalCount !== 1 ? 'S' : ''}`
-             : `WAITING FOR HOST · ${totalCount} PLAYER${totalCount !== 1 ? 'S' : ''}`;
+      `${isHost ? 'YOU ARE HOST' : 'WAITING FOR HOST'} · ${totalCount}/5 PLAYERS`;
   }
+
+  if (_lobbyInviteCodeEl) _lobbyInviteCodeEl.textContent = lobby.inviteCode || '------';
+
+  if (_lobbyPublicToggleBtn) {
+    _lobbyPublicToggleBtn.textContent = `LOBBY: ${lobby.isPublic ? 'PUBLIC' : 'PRIVATE'}`;
+    _lobbyPublicToggleBtn.style.display = isHost ? 'inline-block' : 'none';
+    _lobbyPublicToggleBtn.style.color = lobby.isPublic ? '#8f8' : '#aaa';
+    _lobbyPublicToggleBtn.style.borderColor = lobby.isPublic ? '#8f8' : '#888';
+  }
+
   if (_lobbyPlayerList) {
     const rows = [];
     rows.push(`<div><span style="color:#4af">▶</span> <b style="color:#fff">${escapeMenuHtmlMp(localName)}</b> <span style="color:#8f8">(you${isHost ? ', host' : ''})</span></div>`);
@@ -1685,6 +1733,7 @@ function renderLobbyPanel() {
     }
     _lobbyPlayerList.innerHTML = rows.join('');
   }
+
   if (_lobbyStartBtn) {
     if (isHost) {
       _lobbyStartBtn.disabled = false;
@@ -1698,43 +1747,61 @@ function renderLobbyPanel() {
   }
   if (_lobbyHostHint) {
     _lobbyHostHint.textContent = isHost
-      ? 'You decide when everyone drops in.'
+      ? 'Share the invite code with friends. You decide when to start.'
       : '';
   }
 }
 
-function escapeMenuHtmlMp(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// ── Public lobbies list renderer (MP menu) ───────────────────────
+function renderPublicLobbiesList() {
+  if (!_mpPublicListEl) return;
+  if (!netcode.isConnected()) {
+    _mpPublicListEl.innerHTML = '<div style="color:#555;text-align:center;padding:8px">connecting…</div>';
+    return;
+  }
+  const list = netcode.getPublicLobbies();
+  if (list.length === 0) {
+    _mpPublicListEl.innerHTML = '<div style="color:#555;text-align:center;padding:8px">No public lobbies yet</div>';
+    return;
+  }
+  const rows = list.map(l => {
+    const host = escapeMenuHtmlMp((l.hostName || 'Anon').slice(0, 14));
+    const status = l.status === 'playing' ? `<span style="color:#fc0">R${l.round}</span>` : '<span style="color:#8f8">waiting</span>';
+    return `<div class="mpLobbyRow" data-code="${escapeMenuHtmlMp(l.inviteCode)}" style="cursor:pointer;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center">
+      <span><span style="color:#4af">${escapeMenuHtmlMp(l.inviteCode)}</span> <span style="color:#ddd">${host}</span></span>
+      <span><span style="color:#888">${l.playerCount}/5</span> ${status}</span>
+    </div>`;
+  });
+  _mpPublicListEl.innerHTML = rows.join('');
+  // Delegated click: each row carries its invite code.
+  for (const el of _mpPublicListEl.querySelectorAll('.mpLobbyRow')) {
+    el.addEventListener('click', () => {
+      const code = el.getAttribute('data-code');
+      if (code) netcode.callJoinLobbyByCode(code);
+    });
+  }
 }
 
-function leaveLobby() {
+// ── Back out of MP entirely (disconnect, return to main menu) ─────
+function leaveMpCompletely() {
   netcode.disconnect();
-  hideLobbyPanel();
+  showMainMenuPanel();
   state = 'menu';
 }
 
-// Match lifecycle — invoked by hostSync when the server flips status.
-// Defined here so the ctx closures above see them at call time.
+// ── Match lifecycle — invoked by hostSync when lobby.status flips ─
 function _onMatchStarted() {
-  // Pull the local player out of lobby and drop them into the game.
-  hideLobbyPanel();
+  hideAllMpPanels();
   if (typeof window._startGame === 'function') window._startGame();
 }
 
 function _onMatchEnded() {
-  // Server has reset the session (wipe or last-player-left). Return
-  // everyone to the lobby panel and clear local game state so the next
-  // START GAME starts clean.
-  state = 'mpLobby';
   paused = false;
   hidePause();
-  // Clean up local gameplay artifacts without running the full death
-  // screen flow. Zombies are already being deleted via onZombieDelete.
   zombies.forEach(z => removeZombieMesh(z));
   zombies.length = 0;
   points = 500; totalKills = 0; round = 0;
   zToSpawn = 0; zSpawned = 0; maxAlive = 0; spawnTimer = 0;
-  // Hide game HUD + show lobby panel again.
   document.getElementById('hud')?.classList.add('hidden');
   const downedOv = document.getElementById('downedOverlay');
   if (downedOv) downedOv.style.display = 'none';
@@ -1745,27 +1812,38 @@ function _onMatchEnded() {
     blocker.classList.remove('hidden');
     blocker.style.opacity = '';
   }
+  // Back to the lobby panel (we're still in the lobby, match just ended)
   showLobbyPanel();
 }
 
+// ── Wire up all the buttons + subscription reactions ─────────────
 (() => {
   if (!_multiBtnEl || !_multiStatusEl) return;
 
   netcode.onStatus(({ status: s, message }) => {
     switch (s) {
       case 'connected':
-        _multiBtnEl.textContent = 'LEAVE LOBBY';
+        _multiBtnEl.textContent = 'LEAVE MP';
         _multiBtnEl.style.background = '#2a5';
         _multiStatusEl.textContent = 'connected';
         _multiStatusEl.style.color = '#8f8';
-        // On the first transition into 'connected', show the lobby panel.
-        // If the server already has status='playing' (we're joining a
-        // live match), hostSync's _lastStatus tracking will fire
-        // onMatchStarted and we'll skip straight to the game.
-        if (netcode.getGameStatus() === 'lobby' && state !== 'playing' && state !== 'roundIntro') {
-          showLobbyPanel();
+        // After connect, player.lobbyId is 0 so we land on the MP menu.
+        // If we're already in a lobby (e.g. invite link auto-joined),
+        // the onMyLobbyChange callback will transition us to mpLobby.
+        if (state !== 'playing' && state !== 'roundIntro' && state !== 'mpLobby') {
+          if (netcode.getMyLobbyId() === 0n) {
+            showMpMenuPanel();
+          } else {
+            showLobbyPanel();
+          }
         }
-        renderLobbyPanel();
+        // Pending action from the main menu? (e.g. a URL ?invite= asked
+        // us to connect-then-join.)
+        if (_pendingMpAction) {
+          const act = _pendingMpAction;
+          _pendingMpAction = null;
+          try { act(); } catch (e) { console.warn('[mp] pending action failed', e); }
+        }
         break;
       case 'connecting':
         _multiBtnEl.textContent = 'MULTIPLAYER: …';
@@ -1778,25 +1856,59 @@ function _onMatchEnded() {
         _multiBtnEl.style.background = '';
         _multiStatusEl.textContent = `error: ${message || 'check console'}`;
         _multiStatusEl.style.color = '#f88';
-        hideLobbyPanel();
-        if (state === 'mpLobby') state = 'menu';
+        showMainMenuPanel();
+        state = 'menu';
         break;
       default:
         _multiBtnEl.textContent = 'MULTIPLAYER: OFF';
         _multiBtnEl.style.background = '';
         _multiStatusEl.textContent = '';
-        hideLobbyPanel();
-        if (state === 'mpLobby') state = 'menu';
+        if (state === 'mpMenu' || state === 'mpLobby') {
+          showMainMenuPanel();
+          state = 'menu';
+        }
     }
   });
 
+  // When the local player's lobbyId changes (create/join/leave/kicked),
+  // flip between mpMenu and mpLobby views automatically.
+  netcode.setOnMyLobbyChange((newLobbyId) => {
+    if (newLobbyId && newLobbyId !== 0n) {
+      if (state === 'mpMenu' || state === 'menu') {
+        showLobbyPanel();
+      } else if (state === 'mpLobby') {
+        renderLobbyPanel();
+      }
+    } else {
+      // Left the lobby → go back to the MP sub-menu
+      if (netcode.isConnected() && (state === 'mpLobby' || state === 'playing' || state === 'roundIntro' || state === 'dead')) {
+        showMpMenuPanel();
+      }
+    }
+  });
+
+  // Browse list auto-refreshes whenever any lobby row changes.
+  netcode.setOnLobbyListChange(() => {
+    if (state === 'mpMenu') renderPublicLobbiesList();
+  });
+
+  // Main menu MULTIPLAYER button — opens the MP sub-menu.
   _multiBtnEl.addEventListener('click', () => {
-    if (netcode.isConnected() || netcode.getStatus() === 'connecting') {
-      leaveLobby();
+    if (state === 'mpMenu' || state === 'mpLobby') {
+      leaveMpCompletely();
       return;
     }
-    // Require a name before connecting. If empty/default, flash the
-    // input and abort — user should type their name first.
+    if (!requireLocalName()) return;
+    if (netcode.isConnected() || netcode.getStatus() === 'connecting') {
+      showMpMenuPanel();
+      return;
+    }
+    netcode.connect();
+    // onStatus 'connected' will flip to showMpMenuPanel once the
+    // connection lands.
+  });
+
+  function requireLocalName() {
     const nm = getLocalPlayerName();
     if (!nm || nm === 'Survivor') {
       if (_menuNameInputEl) {
@@ -1807,11 +1919,44 @@ function _onMatchEnded() {
       }
       _multiStatusEl.textContent = 'set a name first ↑';
       _multiStatusEl.style.color = '#fc8';
-      return;
+      return false;
     }
-    netcode.connect();
-  });
+    return true;
+  }
 
+  // MP sub-menu buttons
+  if (_mpFillSquadBtn) {
+    _mpFillSquadBtn.addEventListener('click', () => {
+      _mpMenuStatusEl.textContent = 'finding a squad…';
+      _mpMenuStatusEl.style.color = '#fc8';
+      netcode.callFillSquad();
+    });
+  }
+  if (_mpCreateLobbyBtn) {
+    _mpCreateLobbyBtn.addEventListener('click', () => {
+      _mpMenuStatusEl.textContent = 'creating lobby…';
+      _mpMenuStatusEl.style.color = '#fc8';
+      netcode.callCreateLobby(false); // private by default
+    });
+  }
+  if (_mpJoinByCodeBtn && _mpJoinCodeInput) {
+    const doJoin = () => {
+      const code = (_mpJoinCodeInput.value || '').trim().toUpperCase();
+      if (!code) return;
+      _mpMenuStatusEl.textContent = `joining ${code}…`;
+      _mpMenuStatusEl.style.color = '#fc8';
+      netcode.callJoinLobbyByCode(code);
+    };
+    _mpJoinByCodeBtn.addEventListener('click', doJoin);
+    _mpJoinCodeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doJoin(); }
+    });
+  }
+  if (_mpBackBtn) {
+    _mpBackBtn.addEventListener('click', leaveMpCompletely);
+  }
+
+  // Lobby panel buttons
   if (_lobbyStartBtn) {
     _lobbyStartBtn.addEventListener('click', () => {
       if (!netcode.isHost()) return;
@@ -1819,15 +1964,75 @@ function _onMatchEnded() {
     });
   }
   if (_lobbyLeaveBtn) {
-    _lobbyLeaveBtn.addEventListener('click', leaveLobby);
+    _lobbyLeaveBtn.addEventListener('click', () => netcode.callLeaveLobby());
+  }
+  if (_lobbyCopyCodeBtn) {
+    _lobbyCopyCodeBtn.addEventListener('click', async () => {
+      const lobby = netcode.getMyLobby();
+      if (!lobby) return;
+      // Copy just the code, plus a shareable URL version via ?invite=
+      const url = `${window.location.origin}${window.location.pathname}?invite=${lobby.inviteCode}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        if (_lobbyCopyHint) _lobbyCopyHint.textContent = 'invite link copied!';
+      } catch (e) {
+        if (_lobbyCopyHint) _lobbyCopyHint.textContent = lobby.inviteCode;
+      }
+      setTimeout(() => { if (_lobbyCopyHint) _lobbyCopyHint.textContent = ''; }, 1500);
+    });
+  }
+  if (_lobbyPublicToggleBtn) {
+    _lobbyPublicToggleBtn.addEventListener('click', () => {
+      if (!netcode.isHost()) return;
+      const lobby = netcode.getMyLobby();
+      if (!lobby) return;
+      netcode.callSetLobbyPublic(!lobby.isPublic);
+    });
   }
 
-  // Refresh the lobby player list whenever remote players change or
-  // the gameState row changes. We don't have a 'remote player changed'
-  // event, so just redraw on a low-freq timer while lobby is visible.
+  // Low-freq redraws while panels are visible. Lobby panel also
+  // redraws on any local player update via setOnLocalPlayerUpdate,
+  // but a 500ms tick covers slow-moving UI bits (player count,
+  // status text) without any extra plumbing.
   setInterval(() => {
     if (state === 'mpLobby') renderLobbyPanel();
+    if (state === 'mpMenu') renderPublicLobbiesList();
   }, 500);
+
+  netcode.setOnLocalPlayerUpdate(() => {
+    if (state === 'mpLobby') renderLobbyPanel();
+  });
+})();
+
+// Queue of actions to run once we reach 'connected' status. Used by the
+// URL ?invite=CODE bootstrap below — we kick off the connect on page
+// load, then once the connection's live we call joinLobbyByCode.
+let _pendingMpAction = null;
+
+// ── URL ?invite=CODE bootstrap ────────────────────────────────────
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get('invite') || '').trim().toUpperCase();
+  if (!code) return;
+  // Wait for the page-load dust to settle, then auto-connect + auto-join.
+  setTimeout(() => {
+    const nm = getLocalPlayerName();
+    if (!nm || nm === 'Survivor') {
+      // Name not set — can't auto-join. Highlight the name input and
+      // leave the code in the MP join input so clicking MULTIPLAYER +
+      // JOIN BY CODE finishes it.
+      if (_menuNameInputEl) _menuNameInputEl.focus();
+      if (_mpJoinCodeInput) _mpJoinCodeInput.value = code;
+      return;
+    }
+    _pendingMpAction = () => netcode.callJoinLobbyByCode(code);
+    if (netcode.isConnected()) {
+      _pendingMpAction();
+      _pendingMpAction = null;
+    } else if (netcode.getStatus() !== 'connecting') {
+      netcode.connect();
+    }
+  }, 100);
 })();
 
 // ===== SPECTATOR CAMERA + OVERLAY =====

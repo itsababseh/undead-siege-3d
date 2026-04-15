@@ -1,38 +1,43 @@
-// Undead Siege — SpacetimeDB schema
+// Undead Siege — SpacetimeDB schema (M4: multi-lobby rooms)
 //
-// Authority model: HOST AUTHORITY.
-// One connected client is elected "host" (first to arrive, or takeover if
-// the current host times out). The host runs the existing local zombie AI
-// and pushes position/spawn/despawn updates to the Zombie table at ~15 Hz.
-// All other clients subscribe and render from the table.
+// Authority model: HOST AUTHORITY, now PER LOBBY.
+// Multiple independent lobbies can exist at once. Each Lobby row has its
+// own host, round, status, zombies, powerups, chat, and opened-doors set.
+// The 5-player cap is enforced by the join_lobby / fill_squad reducers.
 //
-// HP and damage are SERVER-authoritative (stored on the Zombie row, mutated
-// by the damage reducer) so that non-host players shooting feels responsive
-// and the host can't fake kills.
+// Data ownership:
+//   - HighScore and Player (identity + name + points) are GLOBAL
+//   - Everything else (zombies/powerups/chat/opened doors) is per-lobby
+//     via a `lobbyId` foreign key
 //
-// GameState is a single-row table with gameId = 1n. We use a singleton
-// rather than per-room tables because M1/M2 are one global lobby.
+// HP and damage are still server-authoritative (damage_zombie reducer)
+// so non-host shooting feels responsive.
 
 import { schema, table, t } from 'spacetimedb/server';
 
 // Player: one row per connected client.
 //
-// Lifecycle flags:
-//   `alive`      — currently "in the game" in any form. False only when
-//                  the session-reset trigger fires. Client flips this on
-//                  initGame(true) / teardown(false).
-//   `downed`     — incapacitated, waiting for a teammate revive. In MP,
-//                  HP hitting 0 enters this state instead of the SP
-//                  game-over. If every alive player is also downed, the
-//                  server resets the session.
-//   `spectating` — joined while a match was already in progress. Player
-//                  sits in spectator mode watching a teammate until the
-//                  next advance_round() flips them into the live game.
+// Identity + name + points are global (you keep your name and high-score
+// history across lobbies). `lobbyId` tells us which lobby the player is
+// currently in — 0 means "on the multiplayer menu, not in any lobby".
+//
+// Lifecycle flags (scoped to the current lobby's match):
+//   `alive`      — currently in the game in any form
+//   `downed`     — incapacitated, waiting for a teammate revive
+//   `spectating` — joined mid-match, watching a teammate until next
+//                  advance_round flips them in
 export const Player = table(
-  { name: 'player', public: true },
+  {
+    name: 'player',
+    public: true,
+    indexes: [
+      { accessor: 'player_lobby_id', algorithm: 'btree', columns: ['lobbyId'] },
+    ],
+  },
   {
     identity: t.identity().primaryKey(),
     name: t.string(),
+    lobbyId: t.u64(),
     wx: t.f32(),
     wz: t.f32(),
     ry: t.f32(),
@@ -46,35 +51,57 @@ export const Player = table(
   }
 );
 
-// GameState: singleton row (gameId = 1n). Tracks host election, the
-// shared round counter, and the lobby/playing status.
+// Lobby: one row per active game room. Replaces the M3 `GameState`
+// singleton. Holds everything that used to live on GameState PLUS:
+//   - `inviteCode`: 6-char A-Z0-9 identifier for JOIN BY CODE flow
+//   - `isPublic`:   whether FILL SQUAD matchmaking considers this lobby
+//   - `openedDoors`: array of door indices opened so far (replaces the
+//                    old Door table entirely)
+//   - `playerCount`: cached count of players with this lobbyId, kept in
+//                    sync by join/leave/onDisconnect
+//   - `hostName`:    cached host name so the public browse list doesn't
+//                    need an extra player lookup per row
 //
-// `status` values: "lobby" (menu, nobody is actively simulating) or
-// "playing" (a match is running). start_game flips to playing,
-// resetSession flips back to lobby.
-export const GameState = table(
-  { name: 'game_state', public: true },
+// Lobbies are created dynamically by create_lobby / fill_squad and are
+// deleted when the last player leaves them.
+export const Lobby = table(
   {
-    gameId: t.u64().primaryKey(),
+    name: 'lobby',
+    public: true,
+    indexes: [
+      { accessor: 'lobby_invite_code', algorithm: 'btree', columns: ['inviteCode'] },
+      { accessor: 'lobby_is_public', algorithm: 'btree', columns: ['isPublic'] },
+    ],
+  },
+  {
+    lobbyId: t.u64().primaryKey().autoInc(),
+    inviteCode: t.string(),
     hostIdentity: t.identity().optional(),
+    hostName: t.string(),
+    status: t.string(),             // 'lobby' | 'playing'
     round: t.i32(),
-    status: t.string(),
+    isPublic: t.bool(),
+    openedDoors: t.array(t.i32()),
+    playerCount: t.i32(),
+    createdAt: t.timestamp(),
     hostLastSeen: t.timestamp(),
   }
 );
 
-// Zombie: one row per live zombie. Created by host, positions updated by
-// host, HP mutated by any client via the damage reducer. Deleted when HP
-// hits zero or host calls remove_zombie.
-//
-// `hostZid` is a host-picked ID (so the host can correlate its local
-// simulation to server rows without round-tripping an auto-inc). Unique
-// per host; if the host changes, the new host picks fresh IDs.
+// Zombie: one row per live zombie in a specific lobby. Created by the
+// host of that lobby, HP mutated server-side via damage_zombie.
 export const Zombie = table(
-  { name: 'zombie', public: true },
+  {
+    name: 'zombie',
+    public: true,
+    indexes: [
+      { accessor: 'zombie_lobby_id', algorithm: 'btree', columns: ['lobbyId'] },
+    ],
+  },
   {
     hostZid: t.u64().primaryKey(),
-    zombieType: t.i32(),   // 0=normal, 1=elite, 2=boss
+    lobbyId: t.u64(),
+    zombieType: t.i32(),
     wx: t.f32(),
     wz: t.f32(),
     ry: t.f32(),
@@ -85,22 +112,18 @@ export const Zombie = table(
   }
 );
 
-// Door: shared door state. Initialized once at module init with a fixed
-// set of door IDs that match the client's door table. Opens are
-// broadcast via open_door reducer.
-export const Door = table(
-  { name: 'door', public: true },
-  {
-    doorId: t.i32().primaryKey(),
-    opened: t.bool(),
-  }
-);
-
-// PowerUp: shared powerup drops. Host spawns, any client can consume.
+// PowerUp: shared powerup drops in a specific lobby.
 export const PowerUp = table(
-  { name: 'power_up', public: true },
+  {
+    name: 'power_up',
+    public: true,
+    indexes: [
+      { accessor: 'power_up_lobby_id', algorithm: 'btree', columns: ['lobbyId'] },
+    ],
+  },
   {
     puId: t.u64().primaryKey(),
+    lobbyId: t.u64(),
     typeIdx: t.i32(),
     wx: t.f32(),
     wz: t.f32(),
@@ -108,9 +131,8 @@ export const PowerUp = table(
   }
 );
 
-// HighScore: persistent leaderboard row. Inserted when a player dies
-// (or whenever the client reports a run end). NOT wiped by resetSession
-// — unlike zombies/powerups this is meant to survive forever.
+// HighScore: persistent global leaderboard. Survives lobby deletion —
+// not scoped to any specific match.
 export const HighScore = table(
   { name: 'high_score', public: true },
   {
@@ -123,13 +145,19 @@ export const HighScore = table(
   }
 );
 
-// ChatMessage: transient in-game chat. The server prunes old messages
-// so the table stays bounded. Clients subscribe to the whole table and
-// render the most recent N in a HUD window.
+// ChatMessage: per-lobby chat. M3 chat was global; M4 scopes messages
+// to lobbyId so two lobbies don't see each other's chatter.
 export const ChatMessage = table(
-  { name: 'chat_message', public: true },
+  {
+    name: 'chat_message',
+    public: true,
+    indexes: [
+      { accessor: 'chat_message_lobby_id', algorithm: 'btree', columns: ['lobbyId'] },
+    ],
+  },
   {
     msgId: t.u64().primaryKey().autoInc(),
+    lobbyId: t.u64(),
     sender: t.identity(),
     senderName: t.string(),
     text: t.string(),
@@ -139,9 +167,8 @@ export const ChatMessage = table(
 
 const spacetimedb = schema({
   player: Player,
-  gameState: GameState,
+  lobby: Lobby,
   zombie: Zombie,
-  door: Door,
   powerUp: PowerUp,
   highScore: HighScore,
   chatMessage: ChatMessage,

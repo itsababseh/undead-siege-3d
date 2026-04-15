@@ -37,14 +37,19 @@ import {
 import AdvanceRoundReducer from "./advance_round_reducer";
 import ClaimHostReducer from "./claim_host_reducer";
 import ConsumePowerupReducer from "./consume_powerup_reducer";
+import CreateLobbyReducer from "./create_lobby_reducer";
 import DamageZombieReducer from "./damage_zombie_reducer";
+import FillSquadReducer from "./fill_squad_reducer";
 import HostHeartbeatReducer from "./host_heartbeat_reducer";
+import JoinLobbyByCodeReducer from "./join_lobby_by_code_reducer";
+import LeaveLobbyReducer from "./leave_lobby_reducer";
 import OpenDoorReducer from "./open_door_reducer";
 import RemoveZombieReducer from "./remove_zombie_reducer";
 import ReportPlayerAliveReducer from "./report_player_alive_reducer";
 import ReportPlayerDownedReducer from "./report_player_downed_reducer";
 import RevivePlayerReducer from "./revive_player_reducer";
 import SendChatReducer from "./send_chat_reducer";
+import SetLobbyPublicReducer from "./set_lobby_public_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
 import SetRoundReducer from "./set_round_reducer";
 import SpawnPowerupReducer from "./spawn_powerup_reducer";
@@ -58,9 +63,8 @@ import UpdatePlayerTransformReducer from "./update_player_transform_reducer";
 
 // Import all table schema definitions
 import ChatMessageRow from "./chat_message_table";
-import DoorRow from "./door_table";
-import GameStateRow from "./game_state_table";
 import HighScoreRow from "./high_score_table";
+import LobbyRow from "./lobby_table";
 import PlayerRow from "./player_table";
 import PowerUpRow from "./power_up_table";
 import ZombieRow from "./zombie_table";
@@ -72,6 +76,9 @@ const tablesSchema = __schema({
   chatMessage: __table({
     name: 'chat_message',
     indexes: [
+      { accessor: 'chat_message_lobby_id', name: 'chat_message_lobby_id_idx_btree', algorithm: 'btree', columns: [
+        'lobbyId',
+      ] },
       { accessor: 'msgId', name: 'chat_message_msg_id_idx_btree', algorithm: 'btree', columns: [
         'msgId',
       ] },
@@ -80,28 +87,6 @@ const tablesSchema = __schema({
       { name: 'chat_message_msg_id_key', constraint: 'unique', columns: ['msgId'] },
     ],
   }, ChatMessageRow),
-  door: __table({
-    name: 'door',
-    indexes: [
-      { accessor: 'doorId', name: 'door_door_id_idx_btree', algorithm: 'btree', columns: [
-        'doorId',
-      ] },
-    ],
-    constraints: [
-      { name: 'door_door_id_key', constraint: 'unique', columns: ['doorId'] },
-    ],
-  }, DoorRow),
-  gameState: __table({
-    name: 'game_state',
-    indexes: [
-      { accessor: 'gameId', name: 'game_state_game_id_idx_btree', algorithm: 'btree', columns: [
-        'gameId',
-      ] },
-    ],
-    constraints: [
-      { name: 'game_state_game_id_key', constraint: 'unique', columns: ['gameId'] },
-    ],
-  }, GameStateRow),
   highScore: __table({
     name: 'high_score',
     indexes: [
@@ -113,11 +98,31 @@ const tablesSchema = __schema({
       { name: 'high_score_score_id_key', constraint: 'unique', columns: ['scoreId'] },
     ],
   }, HighScoreRow),
+  lobby: __table({
+    name: 'lobby',
+    indexes: [
+      { accessor: 'lobby_invite_code', name: 'lobby_invite_code_idx_btree', algorithm: 'btree', columns: [
+        'inviteCode',
+      ] },
+      { accessor: 'lobby_is_public', name: 'lobby_is_public_idx_btree', algorithm: 'btree', columns: [
+        'isPublic',
+      ] },
+      { accessor: 'lobbyId', name: 'lobby_lobby_id_idx_btree', algorithm: 'btree', columns: [
+        'lobbyId',
+      ] },
+    ],
+    constraints: [
+      { name: 'lobby_lobby_id_key', constraint: 'unique', columns: ['lobbyId'] },
+    ],
+  }, LobbyRow),
   player: __table({
     name: 'player',
     indexes: [
       { accessor: 'identity', name: 'player_identity_idx_btree', algorithm: 'btree', columns: [
         'identity',
+      ] },
+      { accessor: 'player_lobby_id', name: 'player_lobby_id_idx_btree', algorithm: 'btree', columns: [
+        'lobbyId',
       ] },
     ],
     constraints: [
@@ -127,6 +132,9 @@ const tablesSchema = __schema({
   powerUp: __table({
     name: 'power_up',
     indexes: [
+      { accessor: 'power_up_lobby_id', name: 'power_up_lobby_id_idx_btree', algorithm: 'btree', columns: [
+        'lobbyId',
+      ] },
       { accessor: 'puId', name: 'power_up_pu_id_idx_btree', algorithm: 'btree', columns: [
         'puId',
       ] },
@@ -141,6 +149,9 @@ const tablesSchema = __schema({
       { accessor: 'hostZid', name: 'zombie_host_zid_idx_btree', algorithm: 'btree', columns: [
         'hostZid',
       ] },
+      { accessor: 'zombie_lobby_id', name: 'zombie_lobby_id_idx_btree', algorithm: 'btree', columns: [
+        'lobbyId',
+      ] },
     ],
     constraints: [
       { name: 'zombie_host_zid_key', constraint: 'unique', columns: ['hostZid'] },
@@ -153,14 +164,19 @@ const reducersSchema = __reducers(
   __reducerSchema("advance_round", AdvanceRoundReducer),
   __reducerSchema("claim_host", ClaimHostReducer),
   __reducerSchema("consume_powerup", ConsumePowerupReducer),
+  __reducerSchema("create_lobby", CreateLobbyReducer),
   __reducerSchema("damage_zombie", DamageZombieReducer),
+  __reducerSchema("fill_squad", FillSquadReducer),
   __reducerSchema("host_heartbeat", HostHeartbeatReducer),
+  __reducerSchema("join_lobby_by_code", JoinLobbyByCodeReducer),
+  __reducerSchema("leave_lobby", LeaveLobbyReducer),
   __reducerSchema("open_door", OpenDoorReducer),
   __reducerSchema("remove_zombie", RemoveZombieReducer),
   __reducerSchema("report_player_alive", ReportPlayerAliveReducer),
   __reducerSchema("report_player_downed", ReportPlayerDownedReducer),
   __reducerSchema("revive_player", RevivePlayerReducer),
   __reducerSchema("send_chat", SendChatReducer),
+  __reducerSchema("set_lobby_public", SetLobbyPublicReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
   __reducerSchema("set_round", SetRoundReducer),
   __reducerSchema("spawn_powerup", SpawnPowerupReducer),

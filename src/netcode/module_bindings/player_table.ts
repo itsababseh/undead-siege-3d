@@ -13,6 +13,7 @@ import {
 export default __t.row({
   identity: __t.identity().primaryKey(),
   name: __t.string(),
+  lobbyId: __t.u64().name("lobby_id"),
   wx: __t.f32(),
   wz: __t.f32(),
   ry: __t.f32(),

@@ -11,9 +11,15 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  gameId: __t.u64().primaryKey().name("game_id"),
+  lobbyId: __t.u64().primaryKey().name("lobby_id"),
+  inviteCode: __t.string().name("invite_code"),
   hostIdentity: __t.option(__t.identity()).name("host_identity"),
-  round: __t.i32(),
+  hostName: __t.string().name("host_name"),
   status: __t.string(),
+  round: __t.i32(),
+  isPublic: __t.bool().name("is_public"),
+  openedDoors: __t.array(__t.i32()).name("opened_doors"),
+  playerCount: __t.i32().name("player_count"),
+  createdAt: __t.timestamp().name("created_at"),
   hostLastSeen: __t.timestamp().name("host_last_seen"),
 });

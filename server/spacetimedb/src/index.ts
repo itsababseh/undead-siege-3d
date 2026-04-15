@@ -1,54 +1,199 @@
-// Undead Siege — SpacetimeDB reducers and lifecycle hooks (M2).
+// Undead Siege — SpacetimeDB reducers and lifecycle hooks (M4 multi-lobby)
 //
-// See schema.ts for the authority model. In short: host runs AI locally,
-// pushes zombie positions via sync_zombie_positions, HP is server-side.
+// See schema.ts for the authority model. Every gameplay reducer is now
+// scoped to the caller's current lobby (via player.lobbyId). Multiple
+// lobbies can run in parallel without seeing each other.
 
 import spacetimedb from './schema';
 import { t, SenderError } from 'spacetimedb/server';
 
 export default spacetimedb;
 
-const GAME_ID = 1n;
 const HOST_TIMEOUT_MICROS = 10_000_000n; // 10 seconds
+const MAX_PLAYERS_PER_LOBBY = 5;
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-export const init = spacetimedb.init((ctx) => {
-  // Create the singleton game state in lobby mode.
-  ctx.db.gameState.insert({
-    gameId: GAME_ID,
-    hostIdentity: undefined,
-    round: 1,
-    status: 'lobby',
-    hostLastSeen: ctx.timestamp,
+function identitiesEqual(a: any, b: any): boolean {
+  return !!a && !!b && a.toHexString() === b.toHexString();
+}
+
+function findLobby(ctx: any, lobbyId: bigint) {
+  if (!lobbyId || lobbyId === 0n) return undefined;
+  return ctx.db.lobby.lobbyId.find(lobbyId);
+}
+
+function isLobbyHost(ctx: any, lobby: any): boolean {
+  return !!lobby && !!lobby.hostIdentity && identitiesEqual(lobby.hostIdentity, ctx.sender);
+}
+
+// Count players currently in a given lobby. Used when host leaves and
+// we need to pick a successor.
+function playersInLobby(ctx: any, lobbyId: bigint): any[] {
+  const out: any[] = [];
+  for (const p of ctx.db.player.player_lobby_id.filter(lobbyId)) out.push(p);
+  return out;
+}
+
+// True if any player in this lobby is still "up" — alive and not
+// currently downed. Used to decide whether the lobby match should
+// reset back to the waiting-room state.
+function anyUpPlayersInLobby(ctx: any, lobbyId: bigint): boolean {
+  for (const p of ctx.db.player.player_lobby_id.filter(lobbyId)) {
+    if (p.alive && !p.downed) return true;
+  }
+  return false;
+}
+
+// Generate a 6-char A-Z0-9 invite code. Must be DETERMINISTIC —
+// SpacetimeDB reducers can't call Math.random() or Date.now() (both
+// abort the module with a fatal error). We derive the code from the
+// transaction timestamp + the caller's identity + an attempt counter
+// so retries produce different candidates if there's a rare collision
+// with an existing lobby.
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no O/0/I/1
+function generateInviteCode(ctx: any): string {
+  // Fold the caller's identity into a 32-bit hash so two players
+  // creating a lobby at the same microsecond produce different codes.
+  const idHex = ctx.sender.toHexString ? ctx.sender.toHexString() : String(ctx.sender);
+  let idHash = 0;
+  for (let i = 0; i < idHex.length; i++) {
+    idHash = ((idHash * 31) + idHex.charCodeAt(i)) | 0;
+  }
+  idHash = idHash >>> 0; // force unsigned
+
+  const microsLow = Number(ctx.timestamp.microsSinceUnixEpoch & 0xFFFFFFFFn);
+
+  for (let attempt = 0; attempt < 16; attempt++) {
+    let n = (microsLow ^ idHash ^ (attempt * 2654435761)) >>> 0;
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += CODE_ALPHABET[n % CODE_ALPHABET.length];
+      n = Math.floor(n / CODE_ALPHABET.length);
+    }
+    const existing = [...ctx.db.lobby.lobby_invite_code.filter(code)];
+    if (existing.length === 0) return code;
+  }
+  // Really unlucky — fall back to a constant. Will still function
+  // (join_by_code picks the first match), just less readable.
+  return 'AAAAAA';
+}
+
+// Wipe all ephemeral state for one lobby and return it to 'lobby' status.
+// Called when every player in the lobby is downed or disconnects.
+function resetLobbyMatch(ctx: any, lobbyId: bigint) {
+  for (const z of ctx.db.zombie.zombie_lobby_id.filter(lobbyId)) {
+    ctx.db.zombie.hostZid.delete(z.hostZid);
+  }
+  for (const pu of ctx.db.powerUp.power_up_lobby_id.filter(lobbyId)) {
+    ctx.db.powerUp.puId.delete(pu.puId);
+  }
+  const lobby = findLobby(ctx, lobbyId);
+  if (lobby) {
+    ctx.db.lobby.lobbyId.update({
+      ...lobby,
+      status: 'lobby',
+      round: 1,
+      openedDoors: [],
+    });
+  }
+  // Clear spectator/downed flags for everyone in this lobby so the next
+  // match starts fresh.
+  for (const p of ctx.db.player.player_lobby_id.filter(lobbyId)) {
+    if (p.spectating || p.downed || !p.alive) {
+      ctx.db.player.identity.update({ ...p, spectating: false, downed: false, alive: true });
+    }
+  }
+}
+
+// Delete a lobby and all its ephemeral state. Called when the last
+// player leaves.
+function deleteLobby(ctx: any, lobbyId: bigint) {
+  for (const z of ctx.db.zombie.zombie_lobby_id.filter(lobbyId)) {
+    ctx.db.zombie.hostZid.delete(z.hostZid);
+  }
+  for (const pu of ctx.db.powerUp.power_up_lobby_id.filter(lobbyId)) {
+    ctx.db.powerUp.puId.delete(pu.puId);
+  }
+  for (const m of ctx.db.chatMessage.chat_message_lobby_id.filter(lobbyId)) {
+    ctx.db.chatMessage.msgId.delete(m.msgId);
+  }
+  ctx.db.lobby.lobbyId.delete(lobbyId);
+}
+
+// Remove a player from their current lobby, handling host transfer and
+// empty-lobby cleanup. Extracted so onDisconnect and leave_lobby share
+// the same logic.
+function leaveLobbyInternal(ctx: any, identity: any) {
+  const player = ctx.db.player.identity.find(identity);
+  if (!player || !player.lobbyId || player.lobbyId === 0n) return;
+
+  const oldLobbyId = player.lobbyId;
+  const lobby = findLobby(ctx, oldLobbyId);
+
+  // Clear the player's lobbyId first so the next queries exclude them
+  ctx.db.player.identity.update({
+    ...player,
+    lobbyId: 0n,
+    spectating: false,
+    downed: false,
+    alive: true,
   });
 
-  // Pre-populate door rows. Door IDs match the client's src/core/state.js
-  // door list; if you add/remove doors there, update this list too.
-  for (let i = 0; i < 16; i++) {
-    ctx.db.door.insert({ doorId: i, opened: false });
+  if (!lobby) return;
+
+  const remaining = playersInLobby(ctx, oldLobbyId);
+  if (remaining.length === 0) {
+    // Nobody left — delete the lobby entirely
+    deleteLobby(ctx, oldLobbyId);
+    return;
   }
+
+  // Update the cached count
+  ctx.db.lobby.lobbyId.update({ ...lobby, playerCount: remaining.length });
+
+  // If the leaver was host, transfer to the first remaining player.
+  // (claim_host's heartbeat would eventually do this anyway, but doing it
+  // eagerly avoids a 2-second gap where the lobby has no host.)
+  if (identitiesEqual(lobby.hostIdentity, identity)) {
+    const successor = remaining[0];
+    ctx.db.lobby.lobbyId.update({
+      ...lobby,
+      hostIdentity: successor.identity,
+      hostName: successor.name,
+      hostLastSeen: ctx.timestamp,
+      playerCount: remaining.length,
+    });
+  }
+
+  // If that leave dropped the match to nobody-is-up, reset the lobby.
+  if (lobby.status === 'playing' && !anyUpPlayersInLobby(ctx, oldLobbyId)) {
+    resetLobbyMatch(ctx, oldLobbyId);
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+// No singleton to pre-create. Lobbies are born dynamically via create_lobby
+// and fill_squad.
+export const init = spacetimedb.init((_ctx) => {
+  // nothing to seed
 });
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 export const onConnect = spacetimedb.clientConnected((ctx) => {
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  // If there's a match already running, new arrivals join as spectators
-  // and get flipped to live players at the next advance_round.
-  const spectating = !!gs && gs.status === 'playing';
-
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
-    // Rejoin from a fresh tab: clear downed so they aren't stuck in a
-    // "waiting for revive" screen the moment they reconnect. Spectator
-    // state mirrors the live match status.
+    // Reconnect: drop them back to the MP menu (lobbyId=0) with a
+    // clean slate. If they had a lobby before, that lobby has either
+    // been cleaned up via the previous onDisconnect or host-migrated.
     ctx.db.player.identity.update({
       ...existing,
       online: true,
       alive: true,
       downed: false,
-      spectating,
+      spectating: false,
+      lobbyId: 0n,
       lastSeen: ctx.timestamp,
     });
     return;
@@ -57,6 +202,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
   ctx.db.player.insert({
     identity: ctx.sender,
     name: 'Survivor',
+    lobbyId: 0n,
     wx: 0,
     wz: 0,
     ry: 0,
@@ -65,109 +211,18 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     online: true,
     alive: true,
     downed: false,
-    spectating,
+    spectating: false,
     lastSeen: ctx.timestamp,
   });
 });
 
-// Wipe all ephemeral session state and return the lobby to 'lobby'
-// status. Called when the last player disconnects OR all players are
-// dead/downed. Doors stay as-is.
-function resetSession(ctx: any) {
-  for (const z of ctx.db.zombie.iter()) {
-    ctx.db.zombie.hostZid.delete(z.hostZid);
-  }
-  for (const p of ctx.db.powerUp.iter()) {
-    ctx.db.powerUp.puId.delete(p.puId);
-  }
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (gs) {
-    ctx.db.gameState.gameId.update({
-      ...gs,
-      hostIdentity: undefined,
-      round: 1,
-      status: 'lobby',
-    });
-  }
-  // Clear lingering spectator flags so the next match starts clean.
-  for (const p of ctx.db.player.iter()) {
-    if (p.spectating) {
-      ctx.db.player.identity.update({ ...p, spectating: false });
-    }
-  }
-}
-
-// True if there's at least one player row in table (used after the
-// current row has already been deleted).
-function anyPlayersLeft(ctx: any): boolean {
-  for (const _p of ctx.db.player.iter()) return true;
-  return false;
-}
-
-// True if any player is still "up" — alive and not currently downed.
-// Used to decide whether the session should reset. A fully-downed
-// squad counts as wiped: nobody's left to revive them.
-function anyUpPlayers(ctx: any): boolean {
-  for (const p of ctx.db.player.iter()) if (p.alive && !p.downed) return true;
-  return false;
-}
-
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
+  leaveLobbyInternal(ctx, ctx.sender);
   const row = ctx.db.player.identity.find(ctx.sender);
   if (row) ctx.db.player.identity.delete(ctx.sender);
-
-  // If the host left, clear the host slot so another client can claim.
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (gs && gs.hostIdentity && gs.hostIdentity.toHexString() === ctx.sender.toHexString()) {
-    ctx.db.gameState.gameId.update({ ...gs, hostIdentity: undefined });
-    // Also wipe any zombies/powerups — they were the old host's responsibility.
-    for (const z of ctx.db.zombie.iter()) {
-      ctx.db.zombie.hostZid.delete(z.hostZid);
-    }
-    for (const p of ctx.db.powerUp.iter()) {
-      ctx.db.powerUp.puId.delete(p.puId);
-    }
-  }
-
-  // If that was the last connected player, tear the session down so
-  // whoever arrives next gets a fresh run from round 1.
-  if (!anyPlayersLeft(ctx)) {
-    resetSession(ctx);
-  }
 });
 
-// ── Host election ──────────────────────────────────────────────────────────
-
-function isHost(ctx: any, gs: any): boolean {
-  return !!gs.hostIdentity && gs.hostIdentity.toHexString() === ctx.sender.toHexString();
-}
-
-// Claim host if the slot is empty or the current host has timed out.
-// Idempotent — if the caller is already host, it just refreshes lastSeen.
-export const claim_host = spacetimedb.reducer((ctx) => {
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (!gs) throw new SenderError('game state missing');
-
-  const ageMicros = ctx.timestamp.microsSinceUnixEpoch - gs.hostLastSeen.microsSinceUnixEpoch;
-  const slotOpen = !gs.hostIdentity || ageMicros > HOST_TIMEOUT_MICROS;
-
-  if (slotOpen || isHost(ctx, gs)) {
-    ctx.db.gameState.gameId.update({
-      ...gs,
-      hostIdentity: ctx.sender,
-      hostLastSeen: ctx.timestamp,
-    });
-  }
-});
-
-// Called by the host every ~2 seconds to keep its lease alive.
-export const host_heartbeat = spacetimedb.reducer((ctx) => {
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (!gs || !isHost(ctx, gs)) return;
-  ctx.db.gameState.gameId.update({ ...gs, hostLastSeen: ctx.timestamp });
-});
-
-// ── Player transform (unchanged from M1) ───────────────────────────────────
+// ── Player transform + name ────────────────────────────────────────────────
 
 export const update_player_transform = spacetimedb.reducer(
   { wx: t.f32(), wz: t.f32(), ry: t.f32() },
@@ -189,11 +244,223 @@ export const set_player_name = spacetimedb.reducer(
   }
 );
 
-// Client reports its own alive state.
-//   - alive=true:  starting a fresh game (from menu or after session reset)
-//   - alive=false: teardown (leaving the game / back to menu)
-// The "HP hit 0" case is handled by report_player_downed below — in MP
-// we enter a revivable downed state instead of instantly dying.
+// ── Lobby lifecycle: create / join / fill squad / leave / public toggle ───
+
+export const create_lobby = spacetimedb.reducer(
+  { isPublic: t.bool() },
+  (ctx, { isPublic }) => {
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player) throw new SenderError('no player row');
+    if (player.lobbyId && player.lobbyId !== 0n) {
+      throw new SenderError('already in a lobby');
+    }
+
+    const code = generateInviteCode(ctx);
+    const inserted = ctx.db.lobby.insert({
+      lobbyId: 0n, // auto-inc
+      inviteCode: code,
+      hostIdentity: ctx.sender,
+      hostName: player.name,
+      status: 'lobby',
+      round: 1,
+      isPublic,
+      openedDoors: [],
+      playerCount: 1,
+      createdAt: ctx.timestamp,
+      hostLastSeen: ctx.timestamp,
+    });
+
+    ctx.db.player.identity.update({ ...player, lobbyId: inserted.lobbyId });
+  }
+);
+
+export const join_lobby_by_code = spacetimedb.reducer(
+  { inviteCode: t.string() },
+  (ctx, { inviteCode }) => {
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player) throw new SenderError('no player row');
+    if (player.lobbyId && player.lobbyId !== 0n) {
+      throw new SenderError('already in a lobby');
+    }
+
+    const code = inviteCode.trim().toUpperCase();
+    const matches = [...ctx.db.lobby.lobby_invite_code.filter(code)];
+    if (matches.length === 0) {
+      throw new SenderError('lobby not found');
+    }
+    const lobby = matches[0];
+    if (lobby.playerCount >= MAX_PLAYERS_PER_LOBBY) {
+      throw new SenderError('lobby is full');
+    }
+
+    // Mid-match joins land as spectators; advance_round flips them in.
+    const spectating = lobby.status === 'playing';
+    ctx.db.player.identity.update({
+      ...player,
+      lobbyId: lobby.lobbyId,
+      spectating,
+      downed: false,
+      alive: true,
+    });
+    ctx.db.lobby.lobbyId.update({
+      ...lobby,
+      playerCount: lobby.playerCount + 1,
+    });
+  }
+);
+
+// Fill Squad — the "find me a game" button for solo players. Looks for
+// any PUBLIC lobby in 'lobby' status below the cap; picks the fullest
+// one so we don't fragment into a bunch of 1-player lobbies. If none
+// exist, creates a new public lobby and the caller becomes host.
+export const fill_squad = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.player.identity.find(ctx.sender);
+  if (!player) throw new SenderError('no player row');
+  if (player.lobbyId && player.lobbyId !== 0n) {
+    throw new SenderError('already in a lobby');
+  }
+
+  let best: any = null;
+  for (const lobby of ctx.db.lobby.lobby_is_public.filter(true)) {
+    if (lobby.status !== 'lobby') continue;
+    if (lobby.playerCount >= MAX_PLAYERS_PER_LOBBY) continue;
+    if (!best || lobby.playerCount > best.playerCount) best = lobby;
+  }
+
+  if (best) {
+    ctx.db.player.identity.update({
+      ...player,
+      lobbyId: best.lobbyId,
+      spectating: false,
+      downed: false,
+      alive: true,
+    });
+    ctx.db.lobby.lobbyId.update({
+      ...best,
+      playerCount: best.playerCount + 1,
+    });
+    return;
+  }
+
+  // No suitable lobby — create a new public one
+  const code = generateInviteCode(ctx);
+  const inserted = ctx.db.lobby.insert({
+    lobbyId: 0n,
+    inviteCode: code,
+    hostIdentity: ctx.sender,
+    hostName: player.name,
+    status: 'lobby',
+    round: 1,
+    isPublic: true,
+    openedDoors: [],
+    playerCount: 1,
+    createdAt: ctx.timestamp,
+    hostLastSeen: ctx.timestamp,
+  });
+  ctx.db.player.identity.update({ ...player, lobbyId: inserted.lobbyId });
+});
+
+export const leave_lobby = spacetimedb.reducer((ctx) => {
+  leaveLobbyInternal(ctx, ctx.sender);
+});
+
+export const set_lobby_public = spacetimedb.reducer(
+  { isPublic: t.bool() },
+  (ctx, { isPublic }) => {
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby) throw new SenderError('lobby not found');
+    if (!isLobbyHost(ctx, lobby)) throw new SenderError('only host may change visibility');
+    ctx.db.lobby.lobbyId.update({ ...lobby, isPublic });
+  }
+);
+
+// ── Host election + heartbeat (per lobby) ─────────────────────────────────
+
+export const claim_host = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.player.identity.find(ctx.sender);
+  if (!player || !player.lobbyId) return;
+  const lobby = findLobby(ctx, player.lobbyId);
+  if (!lobby) return;
+  const ageMicros =
+    ctx.timestamp.microsSinceUnixEpoch - lobby.hostLastSeen.microsSinceUnixEpoch;
+  const slotOpen = !lobby.hostIdentity || ageMicros > HOST_TIMEOUT_MICROS;
+  if (slotOpen || isLobbyHost(ctx, lobby)) {
+    ctx.db.lobby.lobbyId.update({
+      ...lobby,
+      hostIdentity: ctx.sender,
+      hostName: player.name,
+      hostLastSeen: ctx.timestamp,
+    });
+  }
+});
+
+export const host_heartbeat = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.player.identity.find(ctx.sender);
+  if (!player || !player.lobbyId) return;
+  const lobby = findLobby(ctx, player.lobbyId);
+  if (!lobby || !isLobbyHost(ctx, lobby)) return;
+  ctx.db.lobby.lobbyId.update({ ...lobby, hostLastSeen: ctx.timestamp });
+});
+
+// ── Match lifecycle (per lobby) ───────────────────────────────────────────
+
+export const start_game = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.player.identity.find(ctx.sender);
+  if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+  const lobby = findLobby(ctx, player.lobbyId);
+  if (!lobby) throw new SenderError('lobby not found');
+  if (!isLobbyHost(ctx, lobby)) throw new SenderError('only host may start');
+  if (lobby.status === 'playing') return;
+
+  ctx.db.lobby.lobbyId.update({
+    ...lobby,
+    status: 'playing',
+    round: 1,
+    openedDoors: [],
+  });
+  for (const p of ctx.db.player.player_lobby_id.filter(lobby.lobbyId)) {
+    ctx.db.player.identity.update({
+      ...p,
+      spectating: false,
+      alive: true,
+      downed: false,
+    });
+  }
+});
+
+export const advance_round = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.player.identity.find(ctx.sender);
+  if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+  const lobby = findLobby(ctx, player.lobbyId);
+  if (!lobby || !isLobbyHost(ctx, lobby)) {
+    throw new SenderError('only host may advance round');
+  }
+  ctx.db.lobby.lobbyId.update({ ...lobby, round: lobby.round + 1 });
+  // Mid-round spectators drop into the new round
+  for (const p of ctx.db.player.player_lobby_id.filter(lobby.lobbyId)) {
+    if (p.spectating) {
+      ctx.db.player.identity.update({ ...p, spectating: false });
+    }
+  }
+});
+
+export const set_round = spacetimedb.reducer(
+  { round: t.i32() },
+  (ctx, { round }) => {
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby || !isLobbyHost(ctx, lobby)) {
+      throw new SenderError('only host may set round');
+    }
+    ctx.db.lobby.lobbyId.update({ ...lobby, round });
+  }
+);
+
+// ── Alive / downed / revive (session-reset scoped to lobby) ───────────────
+
 export const report_player_alive = spacetimedb.reducer(
   { alive: t.bool() },
   (ctx, { alive }) => {
@@ -202,33 +469,24 @@ export const report_player_alive = spacetimedb.reducer(
     ctx.db.player.identity.update({
       ...row,
       alive,
-      // Starting a fresh game clears any leftover downed state from
-      // a previous run.
       downed: alive ? false : row.downed,
       hp: alive ? 100 : row.hp,
     });
-    if (!alive && !anyUpPlayers(ctx)) {
-      resetSession(ctx);
+    if (!alive && row.lobbyId && !anyUpPlayersInLobby(ctx, row.lobbyId)) {
+      resetLobbyMatch(ctx, row.lobbyId);
     }
   }
 );
 
-// Client reports its local HP hit 0 in MP — enter the revivable downed
-// state. If this leaves nobody standing, reset the session.
 export const report_player_downed = spacetimedb.reducer((ctx) => {
   const row = ctx.db.player.identity.find(ctx.sender);
   if (!row) return;
   ctx.db.player.identity.update({ ...row, downed: true, hp: 0 });
-  if (!anyUpPlayers(ctx)) {
-    resetSession(ctx);
+  if (row.lobbyId && !anyUpPlayersInLobby(ctx, row.lobbyId)) {
+    resetLobbyMatch(ctx, row.lobbyId);
   }
 });
 
-// Any player revives another. Caller is the reviver, targetIdentity is
-// the one being revived. Server sanity-checks physical proximity so a
-// client can't remote-revive a teammate on the other side of the map.
-// MAX_REVIVE_DIST is generous (5 world units ≈ a bit more than a tile
-// of padding) to tolerate normal network-position drift.
 const MAX_REVIVE_DIST = 5.0;
 export const revive_player = spacetimedb.reducer(
   { targetIdentity: t.identity() },
@@ -238,33 +496,27 @@ export const revive_player = spacetimedb.reducer(
     if (!reviver || !target) return;
     if (!target.downed) return;
     if (reviver.downed || !reviver.alive) return;
+    // Both must be in the same lobby
+    if (reviver.lobbyId !== target.lobbyId || reviver.lobbyId === 0n) return;
     const dx = reviver.wx - target.wx;
     const dz = reviver.wz - target.wz;
     if (dx * dx + dz * dz > MAX_REVIVE_DIST * MAX_REVIVE_DIST) {
       throw new SenderError('too far from target to revive');
     }
-    ctx.db.player.identity.update({
-      ...target,
-      downed: false,
-      hp: 50, // partial HP on revive (matches CoD Zombies)
-    });
+    ctx.db.player.identity.update({ ...target, downed: false, hp: 50 });
   }
 );
 
-// ── Leaderboard ─────────────────────────────────────────────────────────
+// ── Leaderboard (global, unchanged) ───────────────────────────────────────
 
-// Submit a finished run to the global leaderboard. The client calls this
-// on death (SP game-over or MP all-dead). We cap name length + sanitize
-// minimally — the leaderboard is public, so nothing personally identifying
-// should go in here anyway.
 const MAX_LEADERBOARD_ROWS = 100;
 export const submit_high_score = spacetimedb.reducer(
   { name: t.string(), round: t.i32(), points: t.i32(), kills: t.i32() },
   (ctx, { name, round, points, kills }) => {
-    if (round <= 0) return; // never reached round 1, not worth recording
+    if (round <= 0) return;
     const trimmed = name.trim().slice(0, 24) || 'Anonymous';
     ctx.db.highScore.insert({
-      scoreId: 0n, // auto-inc placeholder
+      scoreId: 0n,
       name: trimmed,
       round,
       points,
@@ -272,9 +524,6 @@ export const submit_high_score = spacetimedb.reducer(
       createdAt: ctx.timestamp,
     });
 
-    // Prune to the top MAX_LEADERBOARD_ROWS by (round desc, points desc)
-    // so the table doesn't grow forever. Collect and sort in-memory —
-    // fine for a small module, not recommended for BitCraft-scale.
     const all = [...ctx.db.highScore.iter()];
     if (all.length <= MAX_LEADERBOARD_ROWS) return;
     all.sort((a, b) => {
@@ -288,40 +537,40 @@ export const submit_high_score = spacetimedb.reducer(
   }
 );
 
-// ── Chat ────────────────────────────────────────────────────────────────
+// ── Chat (per lobby) ──────────────────────────────────────────────────────
 
 const MAX_CHAT_LEN = 200;
-const MAX_CHAT_ROWS = 100;
+const MAX_CHAT_ROWS_PER_LOBBY = 100;
 export const send_chat = spacetimedb.reducer(
   { text: t.string() },
   (ctx, { text }) => {
     const trimmed = text.trim().slice(0, MAX_CHAT_LEN);
     if (!trimmed) return;
     const player = ctx.db.player.identity.find(ctx.sender);
-    const senderName = player ? player.name : 'Unknown';
+    if (!player || !player.lobbyId) return; // not in a lobby, drop message
+    const senderName = player.name || 'Unknown';
     ctx.db.chatMessage.insert({
       msgId: 0n,
+      lobbyId: player.lobbyId,
       sender: ctx.sender,
       senderName,
       text: trimmed,
       createdAt: ctx.timestamp,
     });
 
-    // Prune oldest rows so the table stays small. Same trick as the
-    // leaderboard — in-memory sort is fine at this scale.
-    const all = [...ctx.db.chatMessage.iter()];
-    if (all.length <= MAX_CHAT_ROWS) return;
+    // Prune old messages in THIS lobby only
+    const all = [...ctx.db.chatMessage.chat_message_lobby_id.filter(player.lobbyId)];
+    if (all.length <= MAX_CHAT_ROWS_PER_LOBBY) return;
     all.sort((a, b) => Number(a.msgId - b.msgId));
-    const toDrop = all.length - MAX_CHAT_ROWS;
+    const toDrop = all.length - MAX_CHAT_ROWS_PER_LOBBY;
     for (let i = 0; i < toDrop; i++) {
       ctx.db.chatMessage.msgId.delete(all[i].msgId);
     }
   }
 );
 
-// ── Zombies (host-authoritative positions, server-authoritative HP) ───────
+// ── Zombies (host-authoritative, per lobby) ───────────────────────────────
 
-// Host creates a new zombie row. hostZid must be unique (host picks).
 export const spawn_zombie = spacetimedb.reducer(
   {
     hostZid: t.u64(),
@@ -333,14 +582,19 @@ export const spawn_zombie = spacetimedb.reducer(
     maxHp: t.i32(),
   },
   (ctx, args) => {
-    const gs = ctx.db.gameState.gameId.find(GAME_ID);
-    if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may spawn');
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby || !isLobbyHost(ctx, lobby)) {
+      throw new SenderError('only host may spawn');
+    }
 
     const existing = ctx.db.zombie.hostZid.find(args.hostZid);
-    if (existing) return; // idempotent
+    if (existing) return;
 
     ctx.db.zombie.insert({
       hostZid: args.hostZid,
+      lobbyId: player.lobbyId,
       zombieType: args.zombieType,
       wx: args.wx,
       wz: args.wz,
@@ -353,9 +607,6 @@ export const spawn_zombie = spacetimedb.reducer(
   }
 );
 
-// Bulk position update. Host pushes the current positions of all its live
-// zombies every tick. We only update rows that still exist (deleted-by-damage
-// zombies are skipped so the host doesn't revive them).
 const ZombiePosUpdate = t.object('ZombiePosUpdate', {
   hostZid: t.u64(),
   wx: t.f32(),
@@ -367,12 +618,18 @@ const ZombiePosUpdate = t.object('ZombiePosUpdate', {
 export const sync_zombie_positions = spacetimedb.reducer(
   { updates: t.array(ZombiePosUpdate) },
   (ctx, { updates }) => {
-    const gs = ctx.db.gameState.gameId.find(GAME_ID);
-    if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may sync');
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby || !isLobbyHost(ctx, lobby)) {
+      throw new SenderError('only host may sync');
+    }
 
     for (const u of updates) {
       const existing = ctx.db.zombie.hostZid.find(u.hostZid);
       if (!existing) continue;
+      // Only update zombies that belong to the caller's lobby
+      if (existing.lobbyId !== player.lobbyId) continue;
       ctx.db.zombie.hostZid.update({
         ...existing,
         wx: u.wx,
@@ -384,106 +641,71 @@ export const sync_zombie_positions = spacetimedb.reducer(
   }
 );
 
-// Any client can damage any zombie. Server reduces HP and deletes the row
-// when HP <= 0, awarding points to the shooter.
 export const damage_zombie = spacetimedb.reducer(
   { hostZid: t.u64(), damage: t.i32() },
   (ctx, { hostZid, damage }) => {
     const z = ctx.db.zombie.hostZid.find(hostZid);
-    if (!z) return; // already dead / despawned
+    if (!z) return;
+    const shooter = ctx.db.player.identity.find(ctx.sender);
+    // Only allow damage from players in the same lobby as the zombie
+    if (!shooter || shooter.lobbyId !== z.lobbyId) return;
     const newHp = z.hp - damage;
     if (newHp <= 0) {
       ctx.db.zombie.hostZid.delete(hostZid);
-      // Award 100 points per kill (matches single-player rough default)
-      const shooter = ctx.db.player.identity.find(ctx.sender);
-      if (shooter) {
-        ctx.db.player.identity.update({ ...shooter, points: shooter.points + 100 });
-      }
+      ctx.db.player.identity.update({ ...shooter, points: shooter.points + 100 });
     } else {
       ctx.db.zombie.hostZid.update({ ...z, hp: newHp, flashLevel: 1.0 });
     }
   }
 );
 
-// Host despawns a zombie without damage (e.g. stuck timeout). No points.
 export const remove_zombie = spacetimedb.reducer(
   { hostZid: t.u64() },
   (ctx, { hostZid }) => {
-    const gs = ctx.db.gameState.gameId.find(GAME_ID);
-    if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may remove');
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby || !isLobbyHost(ctx, lobby)) {
+      throw new SenderError('only host may remove');
+    }
+    const z = ctx.db.zombie.hostZid.find(hostZid);
+    if (!z) return;
+    if (z.lobbyId !== player.lobbyId) return;
     ctx.db.zombie.hostZid.delete(hostZid);
   }
 );
 
-// ── Round progression ──────────────────────────────────────────────────────
-
-export const advance_round = spacetimedb.reducer((ctx) => {
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may advance round');
-  ctx.db.gameState.gameId.update({ ...gs, round: gs.round + 1 });
-  // Mid-round spectators drop in for the new round.
-  for (const p of ctx.db.player.iter()) {
-    if (p.spectating) {
-      ctx.db.player.identity.update({ ...p, spectating: false });
-    }
-  }
-});
-
-// Host-only match start. Flips lobby → playing, resets round to 1, and
-// clears any leftover spectator flags so everyone present joins fresh.
-export const start_game = spacetimedb.reducer((ctx) => {
-  const gs = ctx.db.gameState.gameId.find(GAME_ID);
-  if (!gs) throw new SenderError('game state missing');
-  if (!isHost(ctx, gs)) throw new SenderError('only host may start the game');
-  if (gs.status === 'playing') return; // idempotent
-  ctx.db.gameState.gameId.update({ ...gs, status: 'playing', round: 1 });
-  for (const p of ctx.db.player.iter()) {
-    ctx.db.player.identity.update({
-      ...p,
-      spectating: false,
-      alive: true,
-      downed: false,
-    });
-  }
-});
-
-export const set_round = spacetimedb.reducer(
-  { round: t.i32() },
-  (ctx, { round }) => {
-    const gs = ctx.db.gameState.gameId.find(GAME_ID);
-    if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may set round');
-    ctx.db.gameState.gameId.update({ ...gs, round });
-  }
-);
-
-// ── Doors (any client may open) ────────────────────────────────────────────
+// ── Doors (per lobby, stored as an array on the Lobby row) ────────────────
 
 export const open_door = spacetimedb.reducer(
   { doorId: t.i32() },
   (ctx, { doorId }) => {
-    const d = ctx.db.door.doorId.find(doorId);
-    if (!d) {
-      // Auto-create if the client knows about a door the module didn't
-      // pre-populate. Rare, but avoids a sync headache when the door list
-      // grows.
-      ctx.db.door.insert({ doorId, opened: true });
-      return;
-    }
-    if (!d.opened) {
-      ctx.db.door.doorId.update({ ...d, opened: true });
-    }
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) return;
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby) return;
+    if (lobby.openedDoors.includes(doorId)) return; // already open
+    ctx.db.lobby.lobbyId.update({
+      ...lobby,
+      openedDoors: [...lobby.openedDoors, doorId],
+    });
   }
 );
 
-// ── PowerUps (host spawns, any client consumes) ───────────────────────────
+// ── PowerUps (host spawns, any client in the same lobby consumes) ────────
 
 export const spawn_powerup = spacetimedb.reducer(
   { puId: t.u64(), typeIdx: t.i32(), wx: t.f32(), wz: t.f32() },
   (ctx, args) => {
-    const gs = ctx.db.gameState.gameId.find(GAME_ID);
-    if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may spawn powerup');
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || !player.lobbyId) throw new SenderError('not in a lobby');
+    const lobby = findLobby(ctx, player.lobbyId);
+    if (!lobby || !isLobbyHost(ctx, lobby)) {
+      throw new SenderError('only host may spawn powerup');
+    }
     ctx.db.powerUp.insert({
       puId: args.puId,
+      lobbyId: player.lobbyId,
       typeIdx: args.typeIdx,
       wx: args.wx,
       wz: args.wz,
@@ -497,6 +719,8 @@ export const consume_powerup = spacetimedb.reducer(
   (ctx, { puId }) => {
     const p = ctx.db.powerUp.puId.find(puId);
     if (!p) return;
+    const player = ctx.db.player.identity.find(ctx.sender);
+    if (!player || player.lobbyId !== p.lobbyId) return;
     ctx.db.powerUp.puId.delete(puId);
   }
 );

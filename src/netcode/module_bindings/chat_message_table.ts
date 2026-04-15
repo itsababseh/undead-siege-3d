@@ -12,6 +12,7 @@ import {
 
 export default __t.row({
   msgId: __t.u64().primaryKey().name("msg_id"),
+  lobbyId: __t.u64().name("lobby_id"),
   sender: __t.identity(),
   senderName: __t.string().name("sender_name"),
   text: __t.string(),

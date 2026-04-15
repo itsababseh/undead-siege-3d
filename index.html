@@ -80,14 +80,49 @@
     </div>
   </div>
 
-  <!-- Lobby panel (shown when connected to MP and waiting for host to
-       press START GAME). Replaces the main menu panel via display
-       toggle; sits inside the same blocker so the animated menu
-       background still works. -->
+  <!-- Multiplayer sub-menu (shown after clicking MULTIPLAYER from the
+       main menu). From here the player picks FILL SQUAD / CREATE / JOIN
+       BY CODE / BROWSE / BACK. Sits inside the same blocker as the
+       main menu. -->
+  <div id="mpMenuPanel" style="display:none;text-align:center;position:relative;max-width:420px">
+    <h1 style="color:#4af;text-shadow:0 0 40px #4af,0 0 80px rgba(68,170,255,0.4);letter-spacing:8px;margin-bottom:4px;font-size:clamp(28px,5vw,44px)">MULTIPLAYER</h1>
+    <div class="sub" style="color:#aaa;font-size:11px;letter-spacing:3px;margin-bottom:14px">4-PLAYER CO-OP</div>
+    <div id="mpMenuStatus" style="font:11px monospace;color:#fc8;min-height:1em;margin-bottom:8px"></div>
+    <button id="mpFillSquadBtn">FILL SQUAD</button>
+    <div style="font:10px monospace;color:#666;margin:4px 0 10px">Auto-match into a public lobby</div>
+    <button id="mpCreateLobbyBtn">CREATE LOBBY</button>
+    <div style="font:10px monospace;color:#666;margin:4px 0 10px">Private by default — share the code</div>
+    <div style="margin-top:8px;display:flex;gap:6px;align-items:center;justify-content:center">
+      <input id="mpJoinCodeInput" type="text" maxlength="6" placeholder="CODE" style="background:rgba(0,0,0,0.4);border:1px solid #4af;border-radius:3px;color:#fff;font:bold 16px monospace;outline:none;width:100px;text-align:center;text-transform:uppercase;letter-spacing:3px;padding:8px 0">
+      <button id="mpJoinByCodeBtn" style="padding:8px 18px;font-size:12px">JOIN</button>
+    </div>
+    <div class="menu-divider" style="margin-top:16px"></div>
+    <div style="color:#4af;font:11px monospace;letter-spacing:2px;margin-top:12px;margin-bottom:6px">PUBLIC LOBBIES</div>
+    <div id="mpPublicList" style="max-height:160px;overflow-y:auto;font:11px monospace;color:#aaa;line-height:1.8;text-align:left;padding:0 8px;border:1px solid rgba(68,170,255,0.2);border-radius:3px;background:rgba(0,0,0,0.3);min-height:40px">
+      <div style="color:#555;text-align:center;padding:8px">No public lobbies yet</div>
+    </div>
+    <div class="menu-divider" style="margin-top:14px"></div>
+    <button id="mpBackBtn" style="margin-top:10px;border-color:#666;color:#888">BACK</button>
+  </div>
+
+  <!-- Lobby panel (shown when in a specific lobby waiting for host to
+       press START GAME). -->
   <div id="lobbyPanel" style="display:none;text-align:center;position:relative;max-width:420px">
     <h1 style="color:#4af;text-shadow:0 0 40px #4af,0 0 80px rgba(68,170,255,0.4);letter-spacing:8px;margin-bottom:4px;font-size:clamp(28px,6vw,48px)">LOBBY</h1>
-    <div class="sub" id="lobbyStatusLine" style="color:#aaa;font-size:12px;letter-spacing:3px;margin-bottom:14px">WAITING FOR PLAYERS</div>
-    <div class="menu-divider"></div>
+    <div class="sub" id="lobbyStatusLine" style="color:#aaa;font-size:12px;letter-spacing:3px;margin-bottom:10px">WAITING FOR PLAYERS</div>
+
+    <!-- Invite code badge + copy button -->
+    <div style="margin:8px 0 10px;display:flex;justify-content:center;align-items:center;gap:8px">
+      <span style="font:10px monospace;color:#666;letter-spacing:2px">INVITE CODE</span>
+      <span id="lobbyInviteCode" style="font:bold 18px monospace;color:#4af;letter-spacing:4px;text-shadow:0 0 10px rgba(68,170,255,0.5);background:rgba(68,170,255,0.08);padding:4px 10px;border:1px solid rgba(68,170,255,0.4);border-radius:3px">------</span>
+      <button id="lobbyCopyCodeBtn" style="padding:4px 10px;font-size:10px;letter-spacing:1px;border-color:#4af;color:#4af">COPY</button>
+    </div>
+    <div id="lobbyCopyHint" style="font:10px monospace;color:#8f8;min-height:1em;margin-bottom:6px"></div>
+
+    <!-- Public toggle (host only) -->
+    <button id="lobbyPublicToggleBtn" style="margin:4px 0;padding:6px 14px;font-size:11px;letter-spacing:2px;border-color:#888;color:#aaa">LOBBY: PRIVATE</button>
+
+    <div class="menu-divider" style="margin-top:8px"></div>
     <div id="lobbyPlayerList" style="margin:12px 0;min-height:80px;font:13px monospace;color:#ddd;line-height:2"></div>
     <div class="menu-divider"></div>
     <button id="lobbyStartBtn" style="margin-top:12px">START GAME</button>

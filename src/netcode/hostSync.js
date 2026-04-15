@@ -171,16 +171,13 @@ export function createHostSync(ctx) {
       killLocalZombieByHostZid(row.hostZid);
     });
 
-    netcode.setOnDoorUpdate((row) => {
-      // row.doorId is the numeric index into the local doors array (see
-      // tryBuyDoor — we normalize string ids to indices on the wire).
-      const d = doors[row.doorId];
-      if (d && row.opened && !d.opened) {
-        openDoorLocal(d);
-      }
-    });
+    // Door state now lives on the lobby row (Lobby.openedDoors array).
+    // See the onLobbyUpdate callback below — it diffs the array against
+    // our local doors[] and fires openDoorLocal for any new entries.
 
-    netcode.setOnGameStateUpdate((row) => {
+    // Watch the LOCAL lobby (filtered in connection.js so we only see
+    // our own lobby's updates, not every lobby in the world).
+    netcode.setOnLobbyUpdate((row) => {
       if (!row) return;
 
       // ---- Status transitions (lobby ↔ playing) ---------------------
@@ -191,7 +188,7 @@ export function createHostSync(ctx) {
 
         if (prevStatus === 'lobby' && newStatus === 'playing') {
           // Match just started. Catch up on any zombie rows that existed
-          // while we were in lobby (shouldn't be any, but defensive).
+          // while we were in lobby (defensive — should be zero).
           for (const data of netcode.getZombies().values()) {
             if (zombies.some(z => z.hostZid === data.hostZid)) continue;
             const fakeRow = {
@@ -207,8 +204,7 @@ export function createHostSync(ctx) {
           }
           if (onMatchStarted) { try { onMatchStarted(); } catch (e) { console.warn('[mp] onMatchStarted', e); } }
         } else if (prevStatus === 'playing' && newStatus === 'lobby') {
-          // Match just ended (session reset: everyone died or the last
-          // player left). Push the ended run to the global leaderboard.
+          // Match just ended — push the ended run to the global leaderboard.
           const endedRound = getRound();
           const endedPoints = getPoints();
           const endedKills = getTotalKills();
@@ -230,13 +226,23 @@ export function createHostSync(ctx) {
       if (row.round === prev) return;
       setRound(row.round);
       if (row.round > prev && newStatus === 'playing') {
-        // Non-host plays the round-intro UI. The host already did this
-        // locally when nextRound() fired.
         if (!netcode.isHost()) {
           setState('roundIntro');
           setRoundIntroTimer(3);
           sfxRound();
           showCenterMsg(`ROUND ${row.round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
+        }
+      }
+
+      // ---- Opened doors (replaces the old Door table subscription) ----
+      // The lobby row now carries an openedDoors array; diff against what
+      // we know locally and fire openDoorLocal for any new entries.
+      if (row.openedDoors && Array.isArray(row.openedDoors)) {
+        for (const doorId of row.openedDoors) {
+          const d = doors[doorId];
+          if (d && !d.opened) {
+            openDoorLocal(d);
+          }
         }
       }
     });
