@@ -640,79 +640,44 @@ function _makePortalMesh(color, pos, label) {
 }
 
 function _createPortalDoor() {
-  const doorGroup = new THREE.Group();
-  const doorPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 - 1 };
-  doorGroup.position.set(doorPos.x, 0, doorPos.z);
-  
-  // Door frame (Half-Life/Portal style)
-  const frameGeo = new THREE.BoxGeometry(4, 3.2, 0.2);
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.8, roughness: 0.3, emissive: 0x001122 });
-  const frame = new THREE.Mesh(frameGeo, frameMat);
-  frame.position.y = 1.6;
-  doorGroup.add(frame);
-  
-  // Sliding door panels
-  const panelGeo = new THREE.BoxGeometry(1.8, 2.8, 0.15);
-  const panelMat = new THREE.MeshStandardMaterial({ color: 0x333366, metalness: 0.7, roughness: 0.2, emissive: 0x000033 });
-  
-  const leftPanel = new THREE.Mesh(panelGeo, panelMat);
-  leftPanel.position.set(-0.9, 1.6, 0.05);
-  leftPanel.name = 'leftPanel';
-  doorGroup.add(leftPanel);
-  
-  const rightPanel = new THREE.Mesh(panelGeo, panelMat);
-  rightPanel.position.set(0.9, 1.6, 0.05);
-  rightPanel.name = 'rightPanel';
-  doorGroup.add(rightPanel);
-  
-  // Neon lights
-  const neonGeo = new THREE.CylinderGeometry(0.05, 0.05, 2.6);
-  const neonMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2 });
-  
-  const leftNeon = new THREE.Mesh(neonGeo, neonMat);
-  leftNeon.position.set(-1.8, 1.6, 0.1);
-  doorGroup.add(leftNeon);
-  
-  const rightNeon = new THREE.Mesh(neonGeo, neonMat);
-  rightNeon.position.set(1.8, 1.6, 0.1);
-  doorGroup.add(rightNeon);
-  
-  // Portal signage
-  const signCanvas = document.createElement('canvas');
-  signCanvas.width = 512; signCanvas.height = 128;
-  const ctx = signCanvas.getContext('2d');
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, 512, 128);
-  ctx.fillStyle = '#00ffcc';
-  ctx.font = 'bold 24px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('▲ PORTAL ESCAPE HATCH ▲', 256, 40);
-  ctx.font = '16px monospace';
-  ctx.fillText('INTERDIMENSIONAL TRAVEL', 256, 65);
-  ctx.fillText('[ APPROACH TO ACTIVATE ]', 256, 85);
-  ctx.font = '12px monospace';
-  ctx.fillText('WARNING: SIDE EFFECTS MAY INCLUDE FUN', 256, 105);
-  
-  const signGeo = new THREE.PlaneGeometry(4, 1);
-  const signMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(signCanvas), transparent: true });
-  const sign = new THREE.Mesh(signGeo, signMat);
-  sign.position.set(0, 3.8, 0.2);
-  doorGroup.add(sign);
-  
-  // Warning lights
-  const warningGeo = new THREE.SphereGeometry(0.1);
-  const warningMat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff0000, emissiveIntensity: 1.5 });
-  
-  const leftWarning = new THREE.Mesh(warningGeo, warningMat);
-  leftWarning.position.set(-2.2, 3.5, 0.2);
-  doorGroup.add(leftWarning);
-  
-  const rightWarning = new THREE.Mesh(warningGeo, warningMat);
-  rightWarning.position.set(2.2, 3.5, 0.2);
-  doorGroup.add(rightWarning);
-  
-  _neonSigns.push(leftNeon, rightNeon, leftWarning, rightWarning);
-  return doorGroup;
+  try {
+    const doorGroup = new THREE.Group();
+    const doorPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 - 1 };
+    doorGroup.position.set(doorPos.x, 0, doorPos.z);
+    
+    // Simple door frame
+    const frameGeo = new THREE.BoxGeometry(4, 3.2, 0.2);
+    const frameMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2a });
+    const frame = new THREE.Mesh(frameGeo, frameMat);
+    frame.position.y = 1.6;
+    doorGroup.add(frame);
+    
+    // Door panels
+    const panelGeo = new THREE.BoxGeometry(1.8, 2.8, 0.15);
+    const panelMat = new THREE.MeshBasicMaterial({ color: 0x333366 });
+    
+    const leftPanel = new THREE.Mesh(panelGeo, panelMat);
+    leftPanel.position.set(-0.9, 1.6, 0.05);
+    leftPanel.name = 'leftPanel';
+    doorGroup.add(leftPanel);
+    
+    const rightPanel = new THREE.Mesh(panelGeo, panelMat);
+    rightPanel.position.set(0.9, 1.6, 0.05);
+    rightPanel.name = 'rightPanel';
+    doorGroup.add(rightPanel);
+    
+    // Simple signage
+    const signGeo = new THREE.PlaneGeometry(4, 1);
+    const signMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+    const sign = new THREE.Mesh(signGeo, signMat);
+    sign.position.set(0, 3.8, 0.2);
+    doorGroup.add(sign);
+    
+    return doorGroup;
+  } catch (e) {
+    console.error('Door creation error:', e);
+    return new THREE.Group(); // Return empty group if error
+  }
 }
 
 function initVibeJamPortals() {
@@ -741,53 +706,51 @@ function initVibeJamPortals() {
 
 function animateVibeJamPortals(dt) {
   if (!_portalInited) return;
-  const t = Date.now() * 0.001;
-  
-  // Animate neon signs
-  _neonSigns.forEach(sign => {
-    if (sign.material.emissiveIntensity !== undefined) {
-      sign.material.emissiveIntensity = 1.5 + Math.sin(t * 4) * 0.5;
-    }
-  });
-  
-  // Handle door opening
-  if (_portalDoor && !_doorOpen && !_doorOpening && (state === 'playing' || state === 'roundIntro')) {
-    const doorX = 17 * TILE + TILE / 2;
-    const doorZ = 3 * TILE + TILE / 2 - 1;
-    const dx = camera.position.x - doorX;
-    const dz = camera.position.z - doorZ;
-    if (Math.sqrt(dx * dx + dz * dz) < 2.5) {
-      _doorOpening = true;
-    }
-  }
-  
-  // Animate door panels
-  if (_doorOpening && _portalDoor) {
-    const leftPanel = _portalDoor.getObjectByName('leftPanel');
-    const rightPanel = _portalDoor.getObjectByName('rightPanel');
-    if (leftPanel && rightPanel) {
-      const speed = dt * 3;
-      leftPanel.position.x = Math.max(-2.5, leftPanel.position.x - speed);
-      rightPanel.position.x = Math.min(2.5, rightPanel.position.x + speed);
-      if (leftPanel.position.x <= -2.4 && rightPanel.position.x >= 2.4) {
-        _doorOpen = true;
-        _doorOpening = false;
+  try {
+    const t = Date.now() * 0.001;
+    
+    // Handle door opening
+    if (_portalDoor && !_doorOpen && !_doorOpening && (state === 'playing' || state === 'roundIntro')) {
+      const doorX = 17 * TILE + TILE / 2;
+      const doorZ = 3 * TILE + TILE / 2 - 1;
+      const dx = camera.position.x - doorX;
+      const dz = camera.position.z - doorZ;
+      if (Math.sqrt(dx * dx + dz * dz) < 2.5) {
+        _doorOpening = true;
       }
     }
-  }
-  
-  if (_exitPortalGroup) {
-    _exitPortalGroup.group.rotation.z += dt * 0.5;
-    const pp = _exitPortalGroup.particles.attributes.position.array;
-    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
-    _exitPortalGroup.particles.attributes.position.needsUpdate = true;
-    _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
-    // Check portal entry - only when door is open
-    if (_doorOpen && (state === 'playing' || state === 'roundIntro')) {
-      const dx = camera.position.x - _exitPortalGroup.group.position.x;
-      const dz = camera.position.z - _exitPortalGroup.group.position.z;
-      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
+    
+    // Animate door panels
+    if (_doorOpening && _portalDoor) {
+      const leftPanel = _portalDoor.getObjectByName('leftPanel');
+      const rightPanel = _portalDoor.getObjectByName('rightPanel');
+      if (leftPanel && rightPanel) {
+        const speed = dt * 3;
+        leftPanel.position.x = Math.max(-2.5, leftPanel.position.x - speed);
+        rightPanel.position.x = Math.min(2.5, rightPanel.position.x + speed);
+        if (leftPanel.position.x <= -2.4 && rightPanel.position.x >= 2.4) {
+          _doorOpen = true;
+          _doorOpening = false;
+        }
+      }
     }
+    
+    if (_exitPortalGroup) {
+      _exitPortalGroup.group.rotation.z += dt * 0.5;
+      const pp = _exitPortalGroup.particles.attributes.position.array;
+      for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
+      _exitPortalGroup.particles.attributes.position.needsUpdate = true;
+      _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
+      // Check portal entry - only when door is open
+      if (_doorOpen && (state === 'playing' || state === 'roundIntro')) {
+        const dx = camera.position.x - _exitPortalGroup.group.position.x;
+        const dz = camera.position.z - _exitPortalGroup.group.position.z;
+        if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
+      }
+    }
+  } catch (e) {
+    console.error('Portal animation error:', e);
+  }
   }
   if (_startPortalGroup) {
     _startPortalGroup.group.rotation.z -= dt * 0.5;
