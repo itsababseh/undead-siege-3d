@@ -576,5 +576,19 @@ export {
   // Particles
   updateParticles, particles,
   // Float text
-  addFloatText, floatTexts
+  addFloatText, floatTexts,
+  // Reset all effects state (called on game restart)
+  resetEffects
 };
+
+function resetEffects() {
+  shakeIntensity = 0;
+  _prevShakeX = 0;
+  _prevShakeY = 0;
+  vignetteIntensity = 0;
+  roundTransitionPhase = 'none';
+  roundTransitionTimer = 0;
+  heartbeatPhase = 0;
+  hitmarkerTimer = 0;
+  clearHitIndicators();
+}

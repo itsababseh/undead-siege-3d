@@ -25,12 +25,12 @@ import {
 } from './ui/menu.js';
 import {
   spawnDmgNumber,
-  triggerScreenShake, updateScreenShake, shakeIntensity, _prevShakeX,
-  triggerDamageVignette, updateDamageVignette, vignetteIntensity,
+  triggerScreenShake, updateScreenShake,
+  triggerDamageVignette, updateDamageVignette,
   updateLowHealthEffect,
-  triggerRoundTransition, updateRoundTransition, roundTransitionPhase,
+  triggerRoundTransition, updateRoundTransition,
   showHitmarker, updateHitmarker,
-  triggerHitIndicator, updateHitIndicators, clearHitIndicators, hitIndicators,
+  triggerHitIndicator, updateHitIndicators,
   resizeHitDirCanvas,
   spawnBloodParticles, spawnBloodSplatter, spawnEnergyParticles,
   spawnMuzzleSparks, updateMuzzleSparks, muzzleSparks,
@@ -38,6 +38,7 @@ import {
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
   updateParticles, particles,
   addFloatText, floatTexts,
+  resetEffects,
   setEffectsDeps
 } from './effects/index.js';
 import {
@@ -472,8 +473,7 @@ function initGame() {
   dyingZombies.length = 0;
   bloodDecals.forEach(d => { scene.remove(d.mesh); if (d.mesh.material.map) d.mesh.material.map.dispose(); d.mesh.material.dispose(); d.mesh.geometry.dispose(); });
   bloodDecals.length = 0;
-  shakeIntensity = 0; _prevShakeX = 0; _prevShakeY = 0; vignetteIntensity = 0; clearHitIndicators();
-  roundTransitionPhase = 'none';
+  resetEffects();
   document.getElementById('roundFlash').style.display = 'none';
   
   map.length = 0;
