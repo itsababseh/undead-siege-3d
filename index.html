@@ -401,10 +401,20 @@ function finishLoading() {
       ls.classList.add('done');
       setTimeout(() => { ls.style.display = 'none'; }, 700);
     }
-    // Show menu
+    // Show menu and hide HUD elements
     const blocker = document.getElementById('blocker');
     blocker.classList.remove('hidden');
     blocker.style.opacity = '0';
+    
+    // Hide HUD elements during menu
+    document.getElementById('pointsBox').style.display = 'none';
+    document.getElementById('ammoBox').style.display = 'none';
+    document.getElementById('roundBox').style.display = 'none';
+    document.getElementById('hpBarWrap').style.display = 'none';
+    document.getElementById('killsLabel').style.display = 'none';
+    document.getElementById('minimap').style.display = 'none';
+    document.getElementById('weaponSwitcher').style.display = 'none';
+    document.getElementById('perkIcons').style.display = 'none';
     requestAnimationFrame(() => {
       blocker.style.transition = 'opacity 0.8s ease-in';
       blocker.style.opacity = '1';
@@ -5946,6 +5956,16 @@ function showDeath() {
     blocker.classList.remove('hidden');
     blocker.style.opacity = '0';
     
+    // Hide HUD elements during death screen
+    document.getElementById('pointsBox').style.display = 'none';
+    document.getElementById('ammoBox').style.display = 'none';
+    document.getElementById('roundBox').style.display = 'none';
+    document.getElementById('hpBarWrap').style.display = 'none';
+    document.getElementById('killsLabel').style.display = 'none';
+    document.getElementById('minimap').style.display = 'none';
+    document.getElementById('weaponSwitcher').style.display = 'none';
+    document.getElementById('perkIcons').style.display = 'none';
+    
     let lbHTML = '';
     board.slice(0, 5).forEach((e, i) => {
       const isThis = e.round === round && e.kills === totalKills && e.points === points;
@@ -6347,6 +6367,16 @@ window._startGame = function() {
   blocker.classList.add('hidden');
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
+  
+  // Show HUD elements when game starts
+  document.getElementById('pointsBox').style.display = 'block';
+  document.getElementById('ammoBox').style.display = 'block';
+  document.getElementById('roundBox').style.display = 'block';
+  document.getElementById('hpBarWrap').style.display = 'block';
+  document.getElementById('killsLabel').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
+  document.getElementById('weaponSwitcher').style.display = 'flex';
+  document.getElementById('perkIcons').style.display = 'flex';
   
   initAudio();
   startBackgroundMusic();
