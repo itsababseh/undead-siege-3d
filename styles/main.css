@@ -4,10 +4,10 @@ canvas{display:block}
 #blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s}
 #blocker.hidden{opacity:0 !important;pointer-events:none !important}
 #blocker h1{font-size:clamp(28px,6vw,56px);color:#c00;text-shadow:0 0 40px #c00,0 0 80px rgba(200,0,0,0.4);letter-spacing:8px;margin-bottom:4px}
-#blocker .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:30px}
+#blocker .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:12px}
 #blocker button{background:none;border:2px solid #c00;color:#c00;padding:14px 50px;font:bold clamp(12px,2vw,16px) 'Courier New';cursor:pointer;letter-spacing:4px;transition:all 0.3s;text-transform:uppercase}
 #blocker button:hover{background:#c00;color:#000;box-shadow:0 0 30px rgba(200,0,0,0.5)}
-.controls-info{color:#aaa;font-size:clamp(9px,1.5vw,11px);margin-top:20px;letter-spacing:1px;line-height:2;text-align:center}
+.controls-info{color:#aaa;font-size:clamp(9px,1.5vw,11px);margin-top:12px;letter-spacing:1px;line-height:2;text-align:center}
 .menu-scores{color:#aaa;font-size:11px;margin-top:18px;letter-spacing:1px;line-height:1.8;text-align:center}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
 #crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:11;pointer-events:none}
@@ -134,8 +134,8 @@ canvas{display:block}
 #menuLogo{position:relative;text-align:center;margin-bottom:10px}
 #menuLogo h1{font-size:clamp(32px,7vw,64px);color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.25),0 4px 8px rgba(0,0,0,0.6);letter-spacing:10px;line-height:1.1}
 #menuLogo .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:6px;margin-top:4px}
-#menuLogo .version{color:#888;font-size:9px;letter-spacing:3px;margin-top:2px}
-.menu-divider{width:120px;height:1px;background:linear-gradient(90deg,transparent,rgba(200,0,0,0.3),transparent);margin:16px auto}
+
+.menu-divider{width:120px;height:1px;background:linear-gradient(90deg,transparent,rgba(200,0,0,0.3),transparent);margin:10px auto}
 #startBtn{position:relative;overflow:hidden}
 #startBtn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);transition:left 0.5s}
 #startBtn:hover::before{left:100%}
