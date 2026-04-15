@@ -19,6 +19,7 @@ import {
 } from './entities/zombies.js';
 import * as netcode from './netcode/connection.js';
 import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './netcode/remotePlayers.js';
+import { makeHostZid, createHostSync } from './netcode/hostSync.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
   initMenuBackground, stopMenuBackground, restartMenuBackground,
@@ -272,9 +273,10 @@ const weaponMags = {};
 setAudioDeps(camera, player, weapons);
 setZombieDeps(scene, camera);
 initRemotePlayers(scene, camera);
-// Defer until after all the functions below are declared by putting this
-// into a microtask — registerNetcodeZombieHooks is defined further down.
-queueMicrotask(() => registerNetcodeZombieHooks());
+// Register netcode subscription callbacks. Done in a microtask so that
+// any forward-referenced helpers (openDoorLocal etc.) are guaranteed to
+// be initialized by the time the callback body runs.
+queueMicrotask(() => _hostSync.register());
 setEffectsDeps(scene, camera, player, weapons, controls);
 setGunDeps(scene, camera, player, weapons);
 initGunModels();
@@ -601,139 +603,37 @@ function spawnZombie() {
   }
 }
 
-// Random u64 for host-picked zombie IDs. BigInt because the server expects u64.
-// Math.random()*2^53 is plenty of entropy for a single host's lifetime.
-function makeHostZid() {
-  const hi = BigInt(Math.floor(Math.random() * 0x100000000));
-  const lo = BigInt(Math.floor(Math.random() * 0x100000000));
-  return (hi << 32n) | lo;
-}
+// Host-sync logic lives in src/netcode/hostSync.js. main.js wires it up
+// once via createHostSync(ctx).register(). The ctx passes in the live
+// arrays and getters/setters for the few mutable primitives that the
+// sync layer needs to read/write.
+const _hostSync = createHostSync({
+  zombies,
+  doors,
+  player,
+  PI2,
+  getRound: () => round,
+  setRound: (v) => { round = v; },
+  setState: (v) => { state = v; },
+  setRoundIntroTimer: (v) => { roundIntroTimer = v; },
+  getTotalKills: () => totalKills,
+  setTotalKills: (v) => { totalKills = v; },
+  getPoints: () => points,
+  setPoints: (v) => { points = v; },
+  createZombieMesh,
+  removeZombieMesh,
+  startZombieDeathAnim,
+  spawnBloodSplatter,
+  sfxKill,
+  sfxBossKill,
+  sfxRound,
+  showHitmarker,
+  showCenterMsg,
+  addFloatText,
+  triggerScreenShake,
+  openDoorLocal: (door) => openDoorLocal(door),
+});
 
-// Build a local zombie object from a server Zombie row. Used on non-host
-// clients to mirror the server state into the game's own zombies[] array
-// so the existing mesh/render/attack code keeps working.
-function makeLocalZombieFromRow(row) {
-  const isBoss = row.zombieType === 2;
-  const isElite = row.zombieType === 1;
-  return {
-    hostZid: row.hostZid,
-    wx: row.wx, wz: row.wz,
-    hp: row.hp, maxHp: row.maxHp,
-    spd: 0, dmg: 10,
-    atkTimer: 1, flash: row.flashLevel || 0,
-    radius: isBoss ? 1.5 : 0.8,
-    isBoss, isElite,
-    _animOffset: Math.random() * PI2,
-    _hasLimp: false,
-    _limpPhase: 0,
-    _limpSeverity: 0,
-    _baseSpd: 0,
-    stuckCheck: null,
-    _remote: true, // mark as not locally simulated
-  };
-}
-
-// Kill/clean up a local zombie by hostZid. Fires death anim/FX and
-// awards the local player the points for the kill (matches SP feel).
-// Called when the server's damage_zombie reducer deletes a row.
-function killLocalZombieByHostZid(hostZid) {
-  const idx = zombies.findIndex(z => z.hostZid === hostZid);
-  if (idx < 0) return;
-  const z = zombies[idx];
-  totalKills++;
-  const basePts = z.isBoss ? 500 : z.isElite ? 120 : 60;
-  const pts = player._doublePoints ? basePts * 2 : basePts;
-  points += pts;
-  sfxKill();
-  showHitmarker(true);
-  const c = z.isBoss ? '#f44' : z.isElite ? '#ff8' : '#fc0';
-  addFloatText(z.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, z.isBoss ? 2.5 : 1);
-  startZombieDeathAnim(z);
-  spawnBloodSplatter(z.wx, 1.2, z.wz);
-  triggerScreenShake(z.isBoss ? 1.5 : z.isElite ? 0.5 : 0.15, 8);
-  removeZombieMesh(z);
-  zombies.splice(idx, 1);
-  if (z.isBoss) {
-    sfxBossKill();
-    triggerScreenShake(2.5, 5);
-  }
-}
-
-// Register subscription callbacks at startup. Non-host uses these to
-// mirror the Zombie table into local zombies[]. Host also uses the
-// onUpdate callback to pick up HP changes made by non-host damage.
-function registerNetcodeZombieHooks() {
-  netcode.setOnZombieInsert((row) => {
-    // Skip if we already have a local entry (host just inserted it itself,
-    // or we're replaying initial subscription state).
-    if (zombies.some(z => z.hostZid === row.hostZid)) return;
-    const z = makeLocalZombieFromRow(row);
-    zombies.push(z);
-    createZombieMesh(z);
-  });
-
-  netcode.setOnZombieUpdate((row) => {
-    const z = zombies.find(zz => zz.hostZid === row.hostZid);
-    if (!z) {
-      // Unknown row — treat as an insert so we don't miss it.
-      const nz = makeLocalZombieFromRow(row);
-      zombies.push(nz);
-      createZombieMesh(nz);
-      return;
-    }
-    z.wx = row.wx;
-    z.wz = row.wz;
-    z.hp = row.hp;
-    z.maxHp = row.maxHp;
-    z.flash = Math.max(z.flash, row.flashLevel || 0);
-  });
-
-  netcode.setOnZombieDelete((row) => {
-    killLocalZombieByHostZid(row.hostZid);
-  });
-
-  netcode.setOnDoorUpdate((row) => {
-    // Mirror into the local doors array so everything else just works.
-    const d = doors.find(dd => dd.id === row.doorId);
-    if (d && row.opened && !d.opened) {
-      d.opened = true;
-      // Re-run client-side open-door effects (remove blockage meshes etc).
-      try { if (typeof openDoorLocal === 'function') openDoorLocal(d); } catch (e) {}
-    }
-  });
-
-  netcode.setOnGameStateUpdate((row) => {
-    if (!row) return;
-    // If the server round got ahead (another player advanced), fast-forward
-    // the UI: round number, intro text, SFX. Spawn quotas are irrelevant for
-    // non-hosts (only the host runs the spawn loop).
-    if (typeof row.round === 'number' && row.round > round) {
-      round = row.round;
-      if (!netcode.isHost()) {
-        state = 'roundIntro';
-        roundIntroTimer = 3;
-        sfxRound();
-        showCenterMsg(`ROUND ${round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
-      }
-    }
-  });
-
-  // Host pushes local zombie positions each tick.
-  netcode.setHostZombiesProvider(() => {
-    const out = [];
-    for (const z of zombies) {
-      if (!z.hostZid) continue;
-      out.push({
-        hostZid: z.hostZid,
-        wx: z.wx,
-        wz: z.wz,
-        ry: 0,
-        flashLevel: z.flash,
-      });
-    }
-    return out;
-  });
-}
 
 
 // ===== INPUT =====
