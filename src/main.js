@@ -617,8 +617,15 @@ document.addEventListener('wheel', e => {
 document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked) {
     if ((state === 'playing' || state === 'roundIntro') && !paused && !_startingGame) {
-      paused = true;
-      showPause();
+      // In multiplayer the world is shared — pausing would only stop YOUR
+      // local view while other players and the server keep running, which
+      // is confusing. Unlock the cursor but keep the game simulating.
+      if (netcode.isConnected()) {
+        showPause();
+      } else {
+        paused = true;
+        showPause();
+      }
     }
   }
 });
@@ -627,11 +634,14 @@ renderer.domElement.addEventListener('click', () => {
     paused = false; hidePause();
     controls.lock();
   } else if ((state === 'playing' || state === 'roundIntro') && !controls.isLocked) {
+    // Either MP cursor-unlock (no paused flag) or an ordinary re-lock —
+    // both just relock the pointer and drop the overlay.
+    hidePause();
     controls.lock();
   }
 });
 document.getElementById('pauseOverlay').addEventListener('click', () => {
-  if ((state === 'playing' || state === 'roundIntro') && paused) {
+  if ((state === 'playing' || state === 'roundIntro')) {
     paused = false; hidePause();
     controls.lock();
   }
