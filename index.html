@@ -686,10 +686,10 @@ function _createPortalDoor() {
   ctx.fillStyle = '#00ffcc';
   ctx.font = 'bold 24px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('▲ VIBE JAM PORTAL ▲', 256, 40);
+  ctx.fillText('▲ PORTAL ESCAPE HATCH ▲', 256, 40);
   ctx.font = '16px monospace';
   ctx.fillText('INTERDIMENSIONAL TRAVEL', 256, 65);
-  ctx.fillText('[ PRESS E TO ENTER ]', 256, 85);
+  ctx.fillText('[ APPROACH TO ACTIVATE ]', 256, 85);
   ctx.font = '12px monospace';
   ctx.fillText('WARNING: SIDE EFFECTS MAY INCLUDE FUN', 256, 105);
   
@@ -723,8 +723,8 @@ function initVibeJamPortals() {
   _portalDoor = _createPortalDoor();
   scene.add(_portalDoor);
   
-  // Exit portal behind door
-  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 + 1.5 };
+  // Exit portal behind door (moved further back so it's truly behind the door)
+  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 + 2.5 };
   const ep = _makePortalMesh(0x00ff44, exitPos, '');
   _exitPortalGroup = ep;
   scene.add(ep.group); scene.add(ep.light);
