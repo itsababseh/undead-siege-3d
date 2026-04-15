@@ -8,5 +8,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.24.2"
+  },
+  "dependencies": {
+    "spacetimedb": "^2.1.0"
   }
 }

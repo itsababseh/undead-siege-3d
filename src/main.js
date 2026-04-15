@@ -17,6 +17,8 @@ import {
   zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh,
   updateZombieEyeLightPool, setZombieDeps
 } from './entities/zombies.js';
+import * as netcode from './netcode/connection.js';
+import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './netcode/remotePlayers.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
   initMenuBackground, stopMenuBackground, restartMenuBackground,
@@ -269,6 +271,7 @@ const weaponMags = {};
 // ===== DEPENDENCY INJECTION — wire up all extracted modules =====
 setAudioDeps(camera, player, weapons);
 setZombieDeps(scene, camera);
+initRemotePlayers(scene, camera);
 setEffectsDeps(scene, camera, player, weapons, controls);
 setGunDeps(scene, camera, player, weapons);
 initGunModels();
@@ -1264,8 +1267,14 @@ function gameLoop(time) {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
   
+  // Multiplayer runs on the menu too so the connect button works
+  // and the local transform keeps streaming even while paused.
+  netcode.update(dt);
+  netcode.setLocalTransform(camera.position.x, camera.position.z, controls._yaw);
+  updateRemotePlayers(dt, netcode.getRemotePlayers());
+
   if (state === 'menu') return;
-  
+
   update(dt);
   controls._applyRotation();
   updateCenterMsg(dt);
@@ -1338,6 +1347,48 @@ window._startGame = function() {
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
+
+// ===== MULTIPLAYER BUTTON =====
+(() => {
+  const btn = document.getElementById('multiBtn');
+  const status = document.getElementById('multiStatus');
+  if (!btn || !status) return;
+
+  netcode.onStatus(({ status: s, message }) => {
+    switch (s) {
+      case 'connected':
+        btn.textContent = 'MULTIPLAYER: ON';
+        btn.style.background = '#2a5';
+        status.textContent = 'connected';
+        status.style.color = '#8f8';
+        break;
+      case 'connecting':
+        btn.textContent = 'MULTIPLAYER: …';
+        btn.style.background = '#555';
+        status.textContent = 'connecting…';
+        status.style.color = '#fc8';
+        break;
+      case 'error':
+        btn.textContent = 'MULTIPLAYER: OFF';
+        btn.style.background = '';
+        status.textContent = `error: ${message || 'check console'}`;
+        status.style.color = '#f88';
+        break;
+      default:
+        btn.textContent = 'MULTIPLAYER: OFF';
+        btn.style.background = '';
+        status.textContent = '';
+    }
+  });
+
+  btn.addEventListener('click', () => {
+    if (netcode.isConnected() || netcode.getStatus() === 'connecting') {
+      netcode.disconnect();
+    } else {
+      netcode.connect();
+    }
+  });
+})();
 
 window._vibeJamPortal = function() { _triggerExitPortal(); };
 
