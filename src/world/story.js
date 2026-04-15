@@ -1,6 +1,7 @@
 // Story, Progression, Easter Egg, and Generator systems
 import * as THREE from 'three';
 import { beep, actx, masterGain } from '../audio/index.js';
+import { doors } from '../core/state.js';
 
 // Dependencies passed via init
 // _gs is a shared game state object: { points, round, player, totalKills }

@@ -955,6 +955,18 @@ function tryBuyDoor() {
 
 // ===== UPDATE LOOP =====
 function update(dt) {
+  // Snapshot prevKeys at the *start* of the frame so rising-edge detection
+  // (keyPressed) still works correctly if anything throws mid-frame. Otherwise
+  // a thrown error before the old end-of-frame snapshot would make the next
+  // frame re-fire the same key and lock the game up.
+  try {
+    _update(dt);
+  } finally {
+    for (const k in keys) prevKeys[k] = keys[k];
+  }
+}
+
+function _update(dt) {
   if (paused) return;
   
   if (state === 'roundIntro') {
@@ -1128,8 +1140,6 @@ function update(dt) {
     addFloatText(`+${bonus} ROUND BONUS`, '#fc0', 2);
     nextRound();
   }
-  
-  for (const k in keys) prevKeys[k] = keys[k];
 }
 
 function updateMovement(dt) {
