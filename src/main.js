@@ -824,6 +824,11 @@ document.addEventListener('wheel', e => {
 
 document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked) {
+    // Don't show the pause overlay while locally downed — the downed
+    // overlay is already on screen and stacking the pause overlay on
+    // top confuses the revive flow (clicking to "resume" shouldn't
+    // touch the downed state).
+    if (isLocallyDowned()) return;
     if ((state === 'playing' || state === 'roundIntro') && !paused && !_startingGame) {
       // In multiplayer the world is shared — pausing would only stop YOUR
       // local view while other players and the server keep running, which
@@ -838,6 +843,9 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 renderer.domElement.addEventListener('click', () => {
+  // Clicks while downed do nothing — you can't resume yourself, you
+  // need a teammate revive (or a session reset).
+  if (isLocallyDowned()) return;
   if ((state === 'playing' || state === 'roundIntro') && paused) {
     paused = false; hidePause();
     controls.lock();
@@ -849,6 +857,7 @@ renderer.domElement.addEventListener('click', () => {
   }
 });
 document.getElementById('pauseOverlay').addEventListener('click', () => {
+  if (isLocallyDowned()) return;
   if ((state === 'playing' || state === 'roundIntro')) {
     paused = false; hidePause();
     controls.lock();
@@ -1054,102 +1063,111 @@ function update(dt) {
 function _update(dt) {
   if (paused) return;
 
-  // MP lobby: not in a game yet, short-circuit everything.
-  if (state === 'mpLobby') return;
+  // MP lobby / sub-menu: not in a game yet, short-circuit everything.
+  if (state === 'mpLobby' || state === 'mpMenu') return;
 
-  // MP: while locally downed, short-circuit everything except the
-  // overlay + server poll. The revive module owns that logic.
-  if (isLocallyDowned()) {
+  // MP downed state. If we're non-host (or single-player), the overlay
+  // handler is all we need — there's no world sim to tick locally.
+  // BUT: if we're the HOST and we go down, we still need to run the
+  // zombie spawn / AI / wave-advance loop so everyone else doesn't see
+  // the world freeze. Fall through to the rest of _update with a
+  // `_iAmDowned` flag that gates the player-action code.
+  const _iAmDowned = isLocallyDowned();
+  if (_iAmDowned) {
     tickDowned();
-    return;
+    if (!netcode.isConnected() || !netcode.isHost()) return;
+    // Host + downed: keep ticking the world. Skip spectator check and
+    // revive interaction — we can't revive teammates while downed and
+    // we can't spectate ourselves.
+  } else {
+    // MP spectator: joined mid-match. Camera snaps to a live teammate,
+    // no movement/shooting/buying. When the round ends the server flips
+    // our spectating flag, tickSpectator detects the transition, and we
+    // drop into the game next frame.
+    if (tickSpectator()) {
+      return;
+    }
+    tickRevive(dt);
   }
-
-  // MP spectator: joined mid-match. Camera snaps to a live teammate,
-  // no movement/shooting/buying. When the round ends the server flips
-  // our spectating flag, tickSpectator detects the transition, and we
-  // drop into the game next frame.
-  if (tickSpectator()) {
-    // Keep remote-player meshes + HUD visible but skip all game logic.
-    return;
-  }
-
-  tickRevive(dt);
 
   if (state === 'roundIntro') {
     roundIntroTimer -= dt;
     if (roundIntroTimer <= 0) state = 'playing';
-    updateMovement(dt);
+    if (!_iAmDowned) updateMovement(dt);
     return;
   }
   if (state === 'dead' || state !== 'playing') return;
 
-  updateMovement(dt);
-  
-  player.fireTimer = Math.max(0, player.fireTimer - dt);
-  gunKick = Math.max(0, gunKick - dt * 6);
-  dmgFlash = Math.max(0, dmgFlash - dt * 4);
-  muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
-  playerLight.position.copy(camera.position);
-  
-  if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
-    player.hpRegenTimer += dt;
-    if (player.hpRegenTimer >= 2) { player.hp = Math.min(player.hp + 5, player.maxHp); player.hpRegenTimer = 0; }
-  }
-  
-  // Perk expiration timers
-  for (const perk of perks) {
-    if (player.perksOwned[perk.id] > 0) {
-      player.perksOwned[perk.id] -= dt;
-      if (player.perksOwned[perk.id] <= 0) {
-        player.perksOwned[perk.id] = 0;
-        perk.unapply();
-        addFloatText(`${perk.name} EXPIRED!`, '#888', 2.5);
-        beep(300, 'sine', 0.15, 0.08);
-        beep(200, 'sine', 0.15, 0.08);
+  // Player-action block — skipped when downed. The host still runs the
+  // zombie sim + wave advance below, so zombies and other players
+  // continue to act even though the host can't move/shoot.
+  if (!_iAmDowned) {
+    updateMovement(dt);
+
+    player.fireTimer = Math.max(0, player.fireTimer - dt);
+    gunKick = Math.max(0, gunKick - dt * 6);
+    dmgFlash = Math.max(0, dmgFlash - dt * 4);
+    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
+    playerLight.position.copy(camera.position);
+
+    if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
+      player.hpRegenTimer += dt;
+      if (player.hpRegenTimer >= 2) { player.hp = Math.min(player.hp + 5, player.maxHp); player.hpRegenTimer = 0; }
+    }
+
+    // Perk expiration timers
+    for (const perk of perks) {
+      if (player.perksOwned[perk.id] > 0) {
+        player.perksOwned[perk.id] -= dt;
+        if (player.perksOwned[perk.id] <= 0) {
+          player.perksOwned[perk.id] = 0;
+          perk.unapply();
+          addFloatText(`${perk.name} EXPIRED!`, '#888', 2.5);
+          beep(300, 'sine', 0.15, 0.08);
+          beep(200, 'sine', 0.15, 0.08);
+        }
       }
     }
-  }
-  
-  if (player.reloading) {
-    player.reloadTimer -= dt;
-    if (player.reloadTimer <= 0) finishReload();
-  }
-  
-  // Knife cooldown & animation
-  if (knifeCooldown > 0) knifeCooldown -= dt;
-  if (knifeAnimTimer > 0) {
-    knifeAnimTimer -= dt;
-    // Knife lunge & slash animation (swing forward then pull back)
-    const t = 1 - (knifeAnimTimer / KNIFE_ANIM_DUR); // 0 → 1 over duration
-    const lunge = Math.sin(t * Math.PI); // peaks at midpoint
-    knifeModel.position.set(-lunge * 0.05, lunge * 0.06, -lunge * 0.25);
-    knifeModel.rotation.x = -lunge * 0.6;
-    knifeModel.rotation.z = lunge * 0.35;
-    if (knifeAnimTimer <= 0) {
-      // Hide knife, restore current gun
-      knifeModel.visible = false;
-      knifeModel.position.set(0, 0, 0);
-      knifeModel.rotation.set(0, 0, 0);
-      gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
-    }
-  }
 
-  const w = weapons[player.curWeapon];
-  const isFiring = mouseDown || mobileFiring;
-  if (isFiring && state === 'playing') {
-    if (w.auto) { tryShoot(); }
-    else { if (!player._lastFiring) tryShoot(); }
+    if (player.reloading) {
+      player.reloadTimer -= dt;
+      if (player.reloadTimer <= 0) finishReload();
+    }
+
+    // Knife cooldown & animation
+    if (knifeCooldown > 0) knifeCooldown -= dt;
+    if (knifeAnimTimer > 0) {
+      knifeAnimTimer -= dt;
+      const t = 1 - (knifeAnimTimer / KNIFE_ANIM_DUR);
+      const lunge = Math.sin(t * Math.PI);
+      knifeModel.position.set(-lunge * 0.05, lunge * 0.06, -lunge * 0.25);
+      knifeModel.rotation.x = -lunge * 0.6;
+      knifeModel.rotation.z = lunge * 0.35;
+      if (knifeAnimTimer <= 0) {
+        knifeModel.visible = false;
+        knifeModel.position.set(0, 0, 0);
+        knifeModel.rotation.set(0, 0, 0);
+        gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
+      }
+    }
+
+    const w = weapons[player.curWeapon];
+    const isFiring = mouseDown || mobileFiring;
+    if (isFiring && state === 'playing') {
+      if (w.auto) { tryShoot(); }
+      else { if (!player._lastFiring) tryShoot(); }
+    }
+    player._lastFiring = isFiring;
+
+    if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
+    if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
+    if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
+    if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
+    if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
+    if (keyPressed('r')) doReload();
+    if (keyPressed('e')) tryBuy();
+    if (keyPressed('f')) tryKnife();
   }
-  player._lastFiring = isFiring;
-  
-  if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
-  if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
-  if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
-  if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
-  if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
-  if (keyPressed('r')) doReload();
-  if (keyPressed('e')) tryBuy();
-  if (keyPressed('f')) tryKnife();
   
   // Multiplayer authority check. In MP, only the host runs the zombie
   // spawn loop, AI, collision, and wave progression. Non-hosts mirror the
@@ -1298,8 +1316,10 @@ function _update(dt) {
     // Attack check always uses LOCAL distance — each client applies
     // damage to its own player regardless of who the AI is chasing.
     // Fires whether the pause overlay is up or not; in MP, pausing
-    // doesn't make you invulnerable.
-    if (localD < 1.8 && state === 'playing') {
+    // doesn't make you invulnerable. Downed players already have hp=0
+    // and can't take more damage, so skip the attack while downed
+    // (also means host-while-downed doesn't fire sfxHurt every frame).
+    if (!_iAmDowned && localD < 1.8 && state === 'playing') {
       z.atkTimer -= dt;
       if (z.atkTimer <= 0) {
         player.hp -= z.dmg;

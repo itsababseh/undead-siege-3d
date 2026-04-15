@@ -220,6 +220,19 @@ export function createHostSync(ctx) {
         }
       }
 
+      // ---- Opened doors (replaces the old Door table subscription) ----
+      // Must run BEFORE the round-advance early-return below — door
+      // opens usually don't touch the round counter, and an early
+      // return would skip the door diff entirely.
+      if (row.openedDoors && Array.isArray(row.openedDoors)) {
+        for (const doorId of row.openedDoors) {
+          const d = doors[doorId];
+          if (d && !d.opened) {
+            openDoorLocal(d);
+          }
+        }
+      }
+
       // ---- Round advance (only matters when status === 'playing') ----
       if (typeof row.round !== 'number') return;
       const prev = getRound();
@@ -234,17 +247,6 @@ export function createHostSync(ctx) {
         }
       }
 
-      // ---- Opened doors (replaces the old Door table subscription) ----
-      // The lobby row now carries an openedDoors array; diff against what
-      // we know locally and fire openDoorLocal for any new entries.
-      if (row.openedDoors && Array.isArray(row.openedDoors)) {
-        for (const doorId of row.openedDoors) {
-          const d = doors[doorId];
-          if (d && !d.opened) {
-            openDoorLocal(d);
-          }
-        }
-      }
     });
 
     // Host streams its live zombie positions each tick.

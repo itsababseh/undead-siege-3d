@@ -18,6 +18,13 @@ const REVIVE_RANGE = 3.0;
 
 let _ctx = null;
 let _downed = false;
+// True once we've seen the server echo back our downed=true state.
+// Used to gate the "server says we're up again, so we must have been
+// revived" check in tickDowned — without it, there's a 30-100ms race
+// between firing reportPlayerDowned() and the subscription delta
+// arriving where tickDowned would see the stale (downed=false) local
+// cache and auto-undown us.
+let _downedAckedByServer = false;
 let _reviveProgress = 0;
 let _reviveTargetHex = null;
 
@@ -40,8 +47,14 @@ export function isLocallyDowned() { return _downed; }
 export function onLocalHpZero() {
   if (!netcode.isConnected()) return false;
   _downed = true;
-  _ctx.controls.unlock();
+  _downedAckedByServer = false;
   _ctx.sfxPlayerDeath();
+  // Deliberately DO NOT unlock the pointer here. Unlocking fires
+  // pointerlockchange → showPause() which would stack the pause
+  // overlay on top of the downed overlay. Keep the pointer locked;
+  // the downed overlay covers the screen so the crosshair isn't a
+  // problem, and it means clicking anywhere won't trigger the
+  // pause-resume click handler while we're waiting for a revive.
   try { netcode.callReportPlayerDowned(); } catch (e) {}
   return true;
 }
@@ -57,8 +70,22 @@ export function tickDowned() {
   const hud = getHud();
   if (hud && hud.style.display !== 'none') hud.style.display = 'none';
 
-  if (netcode.isConnected() && !netcode.isLocalPlayerDowned()) {
+  if (!netcode.isConnected()) return;
+
+  const srvDowned = netcode.isLocalPlayerDowned();
+  if (srvDowned) {
+    // Server has echoed our downed=true state. From now on, a
+    // subsequent !srvDowned is a real revive and safe to act on.
+    _downedAckedByServer = true;
+    return;
+  }
+  // srvDowned is false. Only treat that as "revived" if we've already
+  // seen the server confirm our downed state. Without the ack guard,
+  // the 30-100ms round-trip between reportPlayerDowned() and the
+  // echo would auto-undown us on the very next frame.
+  if (_downedAckedByServer) {
     _downed = false;
+    _downedAckedByServer = false;
     _ctx.setPlayerHp(50);
     if (ov) ov.style.display = 'none';
   }
