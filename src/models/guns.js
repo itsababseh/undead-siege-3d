@@ -179,7 +179,7 @@ function buildRayGun() {
   const tubeR = tubeL.clone(); tubeR.position.x = -0.04;
   g.add(tubeR);
   // Power cell (bulge at back)
-  const cell = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshStandardMaterial({color: 0x115522, roughness: 0.3, metalness: 0.6}));
+  const cell = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ff44, transparent: true, opacity: 0.7}));
   cell.position.set(0, 0.01, 0.12);
   g.add(cell);
   // Grip
@@ -196,6 +196,7 @@ function buildRayGun() {
   g.add(glow);
   g._rayGlow = glow;
   g._rayEmitter = emitter;
+  g._powerCell = cell;
   return g;
 }
 
@@ -317,27 +318,162 @@ function updateGunModel(dt, gunKick) {
   // Muzzle flash
   const w = _weapons[_player.curWeapon];
   if (gunKick > 0.5) {
-    muzzleMat.color.set(w.isRayGun ? 0x00ff44 : 0xffcc44);
-    muzzleMat.opacity = gunKick;
-    muzzleMesh.scale.setScalar(1 + gunKick * 2);
+    if (w.isRayGun) {
+      // Ray Gun: massive green energy burst — much bigger & brighter
+      muzzleMat.color.set(0x00ff44);
+      muzzleMat.opacity = Math.min(gunKick * 1.6, 1);
+      // 3x bigger flash than normal guns
+      const rayScale = 1 + gunKick * 6;
+      muzzleMesh.scale.setScalar(rayScale);
+      // Flicker between green and cyan for electric energy feel
+      const flicker = Math.sin(performance.now() * 0.05) > 0 ? 0x00ff88 : 0x44ffaa;
+      muzzleMat.color.set(flicker);
+    } else {
+      muzzleMat.color.set(0xffcc44);
+      muzzleMat.opacity = gunKick;
+      muzzleMesh.scale.setScalar(1 + gunKick * 2);
+    }
   } else {
     muzzleMat.opacity = 0;
   }
 
-  // Ray Gun glow pulse
+  // Ray Gun glow pulse — intensifies dramatically when firing
   const rgModel = gunModels[3];
   if (rgModel._rayGlow) {
     const t = performance.now() / 1000;
-    rgModel._rayGlow.intensity = 0.3 + Math.sin(t * 4) * 0.25;
-    if (rgModel._rayEmitter) {
-      rgModel._rayEmitter.material.opacity = 0.6 + Math.sin(t * 6) * 0.3;
+    const isFiring = _player.curWeapon === 3 && gunKick > 0.3;
+    if (isFiring) {
+      // Bright burst when shooting — glow surges
+      rgModel._rayGlow.intensity = 1.5 + Math.sin(t * 20) * 0.5;
+      rgModel._rayGlow.color.set(0x44ffaa);
+      if (rgModel._rayEmitter) {
+        rgModel._rayEmitter.material.opacity = 1.0;
+        rgModel._rayEmitter.material.color.set(0x88ffcc);
+      }
+      // Power cell pulses bright
+      if (rgModel._powerCell) {
+        rgModel._powerCell.material.emissive &&
+          rgModel._powerCell.material.emissive.set(0x00ff88);
+        rgModel._powerCell.material.opacity = 0.9 + Math.sin(t * 30) * 0.1;
+      }
+    } else {
+      // Idle ambient glow
+      rgModel._rayGlow.intensity = 0.3 + Math.sin(t * 4) * 0.25;
+      rgModel._rayGlow.color.set(0x00ff44);
+      if (rgModel._rayEmitter) {
+        rgModel._rayEmitter.material.opacity = 0.6 + Math.sin(t * 6) * 0.3;
+        rgModel._rayEmitter.material.color.set(0x00ff44);
+      }
+      if (rgModel._powerCell) {
+        rgModel._powerCell.material.opacity = 0.7 + Math.sin(t * 3) * 0.2;
+      }
     }
   }
 }
 
 
+// ===== PACK-A-PUNCH CAMO =====
+// Applies glowing animated camo to a gun model (like CoD Zombies PaP look)
+const papCamoMat = new THREE.MeshBasicMaterial({
+  color: 0x8800ff, transparent: true, opacity: 0.35
+});
+const papGlowMat = new THREE.MeshBasicMaterial({
+  color: 0xff6600, transparent: true, opacity: 0.25
+});
+
+function applyPaPCamo(weaponIdx) {
+  const model = gunModels[weaponIdx];
+  if (!model || model._papApplied) return;
+  model._papApplied = true;
+
+  // Add glowing camo overlay meshes on top of existing gun parts
+  const overlays = [];
+  model.traverse(child => {
+    if (child.isMesh && child.geometry) {
+      // Clone geometry, slightly scale up for overlay effect
+      const overlay = new THREE.Mesh(child.geometry.clone(), papCamoMat.clone());
+      overlay.position.copy(child.position);
+      overlay.rotation.copy(child.rotation);
+      overlay.scale.copy(child.scale).multiplyScalar(1.03);
+      overlay.renderOrder = 1;
+      overlay._papOverlay = true;
+      model.add(overlay);
+      overlays.push(overlay);
+    }
+  });
+
+  // Add graffiti-style accent lines (thin glowing strips like spray paint)
+  const lineGeo = new THREE.BoxGeometry(0.008, 0.005, 0.12);
+  const graffitiColors = [0xff4400, 0x8800ff, 0x00ccff, 0xff0066];
+  for (let i = 0; i < 4; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: graffitiColors[i], transparent: true, opacity: 0.6
+    });
+    const line = new THREE.Mesh(lineGeo, mat);
+    line.position.set(
+      (Math.random() - 0.5) * 0.04,
+      0.025 + i * 0.008,
+      -0.05 - i * 0.06
+    );
+    line.rotation.z = (Math.random() - 0.5) * 0.5;
+    line._papGraffiti = true;
+    model.add(line);
+    overlays.push(line);
+  }
+
+  // Add glowing "PaP" emblem — small diamond on the side
+  const emblemGeo = new THREE.BoxGeometry(0.02, 0.02, 0.005);
+  const emblemMat = new THREE.MeshBasicMaterial({
+    color: 0xaa00ff, transparent: true, opacity: 0.8
+  });
+  const emblem = new THREE.Mesh(emblemGeo, emblemMat);
+  emblem.position.set(0.035, 0.01, -0.08);
+  emblem.rotation.z = Math.PI / 4;
+  emblem._papEmblem = true;
+  model.add(emblem);
+  overlays.push(emblem);
+
+  model._papOverlays = overlays;
+}
+
+// Remove PaP camo on game reset
+function resetPaPCamo() {
+  for (const model of gunModels) {
+    if (!model._papOverlays) continue;
+    for (const ov of model._papOverlays) {
+      model.remove(ov);
+      if (ov.geometry) ov.geometry.dispose();
+      if (ov.material) ov.material.dispose();
+    }
+    model._papOverlays = null;
+    model._papApplied = false;
+  }
+}
+
+// Animate PaP camo glow in updateGunModel
+function updatePaPCamo() {
+  const t = performance.now() / 1000;
+  for (const model of gunModels) {
+    if (!model._papOverlays) continue;
+    for (const ov of model._papOverlays) {
+      if (ov._papOverlay) {
+        // Cycle purple/orange camo shimmer
+        const hue = (Math.sin(t * 2 + ov.position.z * 10) + 1) * 0.5;
+        ov.material.color.setHSL(0.75 - hue * 0.25, 1, 0.5);
+        ov.material.opacity = 0.2 + Math.sin(t * 3 + ov.position.x * 20) * 0.1;
+      }
+      if (ov._papGraffiti) {
+        ov.material.opacity = 0.4 + Math.sin(t * 4 + ov.position.z * 8) * 0.2;
+      }
+      if (ov._papEmblem) {
+        ov.material.opacity = 0.6 + Math.sin(t * 5) * 0.3;
+      }
+    }
+  }
+}
+
 export {
   gunGroup, gunModels, muzzleMesh, knifeModel,
   buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
-  updateGunModel
+  updateGunModel, applyPaPCamo, updatePaPCamo, resetPaPCamo
 };

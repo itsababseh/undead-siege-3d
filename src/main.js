@@ -47,7 +47,7 @@ import {
 import {
   gunGroup, gunModels, muzzleMesh, knifeModel,
   buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
-  updateGunModel, setGunDeps, initGunModels
+  updateGunModel, setGunDeps, initGunModels, updatePaPCamo, resetPaPCamo
 } from './models/guns.js';
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
@@ -262,7 +262,7 @@ const weapons = [
   { name: 'M1911', dmg: 40, rate: 0.3, mag: 8, maxAmmo: 999, reload: 1.5, auto: false, spread: 0.02, color: '#fc0' },
   { name: 'MP40', dmg: 25, rate: 0.08, mag: 32, maxAmmo: 192, reload: 2.0, auto: true, spread: 0.06, color: '#6cf' },
   { name: 'Trench Gun', dmg: 120, rate: 0.7, mag: 6, maxAmmo: 54, reload: 2.5, auto: false, spread: 0.1, pellets: 5, color: '#f84' },
-  { name: 'Ray Gun', dmg: 300, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true },
+  { name: 'Ray Gun', dmg: 1000, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true, splashRadius: 3.5 },
 ];
 const origWeaponStats = weapons.map(w => ({ name: w.name, dmg: w.dmg, mag: w.mag, maxAmmo: w.maxAmmo }));
 
@@ -311,15 +311,20 @@ const wallBuys = [
 ];
 
 // ===== PERKS =====
+const PERK_DURATION = 90; // seconds — all perks expire after 90s
 const perks = [
   { id:'juggernog', name:'Juggernog', desc:'+75 HP', cost:2500, color:'#e44', minRound:1,
-    apply() { player.maxHp = 175; player.hp = Math.min(player.hp+75, 175); }},
+    apply() { player.maxHp = 175; player.hp = Math.min(player.hp+75, 175); },
+    unapply() { player.maxHp = 100; player.hp = Math.min(player.hp, 100); }},
   { id:'speedcola', name:'Speed Cola', desc:'Faster Reload', cost:3000, color:'#4e4', minRound:3,
-    apply() { player.reloadMult = 0.5; }},
+    apply() { player.reloadMult = 0.5; },
+    unapply() { player.reloadMult = 1; }},
   { id:'doubletap', name:'Double Tap', desc:'2x Fire Rate', cost:2000, color:'#fc0', minRound:5,
-    apply() { player.fireRateMult = 0.5; }},
+    apply() { player.fireRateMult = 0.5; },
+    unapply() { player.fireRateMult = 1; }},
   { id:'quickrevive', name:'Quick Revive', desc:'HP Regen', cost:1500, color:'#4af', minRound:1,
-    apply() { player.hpRegen = true; }},
+    apply() { player.hpRegen = true; },
+    unapply() { player.hpRegen = false; }},
 ];
 const perkMachines = [
   { tx:10, tz:11, perkIdx:0 },
@@ -454,6 +459,7 @@ function initGame() {
     weapons[i].maxAmmo = origWeaponStats[i].maxAmmo;
   }
   resetPackAPunch();
+  resetPaPCamo();
   resetMysteryBox();
   cleanupPowerUps();
   
@@ -859,7 +865,11 @@ function tryShoot() {
       sfxHit();
       bestZ.flash = 1;
       points += player._doublePoints ? 20 : 10;
-      spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
+      if (w.isRayGun) {
+        spawnEnergyParticles(bestZ.wx, 1.2, bestZ.wz, 6);
+      } else {
+        spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
+      }
       showHitmarker(false);
       spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
 
@@ -886,7 +896,7 @@ function tryShoot() {
             sfxKill();
             showHitmarker(true);
             spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
-            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10); }
+            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 15); }
             else { spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8); }
             const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
             addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
@@ -899,6 +909,37 @@ function tryShoot() {
             if (bestZ.isBoss) {
               sfxBossKill();
               triggerScreenShake(2.5, 5);
+            }
+          }
+        }
+
+        // Ray Gun splash damage — hurts all nearby zombies
+        if (w.splashRadius) {
+          const splashDmg = Math.floor(w.dmg * 0.5);
+          const sx = bestZ.wx, sz = bestZ.wz;
+          for (let si = zombies.length - 1; si >= 0; si--) {
+            const sz2 = zombies[si];
+            if (sz2 === bestZ) continue;
+            const sd = Math.hypot(sz2.wx - sx, sz2.wz - sz);
+            if (sd > w.splashRadius) continue;
+            const falloff = 1 - (sd / w.splashRadius);
+            const dmgAmt = Math.floor(splashDmg * falloff);
+            if (dmgAmt <= 0) continue;
+            sz2.hp -= dmgAmt;
+            sz2.flash = 0.5;
+            spawnEnergyParticles(sz2.wx, 1, sz2.wz, 3);
+            spawnDmgNumber(sz2.wx, 1.6 + Math.random() * 0.3, sz2.wz, dmgAmt, false);
+            if (player._instaKill && sz2.hp > 0) sz2.hp = 0;
+            if (sz2.hp <= 0) {
+              totalKills++;
+              const sPts = player._doublePoints ? 120 : 60;
+              points += sPts;
+              sfxKill();
+              addFloatText(`+${sPts}`, '#0f0', 1);
+              startZombieDeathAnim(sz2);
+              spawnPowerUp(sz2.wx, sz2.wz);
+              removeZombieMesh(sz2);
+              zombies.splice(si, 1);
             }
           }
         }
@@ -1062,14 +1103,14 @@ function tryBuy() {
     const bx = (pm.tx + 0.5) * TILE, bz = (pm.tz + 0.5) * TILE;
     const d = Math.hypot(bx - px, bz - pz);
     if (d < TILE * 2) {
-      if (player.perksOwned[perk.id]) { addFloatText(`Already have ${perk.name}`, '#888'); }
+      if (player.perksOwned[perk.id] > 0) { addFloatText(`Already have ${perk.name} (${Math.ceil(player.perksOwned[perk.id])}s left)`, '#888'); }
       else if (round < perk.minRound) { addFloatText(`${perk.name} unlocks round ${perk.minRound}`, '#888'); }
       else if (points >= perk.cost) {
         points -= perk.cost;
-        player.perksOwned[perk.id] = true;
+        player.perksOwned[perk.id] = PERK_DURATION;
         perk.apply();
         sfxBuyPerk();
-        addFloatText(`${perk.name} ACTIVE!`, perk.color, 2.5);
+        addFloatText(`${perk.name} ACTIVE! (${PERK_DURATION}s)`, perk.color, 2.5);
       } else { addFloatText(`Need $${perk.cost} for ${perk.name}`, '#f88'); }
       return;
     }
@@ -1168,6 +1209,20 @@ function _update(dt) {
   if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
     player.hpRegenTimer += dt;
     if (player.hpRegenTimer >= 2) { player.hp = Math.min(player.hp + 5, player.maxHp); player.hpRegenTimer = 0; }
+  }
+  
+  // Perk expiration timers
+  for (const perk of perks) {
+    if (player.perksOwned[perk.id] > 0) {
+      player.perksOwned[perk.id] -= dt;
+      if (player.perksOwned[perk.id] <= 0) {
+        player.perksOwned[perk.id] = 0;
+        perk.unapply();
+        addFloatText(`${perk.name} EXPIRED!`, '#888', 2.5);
+        beep(300, 'sine', 0.15, 0.08);
+        beep(200, 'sine', 0.15, 0.08);
+      }
+    }
   }
   
   if (player.reloading) {
@@ -1547,6 +1602,7 @@ function gameLoop(time) {
   controls._applyRotation();
   updateCenterMsg(dt);
   updateGunModel(dt, gunKick);
+  updatePaPCamo();
   updateLights(dt);
   updateHitmarker(dt);
   updateScreenShake(dt);
