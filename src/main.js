@@ -1252,12 +1252,18 @@ function _update(dt) {
 
   // Build the list of valid attack/AI targets once per frame. In MP this
   // includes the local player plus every remote player; in SP it's just
-  // the local camera. The zombie AI (host-side) picks whichever is nearest
-  // per-zombie; the attack check below always runs against the local player.
+  // the local camera. Downed + spectating players are EXCLUDED — zombies
+  // should ignore crawling or spectator teammates and chase the still-
+  // standing ones. If every candidate is downed there's nothing alive
+  // to chase, and the AI falls through to no-movement (covered by the
+  // targets.length === 0 guard below).
   const targets = [];
-  targets.push({ x: camera.position.x, z: camera.position.z, isLocal: true });
+  if (!_iAmDowned) {
+    targets.push({ x: camera.position.x, z: camera.position.z, isLocal: true });
+  }
   if (_mpActive) {
     for (const rp of netcode.getRemotePlayers().values()) {
+      if (rp.downed || rp.spectating) continue;
       targets.push({ x: rp.wx, z: rp.wz, isLocal: false });
     }
   }
@@ -1290,7 +1296,7 @@ function _update(dt) {
     // equidistant (the old code re-picked every frame and zombies
     // walked in place between two players).
     let dx, dz, d;
-    if (_isHostOrSP && _mpActive) {
+    if (_isHostOrSP && _mpActive && targets.length > 0) {
       z._targetPickTimer = (z._targetPickTimer || 0) - dt;
       const needRepick =
         z._aiTargetIdx === undefined ||
@@ -1310,6 +1316,11 @@ function _update(dt) {
       dx = t.x - z.wx;
       dz = t.z - z.wz;
       d = Math.hypot(dx, dz);
+    } else if (_isHostOrSP && _mpActive && targets.length === 0) {
+      // Everyone's downed (or us + all remotes). Zombies have nobody
+      // alive to chase — zero out the direction so the movement block
+      // below becomes a no-op (d=0 fails the d>1.5 check).
+      dx = 0; dz = 0; d = 0;
     } else {
       dx = localDx;
       dz = localDz;
