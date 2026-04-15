@@ -49,6 +49,7 @@ import SetPlayerNameReducer from "./set_player_name_reducer";
 import SetRoundReducer from "./set_round_reducer";
 import SpawnPowerupReducer from "./spawn_powerup_reducer";
 import SpawnZombieReducer from "./spawn_zombie_reducer";
+import StartGameReducer from "./start_game_reducer";
 import SubmitHighScoreReducer from "./submit_high_score_reducer";
 import SyncZombiePositionsReducer from "./sync_zombie_positions_reducer";
 import UpdatePlayerTransformReducer from "./update_player_transform_reducer";
@@ -164,6 +165,7 @@ const reducersSchema = __reducers(
   __reducerSchema("set_round", SetRoundReducer),
   __reducerSchema("spawn_powerup", SpawnPowerupReducer),
   __reducerSchema("spawn_zombie", SpawnZombieReducer),
+  __reducerSchema("start_game", StartGameReducer),
   __reducerSchema("submit_high_score", SubmitHighScoreReducer),
   __reducerSchema("sync_zombie_positions", SyncZombiePositionsReducer),
   __reducerSchema("update_player_transform", UpdatePlayerTransformReducer),

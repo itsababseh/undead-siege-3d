@@ -84,6 +84,7 @@ export function createHostSync(ctx) {
     sfxKill, sfxBossKill, sfxRound,
     showHitmarker, showCenterMsg, addFloatText, triggerScreenShake,
     openDoorLocal,
+    onMatchStarted, onMatchEnded,
   } = ctx;
 
   // Award points + death VFX when the server deletes a zombie row.
@@ -110,9 +111,17 @@ export function createHostSync(ctx) {
     }
   }
 
+  // Track the last-seen status so we can detect lobby↔playing transitions.
+  let _lastStatus = 'lobby';
+
   // Register all subscription callbacks. Safe to call once per session.
   function register() {
     netcode.setOnZombieInsert((row) => {
+      // Suppress zombie meshes while in lobby — prevents the "ghost zombies
+      // bleeding through the menu" visual when a late joiner subscribes to
+      // a table that still has stale rows. On lobby→playing transition we
+      // do a catch-up pass to create meshes for everything we skipped.
+      if (netcode.getGameStatus() !== 'playing') return;
       if (zombies.some(z => z.hostZid === row.hostZid)) return;
       const z = makeLocalZombieFromRow(row, PI2);
       zombies.push(z);
@@ -120,6 +129,7 @@ export function createHostSync(ctx) {
     });
 
     netcode.setOnZombieUpdate((row) => {
+      if (netcode.getGameStatus() !== 'playing') return;
       const z = zombies.find(zz => zz.hostZid === row.hostZid);
       if (!z) {
         const nz = makeLocalZombieFromRow(row, PI2);
@@ -172,45 +182,61 @@ export function createHostSync(ctx) {
 
     netcode.setOnGameStateUpdate((row) => {
       if (!row) return;
+
+      // ---- Status transitions (lobby ↔ playing) ---------------------
+      const newStatus = row.status || 'lobby';
+      if (newStatus !== _lastStatus) {
+        const prevStatus = _lastStatus;
+        _lastStatus = newStatus;
+
+        if (prevStatus === 'lobby' && newStatus === 'playing') {
+          // Match just started. Catch up on any zombie rows that existed
+          // while we were in lobby (shouldn't be any, but defensive).
+          for (const data of netcode.getZombies().values()) {
+            if (zombies.some(z => z.hostZid === data.hostZid)) continue;
+            const fakeRow = {
+              hostZid: data.hostZid,
+              zombieType: data.zombieType,
+              wx: data.wx, wz: data.wz, ry: data.ry,
+              hp: data.hp, maxHp: data.maxHp,
+              flashLevel: data.flashLevel,
+            };
+            const nz = makeLocalZombieFromRow(fakeRow, PI2);
+            zombies.push(nz);
+            createZombieMesh(nz);
+          }
+          if (onMatchStarted) { try { onMatchStarted(); } catch (e) { console.warn('[mp] onMatchStarted', e); } }
+        } else if (prevStatus === 'playing' && newStatus === 'lobby') {
+          // Match just ended (session reset: everyone died or the last
+          // player left). Push the ended run to the global leaderboard.
+          const endedRound = getRound();
+          const endedPoints = getPoints();
+          const endedKills = getTotalKills();
+          if (endedRound > 0) {
+            const name = (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+            try {
+              netcode.callSubmitHighScore({
+                name, round: endedRound, points: endedPoints, kills: endedKills,
+              });
+            } catch (e) { console.warn('[netcode] submitHighScore on reset failed', e); }
+          }
+          if (onMatchEnded) { try { onMatchEnded(); } catch (e) { console.warn('[mp] onMatchEnded', e); } }
+        }
+      }
+
+      // ---- Round advance (only matters when status === 'playing') ----
       if (typeof row.round !== 'number') return;
       const prev = getRound();
       if (row.round === prev) return;
-
       setRound(row.round);
-
-      if (row.round > prev) {
-        // Normal advance — host already did this locally; non-host
-        // needs the round-intro UI + SFX fired.
+      if (row.round > prev && newStatus === 'playing') {
+        // Non-host plays the round-intro UI. The host already did this
+        // locally when nextRound() fired.
         if (!netcode.isHost()) {
           setState('roundIntro');
           setRoundIntroTimer(3);
           sfxRound();
           showCenterMsg(`ROUND ${row.round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
-        }
-      } else {
-        // Server rolled round backward → session reset (last player
-        // left, or all players died). The zombie deletes come in via
-        // onZombieDelete; here we just acknowledge the fresh round so
-        // any new arrivals start from 1. Also: since a reset implies a
-        // wipe, push the just-ended run to the global leaderboard so
-        // nobody has to die individually to get recorded.
-        const endedRound = prev;
-        const endedPoints = getPoints();
-        const endedKills = getTotalKills();
-        if (endedRound > 0) {
-          const name = (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
-          try {
-            netcode.callSubmitHighScore({
-              name,
-              round: endedRound,
-              points: endedPoints,
-              kills: endedKills,
-            });
-          } catch (e) { console.warn('[netcode] submitHighScore on reset failed', e); }
-        }
-        if (!netcode.isHost()) {
-          setState('roundIntro');
-          setRoundIntroTimer(3);
         }
       }
     });

@@ -10,10 +10,4 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  gameId: __t.u64().primaryKey().name("game_id"),
-  hostIdentity: __t.option(__t.identity()).name("host_identity"),
-  round: __t.i32(),
-  status: __t.string(),
-  hostLastSeen: __t.timestamp().name("host_last_seen"),
-});
+export default {};

@@ -21,5 +21,6 @@ export default __t.row({
   online: __t.bool(),
   alive: __t.bool(),
   downed: __t.bool(),
+  spectating: __t.bool(),
   lastSeen: __t.timestamp().name("last_seen"),
 });

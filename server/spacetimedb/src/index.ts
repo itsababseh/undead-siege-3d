@@ -14,18 +14,17 @@ const HOST_TIMEOUT_MICROS = 10_000_000n; // 10 seconds
 // ── Init ───────────────────────────────────────────────────────────────────
 
 export const init = spacetimedb.init((ctx) => {
-  // Create the singleton game state
+  // Create the singleton game state in lobby mode.
   ctx.db.gameState.insert({
     gameId: GAME_ID,
     hostIdentity: undefined,
     round: 1,
+    status: 'lobby',
     hostLastSeen: ctx.timestamp,
   });
 
   // Pre-populate door rows. Door IDs match the client's src/core/state.js
   // door list; if you add/remove doors there, update this list too.
-  // Using a simple numeric range rather than importing the client config
-  // (which the module can't do). 16 is a safe upper bound for now.
   for (let i = 0; i < 16; i++) {
     ctx.db.door.insert({ doorId: i, opened: false });
   }
@@ -34,15 +33,22 @@ export const init = spacetimedb.init((ctx) => {
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 export const onConnect = spacetimedb.clientConnected((ctx) => {
+  const gs = ctx.db.gameState.gameId.find(GAME_ID);
+  // If there's a match already running, new arrivals join as spectators
+  // and get flipped to live players at the next advance_round.
+  const spectating = !!gs && gs.status === 'playing';
+
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
-    // Rejoin from a fresh tab: clear downed state so they aren't stuck
-    // in a "waiting for revive" screen the moment they reconnect.
+    // Rejoin from a fresh tab: clear downed so they aren't stuck in a
+    // "waiting for revive" screen the moment they reconnect. Spectator
+    // state mirrors the live match status.
     ctx.db.player.identity.update({
       ...existing,
       online: true,
       alive: true,
       downed: false,
+      spectating,
       lastSeen: ctx.timestamp,
     });
     return;
@@ -59,15 +65,14 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     online: true,
     alive: true,
     downed: false,
+    spectating,
     lastSeen: ctx.timestamp,
   });
 });
 
-// Wipe all ephemeral session state and reset round progression.
-// Called when the last player disconnects OR all players are dead.
-// Doors stay as-is — leaving them open is usually what you want when
-// someone joins mid-session, and restoring map collision on client
-// would need a "close door" path which we don't have yet.
+// Wipe all ephemeral session state and return the lobby to 'lobby'
+// status. Called when the last player disconnects OR all players are
+// dead/downed. Doors stay as-is.
 function resetSession(ctx: any) {
   for (const z of ctx.db.zombie.iter()) {
     ctx.db.zombie.hostZid.delete(z.hostZid);
@@ -81,7 +86,14 @@ function resetSession(ctx: any) {
       ...gs,
       hostIdentity: undefined,
       round: 1,
+      status: 'lobby',
     });
+  }
+  // Clear lingering spectator flags so the next match starts clean.
+  for (const p of ctx.db.player.iter()) {
+    if (p.spectating) {
+      ctx.db.player.identity.update({ ...p, spectating: false });
+    }
   }
 }
 
@@ -409,6 +421,30 @@ export const advance_round = spacetimedb.reducer((ctx) => {
   const gs = ctx.db.gameState.gameId.find(GAME_ID);
   if (!gs || !isHost(ctx, gs)) throw new SenderError('only host may advance round');
   ctx.db.gameState.gameId.update({ ...gs, round: gs.round + 1 });
+  // Mid-round spectators drop in for the new round.
+  for (const p of ctx.db.player.iter()) {
+    if (p.spectating) {
+      ctx.db.player.identity.update({ ...p, spectating: false });
+    }
+  }
+});
+
+// Host-only match start. Flips lobby → playing, resets round to 1, and
+// clears any leftover spectator flags so everyone present joins fresh.
+export const start_game = spacetimedb.reducer((ctx) => {
+  const gs = ctx.db.gameState.gameId.find(GAME_ID);
+  if (!gs) throw new SenderError('game state missing');
+  if (!isHost(ctx, gs)) throw new SenderError('only host may start the game');
+  if (gs.status === 'playing') return; // idempotent
+  ctx.db.gameState.gameId.update({ ...gs, status: 'playing', round: 1 });
+  for (const p of ctx.db.player.iter()) {
+    ctx.db.player.identity.update({
+      ...p,
+      spectating: false,
+      alive: true,
+      downed: false,
+    });
+  }
 });
 
 export const set_round = spacetimedb.reducer(

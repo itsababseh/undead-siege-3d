@@ -18,13 +18,16 @@ import { schema, table, t } from 'spacetimedb/server';
 // Player: one row per connected client.
 //
 // Lifecycle flags:
-//   `alive`  — currently "in the game" in any form. False only when the
-//              session-reset trigger fires (everyone truly out). Client
-//              flips this on initGame(true) / teardown(false).
-//   `downed` — incapacitated, waiting for a teammate revive. In MP, HP
-//              hitting 0 enters this state instead of the single-player
-//              game-over. If every `alive` player is also `downed`, the
-//              server resets the session (nobody can save them).
+//   `alive`      — currently "in the game" in any form. False only when
+//                  the session-reset trigger fires. Client flips this on
+//                  initGame(true) / teardown(false).
+//   `downed`     — incapacitated, waiting for a teammate revive. In MP,
+//                  HP hitting 0 enters this state instead of the SP
+//                  game-over. If every alive player is also downed, the
+//                  server resets the session.
+//   `spectating` — joined while a match was already in progress. Player
+//                  sits in spectator mode watching a teammate until the
+//                  next advance_round() flips them into the live game.
 export const Player = table(
   { name: 'player', public: true },
   {
@@ -38,18 +41,24 @@ export const Player = table(
     online: t.bool(),
     alive: t.bool(),
     downed: t.bool(),
+    spectating: t.bool(),
     lastSeen: t.timestamp(),
   }
 );
 
-// GameState: singleton row (gameId = 1n). Tracks host election and the
-// current shared round counter. We add more fields here as we expand.
+// GameState: singleton row (gameId = 1n). Tracks host election, the
+// shared round counter, and the lobby/playing status.
+//
+// `status` values: "lobby" (menu, nobody is actively simulating) or
+// "playing" (a match is running). start_game flips to playing,
+// resetSession flips back to lobby.
 export const GameState = table(
   { name: 'game_state', public: true },
   {
     gameId: t.u64().primaryKey(),
     hostIdentity: t.identity().optional(),
     round: t.i32(),
+    status: t.string(),
     hostLastSeen: t.timestamp(),
   }
 );

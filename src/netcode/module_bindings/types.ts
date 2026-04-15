@@ -29,6 +29,7 @@ export const GameState = __t.object("GameState", {
   gameId: __t.u64(),
   hostIdentity: __t.option(__t.identity()),
   round: __t.i32(),
+  status: __t.string(),
   hostLastSeen: __t.timestamp(),
 });
 export type GameState = __Infer<typeof GameState>;
@@ -54,6 +55,7 @@ export const Player = __t.object("Player", {
   online: __t.bool(),
   alive: __t.bool(),
   downed: __t.bool(),
+  spectating: __t.bool(),
   lastSeen: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;

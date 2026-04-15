@@ -42,38 +42,58 @@
 <!-- Enhanced Menu -->
 <div id="blocker" class="hidden">
   <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
-  <div id="menuLogo">
-    <h1>UNDEAD SIEGE</h1>
-    <div class="sub">3D ZOMBIE SURVIVAL</div>
 
-  </div>
-  <div class="menu-divider"></div>
-  <button id="startBtn">ENLIST</button>
-  <button id="multiBtn" style="margin-top:8px;">MULTIPLAYER: OFF</button>
-  <div id="multiStatus" style="margin-top:6px;font:12px monospace;color:#8af;min-height:1em;"></div>
-  <div class="controls-info" id="controlsInfo">
-    WASD move · Mouse aim · Click shoot · R reload<br>
-    1-4 weapons · E buy/interact · ESC pause<br>
-    <span style="color:#f44;font-weight:bold;font-size:1.1em;text-shadow:0 0 8px #f44">🔪 F — KNIFE (melee attack)</span>
-  </div>
-  <div style="margin-top:10px;padding:8px 16px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;max-width:340px;margin-left:auto;margin-right:auto">
-    <span style="color:#fc0;font-size:11px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: The portal in-game will transport you to a random game in the <strong style="color:#fff">Vibe Jam 2026</strong> competition!</span>
-  </div>
-  <div class="menu-rank" id="menuRank"></div>
-  <div class="menu-stats" id="menuStats"></div>
-  <div class="menu-divider"></div>
-  <div class="menu-scores" id="menuScores"></div>
+  <!-- Main menu panel (shown by default). Hidden when the lobby panel
+       takes over after clicking MULTIPLAYER. -->
+  <div id="mainMenuPanel" style="display:contents">
+    <div id="menuLogo">
+      <h1>UNDEAD SIEGE</h1>
+      <div class="sub">3D ZOMBIE SURVIVAL</div>
+    </div>
+    <div class="menu-divider"></div>
+    <button id="startBtn">ENLIST</button>
+    <button id="multiBtn" style="margin-top:8px;">MULTIPLAYER: OFF</button>
+    <div id="multiStatus" style="margin-top:6px;font:12px monospace;color:#8af;min-height:1em;"></div>
+    <div class="controls-info" id="controlsInfo">
+      WASD move · Mouse aim · Click shoot · R reload<br>
+      1-4 weapons · E buy/interact · ESC pause<br>
+      <span style="color:#f44;font-weight:bold;font-size:1.1em;text-shadow:0 0 8px #f44">🔪 F — KNIFE (melee attack)</span>
+    </div>
+    <div style="margin-top:10px;padding:8px 16px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;max-width:340px;margin-left:auto;margin-right:auto">
+      <span style="color:#fc0;font-size:11px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: The portal in-game will transport you to a random game in the <strong style="color:#fff">Vibe Jam 2026</strong> competition!</span>
+    </div>
+    <div class="menu-rank" id="menuRank"></div>
+    <div class="menu-stats" id="menuStats"></div>
+    <div class="menu-divider"></div>
+    <div class="menu-scores" id="menuScores"></div>
 
-  <!-- Global leaderboard — top 10 rounds from SpacetimeDB high_score -->
-  <div id="menuGlobalLb" style="display:none;margin-top:14px;max-width:360px;margin-left:auto;margin-right:auto;font:11px monospace;text-align:left;">
-    <div style="color:#4af;letter-spacing:2px;text-align:center;margin-bottom:6px;font-size:11px">🌐 GLOBAL LEADERBOARD</div>
-    <div id="menuGlobalLbList" style="color:#aaa;line-height:1.7"></div>
+    <!-- Global leaderboard — top 10 rounds from SpacetimeDB high_score -->
+    <div id="menuGlobalLb" style="display:none;margin-top:14px;max-width:360px;margin-left:auto;margin-right:auto;font:11px monospace;text-align:left;">
+      <div style="color:#4af;letter-spacing:2px;text-align:center;margin-bottom:6px;font-size:11px">🌐 GLOBAL LEADERBOARD</div>
+      <div id="menuGlobalLbList" style="color:#aaa;line-height:1.7"></div>
+    </div>
+
+    <!-- Name input for chat + leaderboard submissions -->
+    <div style="margin-top:12px;font:11px monospace;color:#888">
+      <span style="color:#4af">NAME:</span>
+      <input id="menuNameInput" type="text" maxlength="24" placeholder="Survivor" style="background:transparent;border:none;border-bottom:1px solid #4af;color:#fff;font:inherit;outline:none;width:160px;text-align:center;margin-left:4px;caret-color:#4af">
+    </div>
   </div>
 
-  <!-- Name input for chat + leaderboard submissions -->
-  <div style="margin-top:12px;font:11px monospace;color:#888">
-    <span style="color:#4af">NAME:</span>
-    <input id="menuNameInput" type="text" maxlength="24" placeholder="Survivor" style="background:transparent;border:none;border-bottom:1px solid #4af;color:#fff;font:inherit;outline:none;width:160px;text-align:center;margin-left:4px;caret-color:#4af">
+  <!-- Lobby panel (shown when connected to MP and waiting for host to
+       press START GAME). Replaces the main menu panel via display
+       toggle; sits inside the same blocker so the animated menu
+       background still works. -->
+  <div id="lobbyPanel" style="display:none;text-align:center;position:relative;max-width:420px">
+    <h1 style="color:#4af;text-shadow:0 0 40px #4af,0 0 80px rgba(68,170,255,0.4);letter-spacing:8px;margin-bottom:4px;font-size:clamp(28px,6vw,48px)">LOBBY</h1>
+    <div class="sub" id="lobbyStatusLine" style="color:#aaa;font-size:12px;letter-spacing:3px;margin-bottom:14px">WAITING FOR PLAYERS</div>
+    <div class="menu-divider"></div>
+    <div id="lobbyPlayerList" style="margin:12px 0;min-height:80px;font:13px monospace;color:#ddd;line-height:2"></div>
+    <div class="menu-divider"></div>
+    <button id="lobbyStartBtn" style="margin-top:12px">START GAME</button>
+    <div id="lobbyHostHint" style="margin-top:6px;font:11px monospace;color:#888;min-height:1em"></div>
+    <button id="lobbyLeaveBtn" style="margin-top:10px;border-color:#666;color:#888">LEAVE LOBBY</button>
+    <div style="margin-top:16px;font:10px monospace;color:#555;letter-spacing:1px">Press T to chat</div>
   </div>
 </div>
 
@@ -86,6 +106,13 @@
   <div style="font-size:54px;font-weight:bold;color:#f44;text-shadow:0 0 20px #f00,0 0 40px #f00;letter-spacing:4px;">DOWNED</div>
   <div style="margin-top:16px;font-size:20px;color:#fca;">Waiting for a teammate to revive you…</div>
   <div id="downedHint" style="margin-top:24px;font-size:16px;color:#888;">If your whole squad goes down, the session resets.</div>
+</div>
+
+<!-- MP spectator state: shown when joining mid-match. -->
+<div id="spectatorOverlay" style="display:none;position:fixed;inset:0;pointer-events:none;z-index:50;background:radial-gradient(ellipse at center,rgba(0,40,80,0.2),rgba(0,0,0,0.7));font-family:monospace;color:#fff;text-align:center;padding-top:20vh;">
+  <div style="font-size:48px;font-weight:bold;color:#4af;text-shadow:0 0 20px #4af,0 0 40px rgba(68,170,255,0.6);letter-spacing:4px;">SPECTATING</div>
+  <div style="margin-top:12px;font-size:18px;color:#acf;">You'll drop in at the start of the next round.</div>
+  <div id="spectatorTarget" style="margin-top:20px;font-size:14px;color:#888;"></div>
 </div>
 
 <!-- MP revive prompt: shown on the reviver's HUD when near a downed teammate. -->

@@ -761,6 +761,11 @@ const _hostSync = createHostSync({
   addFloatText,
   triggerScreenShake,
   openDoorLocal: (door) => openDoorLocal(door),
+  // Match lifecycle callbacks — invoked when GameState.status flips.
+  // Defined lower in main.js as _onMatchStarted / _onMatchEnded; wrap
+  // so the closures see the fresh definitions at call time.
+  onMatchStarted: () => { if (typeof _onMatchStarted === 'function') _onMatchStarted(); },
+  onMatchEnded: () => { if (typeof _onMatchEnded === 'function') _onMatchEnded(); },
 });
 
 
@@ -1049,12 +1054,25 @@ function update(dt) {
 function _update(dt) {
   if (paused) return;
 
+  // MP lobby: not in a game yet, short-circuit everything.
+  if (state === 'mpLobby') return;
+
   // MP: while locally downed, short-circuit everything except the
   // overlay + server poll. The revive module owns that logic.
   if (isLocallyDowned()) {
     tickDowned();
     return;
   }
+
+  // MP spectator: joined mid-match. Camera snaps to a live teammate,
+  // no movement/shooting/buying. When the round ends the server flips
+  // our spectating flag, tickSpectator detects the transition, and we
+  // drop into the game next frame.
+  if (tickSpectator()) {
+    // Keep remote-player meshes + HUD visible but skip all game logic.
+    return;
+  }
+
   tickRevive(dt);
 
   if (state === 'roundIntro') {
@@ -1481,7 +1499,7 @@ function gameLoop(time) {
   updateRemotePlayers(dt, netcode.getRemotePlayers());
   tickChat();
 
-  if (state === 'menu') return;
+  if (state === 'menu' || state === 'mpLobby') return;
 
   update(dt);
   controls._applyRotation();
@@ -1599,47 +1617,280 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
   renderLb();
 })();
 
-// ===== MULTIPLAYER BUTTON =====
+// ===== MULTIPLAYER LOBBY + BUTTON =====
+//
+// Flow:
+//   1. Click MULTIPLAYER
+//      - if no name set, flash the name input and abort (user types name)
+//      - otherwise netcode.connect()
+//   2. On 'connected' status → state = 'mpLobby', show lobby panel
+//   3. Lobby panel renders the player list + START GAME (host only)
+//   4. Host clicks START GAME → callStartGame() → server flips status
+//      to 'playing' → hostSync fires _onMatchStarted on all clients →
+//      window._startGame() runs on each tab.
+//   5. On session reset (wipe / all leave) → _onMatchEnded → back to
+//      lobby panel.
+//
+// Mid-game joiners land with Player.spectating=true; the spectator
+// update logic below snaps their camera to a live teammate until the
+// next advance_round flips them into the action.
+
+const _mainMenuPanel = document.getElementById('mainMenuPanel');
+const _lobbyPanel = document.getElementById('lobbyPanel');
+const _lobbyPlayerList = document.getElementById('lobbyPlayerList');
+const _lobbyStartBtn = document.getElementById('lobbyStartBtn');
+const _lobbyLeaveBtn = document.getElementById('lobbyLeaveBtn');
+const _lobbyHostHint = document.getElementById('lobbyHostHint');
+const _lobbyStatusLine = document.getElementById('lobbyStatusLine');
+const _multiBtnEl = document.getElementById('multiBtn');
+const _multiStatusEl = document.getElementById('multiStatus');
+const _menuNameInputEl = document.getElementById('menuNameInput');
+
+function showLobbyPanel() {
+  state = 'mpLobby';
+  if (_mainMenuPanel) _mainMenuPanel.style.display = 'none';
+  if (_lobbyPanel) _lobbyPanel.style.display = 'block';
+  // Make sure the blocker is visible (lobby is shown as menu replacement).
+  const blocker = document.getElementById('blocker');
+  if (blocker) blocker.classList.remove('hidden');
+  document.getElementById('hud')?.classList.add('hidden');
+  renderLobbyPanel();
+}
+
+function hideLobbyPanel() {
+  if (_mainMenuPanel) _mainMenuPanel.style.display = 'contents';
+  if (_lobbyPanel) _lobbyPanel.style.display = 'none';
+}
+
+function renderLobbyPanel() {
+  if (!_lobbyPanel || _lobbyPanel.style.display === 'none') return;
+  const isHost = netcode.isHost();
+  const localName = getLocalPlayerName();
+  const remotes = Array.from(netcode.getRemotePlayers().values());
+  const totalCount = 1 + remotes.length;
+  if (_lobbyStatusLine) {
+    _lobbyStatusLine.textContent =
+      isHost ? `YOU ARE THE HOST · ${totalCount} PLAYER${totalCount !== 1 ? 'S' : ''}`
+             : `WAITING FOR HOST · ${totalCount} PLAYER${totalCount !== 1 ? 'S' : ''}`;
+  }
+  if (_lobbyPlayerList) {
+    const rows = [];
+    rows.push(`<div><span style="color:#4af">▶</span> <b style="color:#fff">${escapeMenuHtmlMp(localName)}</b> <span style="color:#8f8">(you${isHost ? ', host' : ''})</span></div>`);
+    for (const rp of remotes) {
+      const nm = rp.name || 'Survivor';
+      const tag = rp.spectating ? '<span style="color:#fc0">(spectating)</span>'
+                : rp.downed ? '<span style="color:#f66">(downed)</span>'
+                : '';
+      rows.push(`<div><span style="color:#555">·</span> <span style="color:#ddd">${escapeMenuHtmlMp(nm)}</span> ${tag}</div>`);
+    }
+    _lobbyPlayerList.innerHTML = rows.join('');
+  }
+  if (_lobbyStartBtn) {
+    if (isHost) {
+      _lobbyStartBtn.disabled = false;
+      _lobbyStartBtn.style.opacity = '1';
+      _lobbyStartBtn.textContent = 'START GAME';
+    } else {
+      _lobbyStartBtn.disabled = true;
+      _lobbyStartBtn.style.opacity = '0.4';
+      _lobbyStartBtn.textContent = 'WAITING FOR HOST…';
+    }
+  }
+  if (_lobbyHostHint) {
+    _lobbyHostHint.textContent = isHost
+      ? 'You decide when everyone drops in.'
+      : '';
+  }
+}
+
+function escapeMenuHtmlMp(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function leaveLobby() {
+  netcode.disconnect();
+  hideLobbyPanel();
+  state = 'menu';
+}
+
+// Match lifecycle — invoked by hostSync when the server flips status.
+// Defined here so the ctx closures above see them at call time.
+function _onMatchStarted() {
+  // Pull the local player out of lobby and drop them into the game.
+  hideLobbyPanel();
+  if (typeof window._startGame === 'function') window._startGame();
+}
+
+function _onMatchEnded() {
+  // Server has reset the session (wipe or last-player-left). Return
+  // everyone to the lobby panel and clear local game state so the next
+  // START GAME starts clean.
+  state = 'mpLobby';
+  paused = false;
+  hidePause();
+  // Clean up local gameplay artifacts without running the full death
+  // screen flow. Zombies are already being deleted via onZombieDelete.
+  zombies.forEach(z => removeZombieMesh(z));
+  zombies.length = 0;
+  points = 500; totalKills = 0; round = 0;
+  zToSpawn = 0; zSpawned = 0; maxAlive = 0; spawnTimer = 0;
+  // Hide game HUD + show lobby panel again.
+  document.getElementById('hud')?.classList.add('hidden');
+  const downedOv = document.getElementById('downedOverlay');
+  if (downedOv) downedOv.style.display = 'none';
+  const specOv = document.getElementById('spectatorOverlay');
+  if (specOv) specOv.style.display = 'none';
+  const blocker = document.getElementById('blocker');
+  if (blocker) {
+    blocker.classList.remove('hidden');
+    blocker.style.opacity = '';
+  }
+  showLobbyPanel();
+}
+
 (() => {
-  const btn = document.getElementById('multiBtn');
-  const status = document.getElementById('multiStatus');
-  if (!btn || !status) return;
+  if (!_multiBtnEl || !_multiStatusEl) return;
 
   netcode.onStatus(({ status: s, message }) => {
     switch (s) {
       case 'connected':
-        btn.textContent = 'MULTIPLAYER: ON';
-        btn.style.background = '#2a5';
-        status.textContent = 'connected';
-        status.style.color = '#8f8';
+        _multiBtnEl.textContent = 'LEAVE LOBBY';
+        _multiBtnEl.style.background = '#2a5';
+        _multiStatusEl.textContent = 'connected';
+        _multiStatusEl.style.color = '#8f8';
+        // On the first transition into 'connected', show the lobby panel.
+        // If the server already has status='playing' (we're joining a
+        // live match), hostSync's _lastStatus tracking will fire
+        // onMatchStarted and we'll skip straight to the game.
+        if (netcode.getGameStatus() === 'lobby' && state !== 'playing' && state !== 'roundIntro') {
+          showLobbyPanel();
+        }
+        renderLobbyPanel();
         break;
       case 'connecting':
-        btn.textContent = 'MULTIPLAYER: …';
-        btn.style.background = '#555';
-        status.textContent = 'connecting…';
-        status.style.color = '#fc8';
+        _multiBtnEl.textContent = 'MULTIPLAYER: …';
+        _multiBtnEl.style.background = '#555';
+        _multiStatusEl.textContent = 'connecting…';
+        _multiStatusEl.style.color = '#fc8';
         break;
       case 'error':
-        btn.textContent = 'MULTIPLAYER: OFF';
-        btn.style.background = '';
-        status.textContent = `error: ${message || 'check console'}`;
-        status.style.color = '#f88';
+        _multiBtnEl.textContent = 'MULTIPLAYER: OFF';
+        _multiBtnEl.style.background = '';
+        _multiStatusEl.textContent = `error: ${message || 'check console'}`;
+        _multiStatusEl.style.color = '#f88';
+        hideLobbyPanel();
+        if (state === 'mpLobby') state = 'menu';
         break;
       default:
-        btn.textContent = 'MULTIPLAYER: OFF';
-        btn.style.background = '';
-        status.textContent = '';
+        _multiBtnEl.textContent = 'MULTIPLAYER: OFF';
+        _multiBtnEl.style.background = '';
+        _multiStatusEl.textContent = '';
+        hideLobbyPanel();
+        if (state === 'mpLobby') state = 'menu';
     }
   });
 
-  btn.addEventListener('click', () => {
+  _multiBtnEl.addEventListener('click', () => {
     if (netcode.isConnected() || netcode.getStatus() === 'connecting') {
-      netcode.disconnect();
-    } else {
-      netcode.connect();
+      leaveLobby();
+      return;
     }
+    // Require a name before connecting. If empty/default, flash the
+    // input and abort — user should type their name first.
+    const nm = getLocalPlayerName();
+    if (!nm || nm === 'Survivor') {
+      if (_menuNameInputEl) {
+        _menuNameInputEl.focus();
+        _menuNameInputEl.style.transition = 'box-shadow 0.25s';
+        _menuNameInputEl.style.boxShadow = '0 0 10px #4af';
+        setTimeout(() => { _menuNameInputEl.style.boxShadow = ''; }, 600);
+      }
+      _multiStatusEl.textContent = 'set a name first ↑';
+      _multiStatusEl.style.color = '#fc8';
+      return;
+    }
+    netcode.connect();
   });
+
+  if (_lobbyStartBtn) {
+    _lobbyStartBtn.addEventListener('click', () => {
+      if (!netcode.isHost()) return;
+      netcode.callStartGame();
+    });
+  }
+  if (_lobbyLeaveBtn) {
+    _lobbyLeaveBtn.addEventListener('click', leaveLobby);
+  }
+
+  // Refresh the lobby player list whenever remote players change or
+  // the gameState row changes. We don't have a 'remote player changed'
+  // event, so just redraw on a low-freq timer while lobby is visible.
+  setInterval(() => {
+    if (state === 'mpLobby') renderLobbyPanel();
+  }, 500);
 })();
+
+// ===== SPECTATOR CAMERA + OVERLAY =====
+//
+// When the server says we're spectating (we joined mid-match), the main
+// update loop skips normal input + movement and this block takes over
+// the camera each frame.
+const _spectatorOverlay = document.getElementById('spectatorOverlay');
+const _spectatorTargetEl = document.getElementById('spectatorTarget');
+let _wasSpectating = false;
+
+function tickSpectator() {
+  if (!netcode.isConnected()) {
+    if (_spectatorOverlay && _spectatorOverlay.style.display !== 'none') {
+      _spectatorOverlay.style.display = 'none';
+    }
+    _wasSpectating = false;
+    return false;
+  }
+  const spec = netcode.isLocalPlayerSpectating();
+  if (!spec) {
+    if (_wasSpectating) {
+      // Transition spectating → live: drop us into the match at a
+      // spawn point with a fresh HP/ammo setup (but KEEP points/round).
+      _wasSpectating = false;
+      if (_spectatorOverlay) _spectatorOverlay.style.display = 'none';
+      player.hp = player.maxHp;
+      player.reloading = false;
+      player.reloadTimer = 0;
+      camera.position.set(12 * TILE, 1.6, 12 * TILE);
+      controls._yaw = 0;
+      controls._pitch = 0;
+      controls._applyRotation();
+    }
+    return false;
+  }
+  _wasSpectating = true;
+  if (_spectatorOverlay && _spectatorOverlay.style.display !== 'block') {
+    _spectatorOverlay.style.display = 'block';
+  }
+  // Snap camera to the first live (non-spectator, non-downed) remote
+  // player so the spectator sees what they're doing.
+  let target = null;
+  let targetName = '';
+  for (const rp of netcode.getRemotePlayers().values()) {
+    if (rp.spectating) continue;
+    if (rp.downed) continue;
+    target = rp;
+    targetName = rp.name || 'Survivor';
+    break;
+  }
+  if (target) {
+    camera.position.set(target.wx, 1.6, target.wz);
+    // Face the same direction as the target (approximate — remote ry
+    // is updated via subscription).
+    controls._yaw = target.ry || 0;
+    controls._applyRotation();
+    if (_spectatorTargetEl) _spectatorTargetEl.textContent = `Watching ${targetName}`;
+  } else if (_spectatorTargetEl) {
+    _spectatorTargetEl.textContent = 'No live teammates — waiting…';
+  }
+  return true;
+}
 
 window._vibeJamPortal = function() { _triggerExitPortal(); };
 

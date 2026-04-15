@@ -75,6 +75,7 @@ let _onPowerUpDelete = null;
 let _onGameStateUpdate = null;
 let _onChatMessage = null;
 let _onHighScoresChange = null;
+let _onLocalPlayerUpdate = null;
 export function setOnZombieInsert(fn) { _onZombieInsert = fn; }
 export function setOnZombieUpdate(fn) { _onZombieUpdate = fn; }
 export function setOnZombieDelete(fn) { _onZombieDelete = fn; }
@@ -84,6 +85,7 @@ export function setOnPowerUpDelete(fn) { _onPowerUpDelete = fn; }
 export function setOnGameStateUpdate(fn) { _onGameStateUpdate = fn; }
 export function setOnChatMessage(fn) { _onChatMessage = fn; }
 export function setOnHighScoresChange(fn) { _onHighScoresChange = fn; }
+export function setOnLocalPlayerUpdate(fn) { _onLocalPlayerUpdate = fn; }
 
 export function getChatMessages() { return _chatMessages; }
 export function getHighScores() { return _highScores; }
@@ -264,8 +266,18 @@ export function connect() {
             'SELECT * FROM chat_message',
           ]);
 
-        conn.db.player.onInsert((_c, row) => syncPlayerFromRow(row));
-        conn.db.player.onUpdate((_c, _o, row) => syncPlayerFromRow(row));
+        conn.db.player.onInsert((_c, row) => {
+          syncPlayerFromRow(row);
+          if (_localIdentity && identityHex(row.identity) === identityHex(_localIdentity)) {
+            if (_onLocalPlayerUpdate) { try { _onLocalPlayerUpdate(row); } catch (e) {} }
+          }
+        });
+        conn.db.player.onUpdate((_c, _o, row) => {
+          syncPlayerFromRow(row);
+          if (_localIdentity && identityHex(row.identity) === identityHex(_localIdentity)) {
+            if (_onLocalPlayerUpdate) { try { _onLocalPlayerUpdate(row); } catch (e) {} }
+          }
+        });
         conn.db.player.onDelete((_c, row) => {
           _remotePlayers.delete(identityHex(row.identity));
         });
@@ -560,4 +572,29 @@ export function isLocalPlayerDowned() {
     const row = _conn.db.player.identity.find(_localIdentity);
     return row ? !!row.downed : false;
   } catch (e) { return false; }
+}
+
+/** True if the local player is currently spectating (joined mid-match). */
+export function isLocalPlayerSpectating() {
+  if (!_conn || !_localIdentity) return false;
+  try {
+    const row = _conn.db.player.identity.find(_localIdentity);
+    return row ? !!row.spectating : false;
+  } catch (e) { return false; }
+}
+
+/**
+ * Current game status — "lobby" when nobody has started a match yet,
+ * "playing" once the host flips it via start_game. Returns "lobby"
+ * when disconnected.
+ */
+export function getGameStatus() {
+  return _gameState?.status || 'lobby';
+}
+
+/** Call the host-only start_game reducer. */
+export function callStartGame() {
+  if (!_conn) return;
+  try { _conn.reducers.startGame(); }
+  catch (e) { console.warn('[netcode] startGame failed', e); }
 }
