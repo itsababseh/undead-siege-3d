@@ -269,7 +269,7 @@ const weaponMags = {};
 // ===== DEPENDENCY INJECTION — wire up all extracted modules =====
 setAudioDeps(camera, player, weapons);
 setZombieDeps(scene, camera);
-setEffectsDeps(scene, camera, player, weapons);
+setEffectsDeps(scene, camera, player, weapons, controls);
 setGunDeps(scene, camera, player, weapons);
 initGunModels();
 setPortalDeps(scene, camera, TILE);
@@ -1174,12 +1174,22 @@ function showDeath() {
   
   const veil = document.getElementById('deathVeil');
   veil.style.background = 'rgba(0,0,0,0.85)';
-  
+
   setTimeout(() => {
     const blocker = document.getElementById('blocker');
     blocker.classList.remove('hidden');
     blocker.style.opacity = '0';
-    
+
+    // Hide HUD elements during death screen
+    document.getElementById('pointsBox').style.display = 'none';
+    document.getElementById('ammoBox').style.display = 'none';
+    document.getElementById('roundBox').style.display = 'none';
+    document.getElementById('hpBarWrap').style.display = 'none';
+    document.getElementById('killsLabel').style.display = 'none';
+    document.getElementById('minimap').style.display = 'none';
+    document.getElementById('weaponSwitcher').style.display = 'none';
+    document.getElementById('perkIcons').style.display = 'none';
+
     let lbHTML = '';
     board.slice(0, 5).forEach((e, i) => {
       const isThis = e.round === round && e.kills === totalKills && e.points === points;
@@ -1294,7 +1304,17 @@ window._startGame = function() {
   blocker.classList.add('hidden');
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
-  
+
+  // Show HUD elements when game starts
+  document.getElementById('pointsBox').style.display = 'block';
+  document.getElementById('ammoBox').style.display = 'block';
+  document.getElementById('roundBox').style.display = 'block';
+  document.getElementById('hpBarWrap').style.display = 'block';
+  document.getElementById('killsLabel').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
+  document.getElementById('weaponSwitcher').style.display = 'flex';
+  document.getElementById('perkIcons').style.display = 'flex';
+
   initAudio();
   startBackgroundMusic();
   

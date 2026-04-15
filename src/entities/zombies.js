@@ -3,6 +3,7 @@
 // Extracted from main.js for modularity
 
 import * as THREE from 'three';
+import { PI2 } from '../core/state.js';
 
 // ── Dependency injection ──
 let _scene, _camera;

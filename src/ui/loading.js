@@ -75,10 +75,20 @@ function finishLoading() {
       ls.classList.add('done');
       setTimeout(() => { ls.style.display = 'none'; }, 700);
     }
-    // Show menu
+    // Show menu and hide HUD elements
     const blocker = document.getElementById('blocker');
     blocker.classList.remove('hidden');
     blocker.style.opacity = '0';
+
+    // Hide HUD elements during menu
+    document.getElementById('pointsBox').style.display = 'none';
+    document.getElementById('ammoBox').style.display = 'none';
+    document.getElementById('roundBox').style.display = 'none';
+    document.getElementById('hpBarWrap').style.display = 'none';
+    document.getElementById('killsLabel').style.display = 'none';
+    document.getElementById('minimap').style.display = 'none';
+    document.getElementById('weaponSwitcher').style.display = 'none';
+    document.getElementById('perkIcons').style.display = 'none';
     requestAnimationFrame(() => {
       blocker.style.transition = 'opacity 0.8s ease-in';
       blocker.style.opacity = '1';
