@@ -1,8 +1,6 @@
 // Vibe Jam 2026 Portal System
-// Redesigned: hazard "caution tape" door that opens automatically (free entry)
-// to reveal the interdimensional Vibe Jam portal beyond. Uses modern principles
-// — procedural textures, emissive/bloom-friendly materials, eased animation,
-// particle sparks, and a floor decal to telegraph the entry zone.
+// Portal is flush against the north wall with caution-tape sliding door.
+// Door auto-opens (free entry) when the player approaches.
 import * as THREE from 'three';
 
 // ---- Dependency injection from main ----------------------------------------
@@ -26,29 +24,32 @@ let _portalInited = false;
 let _portalDoor = null;
 let _leftPanel = null, _rightPanel = null;
 let _doorT = 0;               // 0..1 eased open progress
-let _doorTarget = 0;          // where we're going (0 closed, 1 open)
-let _animatedMaterials = [];  // {mat, base, amp, speed}
-let _hazardLights = [];       // pulsing warning lamps
-let _tapeMaterials = [];      // animated caution-tape materials (uv scroll)
-let _sparks = null;           // particle system for door sparks
-let _floorDecalMat = null;    // pulsing floor warning decal
-let _doorKeyHighlight = null; // subtle scan line across the door
+let _doorTarget = 0;           // where we're going (0 closed, 1 open)
+let _animatedMaterials = [];   // {mat, base, amp, speed}
+let _hazardLights = [];        // pulsing warning lamps
+let _tapeMaterials = [];       // animated caution-tape materials (uv scroll)
+let _sparks = null;            // particle system for door sparks
+let _floorDecalMat = null;     // pulsing floor warning decal
+let _doorKeyHighlight = null;  // subtle scan line across the door
+
+// ---- Portal placement constants -------------------------------------------
+// Portal is against the north perimeter wall at tile column 17.
+// North wall (row 0) south face is at z = TILE.
+const PORTAL_COL = 17;
 
 // ===========================================================================
 // Helpers
 // ===========================================================================
 
-// Procedural diagonal caution-tape texture (yellow + black 45° stripes)
+// Procedural diagonal caution-tape texture (yellow + black 45 deg stripes)
 function _makeCautionTapeTexture({ stripes = 8, text = '', worn = true } = {}) {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 256;
   const g = c.getContext('2d');
 
-  // Base amber
   g.fillStyle = '#ffcc00';
   g.fillRect(0, 0, c.width, c.height);
 
-  // Diagonal black stripes
   g.save();
   g.translate(c.width / 2, c.height / 2);
   g.rotate(-Math.PI / 4);
@@ -60,7 +61,6 @@ function _makeCautionTapeTexture({ stripes = 8, text = '', worn = true } = {}) {
   }
   g.restore();
 
-  // Optional text overlay along the middle
   if (text) {
     g.save();
     g.fillStyle = '#ffe44d';
@@ -78,7 +78,6 @@ function _makeCautionTapeTexture({ stripes = 8, text = '', worn = true } = {}) {
     g.restore();
   }
 
-  // Subtle wear / grunge
   if (worn) {
     g.globalAlpha = 0.12;
     for (let i = 0; i < 400; i++) {
@@ -96,16 +95,12 @@ function _makeCautionTapeTexture({ stripes = 8, text = '', worn = true } = {}) {
   return tex;
 }
 
-// Sharp hazard diamond sign (black triangle + exclamation on yellow)
 function _makeHazardSignTexture(label = 'CAUTION') {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 512;
   const g = c.getContext('2d');
-
-  // transparent bg
   g.clearRect(0, 0, c.width, c.height);
 
-  // Yellow diamond
   g.save();
   g.translate(c.width / 2, 220);
   g.rotate(Math.PI / 4);
@@ -116,14 +111,12 @@ function _makeHazardSignTexture(label = 'CAUTION') {
   g.strokeRect(-170, -170, 340, 340);
   g.restore();
 
-  // Exclamation
   g.fillStyle = '#111';
   g.font = 'bold 260px Impact, "Arial Black", sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText('!', c.width / 2, 230);
 
-  // Caption
   g.fillStyle = '#ffcc00';
   g.strokeStyle = '#000';
   g.lineWidth = 8;
@@ -137,27 +130,23 @@ function _makeHazardSignTexture(label = 'CAUTION') {
   return tex;
 }
 
-// Welcoming sub-sign: "FREE ENTRY — STEP THROUGH"
 function _makeFreeEntrySignTexture() {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 256;
   const g = c.getContext('2d');
 
-  // Dark industrial plate
   const grd = g.createLinearGradient(0, 0, 0, c.height);
   grd.addColorStop(0, '#0b0b0f');
   grd.addColorStop(1, '#1a1a22');
   g.fillStyle = grd;
   g.fillRect(0, 0, c.width, c.height);
 
-  // Neon border
   g.strokeStyle = '#00ffcc';
   g.lineWidth = 6;
   g.shadowColor = '#00ffcc';
   g.shadowBlur = 24;
   g.strokeRect(10, 10, c.width - 20, c.height - 20);
 
-  // Main text
   g.shadowBlur = 16;
   g.fillStyle = '#00ffcc';
   g.font = 'bold 78px "Courier New", monospace';
@@ -168,7 +157,7 @@ function _makeFreeEntrySignTexture() {
   g.shadowBlur = 8;
   g.fillStyle = '#e8fff8';
   g.font = 'bold 44px "Courier New", monospace';
-  g.fillText('» STEP THROUGH «', c.width / 2, 180);
+  g.fillText('\u00BB STEP THROUGH \u00AB', c.width / 2, 180);
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 8;
@@ -176,7 +165,6 @@ function _makeFreeEntrySignTexture() {
   return tex;
 }
 
-// Circular floor decal with rotating hazard ring
 function _makeFloorDecalTexture() {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 512;
@@ -184,9 +172,7 @@ function _makeFloorDecalTexture() {
   g.clearRect(0, 0, c.width, c.height);
   const cx = c.width / 2, cy = c.height / 2;
 
-  // Outer ring — striped
-  const outer = 230, inner = 180;
-  const segs = 24;
+  const outer = 230, segs = 24;
   for (let i = 0; i < segs; i++) {
     g.beginPath();
     g.moveTo(cx, cy);
@@ -195,12 +181,10 @@ function _makeFloorDecalTexture() {
     g.fillStyle = i % 2 === 0 ? '#ffcc00' : '#111';
     g.fill();
   }
-  // Cut inner hole
   g.globalCompositeOperation = 'destination-out';
-  g.beginPath(); g.arc(cx, cy, inner, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(cx, cy, 180, 0, Math.PI * 2); g.fill();
   g.globalCompositeOperation = 'source-over';
 
-  // Inner chevrons arrow pointing up
   g.fillStyle = '#00ffcc';
   g.strokeStyle = '#000';
   g.lineWidth = 4;
@@ -224,17 +208,15 @@ function _makeFloorDecalTexture() {
   return tex;
 }
 
-// Cubic ease-out for door motion — feels snappy and responsive
 function _easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 
 // ===========================================================================
-// Portal ring (unchanged visual language, slightly polished)
+// Portal ring mesh
 // ===========================================================================
 function _makePortalMesh(color, pos, label) {
   const group = new THREE.Group();
   group.position.set(pos.x, pos.y, pos.z);
 
-  // Glowing torus ring
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(2.5, 0.35, 16, 64),
     new THREE.MeshStandardMaterial({
@@ -244,14 +226,12 @@ function _makePortalMesh(color, pos, label) {
   );
   group.add(ring);
 
-  // Inner swirling disc
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(2.2, 48),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
   );
   group.add(disc);
 
-  // Particle swirl
   const pCount = 360;
   const geom = new THREE.BufferGeometry();
   const positions = new Float32Array(pCount * 3);
@@ -272,7 +252,6 @@ function _makePortalMesh(color, pos, label) {
     size: 0.09, vertexColors: true, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false
   })));
 
-  // Optional label above portal
   if (label) {
     const canvas = document.createElement('canvas');
     canvas.width = 512; canvas.height = 64;
@@ -294,48 +273,20 @@ function _makePortalMesh(color, pos, label) {
 }
 
 // ===========================================================================
-// Caution-tape portal DOORWAY
+// Caution-tape door — flush against the north wall
 // ===========================================================================
 function _createPortalDoor() {
   const doorGroup = new THREE.Group();
 
-  // Position: in front of the portal, centered in the tile
-  const doorPos = { x: 17 * _TILE + _TILE / 2, z: 3 * _TILE + _TILE / 2 - 1 };
-  doorGroup.position.set(doorPos.x, 0, doorPos.z);
+  // Position flush against the south face of the north wall (row 0).
+  // Wall south face is at z = _TILE. Door sits just in front of it.
+  const centerX = PORTAL_COL * _TILE + _TILE / 2;
+  const wallFaceZ = _TILE;
+  doorGroup.position.set(centerX, 0, wallFaceZ);
 
-  // ---- Heavy industrial frame ---------------------------------------------
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1a20, metalness: 0.85, roughness: 0.35,
-    emissive: 0x0a0a0a
-  });
-
-  // Top lintel
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.35, 0.55), frameMat);
-  lintel.position.set(0, 3.25, 0);
-  doorGroup.add(lintel);
-
-  // Side posts
-  const post = new THREE.BoxGeometry(0.35, 3.2, 0.55);
-  const leftPost = new THREE.Mesh(post, frameMat);
-  leftPost.position.set(-2.15, 1.6, 0);
-  doorGroup.add(leftPost);
-  const rightPost = new THREE.Mesh(post, frameMat);
-  rightPost.position.set(2.15, 1.6, 0);
-  doorGroup.add(rightPost);
-
-  // Threshold bar at the bottom (tripping hazard strip)
-  const thresholdMat = new THREE.MeshStandardMaterial({
-    map: _makeCautionTapeTexture({ text: '' }),
-    metalness: 0.1, roughness: 0.8,
-    emissive: 0x221a00, emissiveIntensity: 0.35
-  });
-  thresholdMat.map.repeat.set(3, 1);
-  _tapeMaterials.push(thresholdMat);
-  const threshold = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.18, 0.35), thresholdMat);
-  threshold.position.set(0, 0.09, 0);
-  doorGroup.add(threshold);
-
-  // ---- Caution-tape door panels (sliding) ---------------------------------
+  // ---- Sliding caution-tape door panels -----------------------------------
+  // No floating frame — panels sit against the existing wall.
+  // When opened, panels slide into adjacent wall tiles (hidden inside wall).
   const tapeTex = _makeCautionTapeTexture({ text: 'CAUTION' });
   tapeTex.repeat.set(1.2, 1);
   _tapeMaterials.push({ _scroll: true, tex: tapeTex });
@@ -347,25 +298,26 @@ function _createPortalDoor() {
     side: THREE.DoubleSide
   });
 
-  const panelGeo = new THREE.BoxGeometry(1.95, 2.9, 0.12);
+  // Each panel is half the tile width — together they fill the opening
+  const panelGeo = new THREE.BoxGeometry(1.95, 3.0, 0.15);
   _leftPanel = new THREE.Mesh(panelGeo, panelMat);
-  _leftPanel.position.set(-1.0, 1.6, 0.06);
+  _leftPanel.position.set(-1.0, 1.5, 0.08);
   _leftPanel.userData.closedX = -1.0;
-  _leftPanel.userData.openX = -3.4;
+  _leftPanel.userData.openX = -3.2;  // slides into adjacent wall tile
   doorGroup.add(_leftPanel);
 
   _rightPanel = new THREE.Mesh(panelGeo, panelMat.clone());
   _rightPanel.material.map = tapeTex;
-  _rightPanel.position.set(1.0, 1.6, 0.06);
+  _rightPanel.position.set(1.0, 1.5, 0.08);
   _rightPanel.userData.closedX = 1.0;
-  _rightPanel.userData.openX = 3.4;
+  _rightPanel.userData.openX = 3.2;
   doorGroup.add(_rightPanel);
 
-  // Subtle beveled edges on the inner seam of each panel (emissive accent)
+  // Glowing seam edges on inner side of each panel
   const seamMat = new THREE.MeshStandardMaterial({
     color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.2
   });
-  const seamGeo = new THREE.BoxGeometry(0.04, 2.8, 0.14);
+  const seamGeo = new THREE.BoxGeometry(0.04, 2.8, 0.17);
   const leftSeam = new THREE.Mesh(seamGeo, seamMat);
   leftSeam.position.set(1.0, 0, 0.02);
   _leftPanel.add(leftSeam);
@@ -374,8 +326,7 @@ function _createPortalDoor() {
   _rightPanel.add(rightSeam);
   _animatedMaterials.push({ mat: seamMat, base: 2.2, amp: 1.2, speed: 4.0 });
 
-  // ---- Horizontal caution tapes stretched across the opening --------------
-  // These strips visually reinforce "caution" and scroll subtly when closed.
+  // ---- Horizontal caution tape strips across the opening ------------------
   const stripTex = _makeCautionTapeTexture();
   stripTex.repeat.set(3, 1);
   const stripMat = new THREE.MeshStandardMaterial({
@@ -387,38 +338,38 @@ function _createPortalDoor() {
 
   const stripHeights = [0.6, 1.6, 2.6];
   stripHeights.forEach((y, i) => {
-    const s = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.22), stripMat.clone());
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 0.22), stripMat.clone());
     s.material.map = stripTex;
-    s.position.set(0, y, 0.14 + (i % 2) * 0.02);
+    s.position.set(0, y, 0.16);
     s.rotation.z = (i === 1 ? 0 : (i === 0 ? 0.03 : -0.03));
     s.userData.isTapeStrip = true;
     s.userData.origY = y;
     doorGroup.add(s);
   });
 
-  // ---- Hazard signage above the door --------------------------------------
+  // ---- Hazard signs mounted on the wall above the door --------------------
   const hazardMat = new THREE.MeshBasicMaterial({
     map: _makeHazardSignTexture('CAUTION'),
     transparent: true, side: THREE.DoubleSide
   });
-  const hazardSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), hazardMat);
-  hazardSign.position.set(-1.55, 3.85, 0.3);
+  const hazardSign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), hazardMat);
+  hazardSign.position.set(-1.5, 3.6, 0.12);
   doorGroup.add(hazardSign);
 
   const hazardSign2 = hazardSign.clone();
-  hazardSign2.material = hazardMat; // share
-  hazardSign2.position.x = 1.55;
+  hazardSign2.material = hazardMat;
+  hazardSign2.position.x = 1.5;
   doorGroup.add(hazardSign2);
 
-  // ---- "FREE ENTRY — STEP THROUGH" plate between the hazard signs ---------
+  // ---- "FREE ENTRY" sign between hazard signs -----------------------------
   const freeSignMat = new THREE.MeshBasicMaterial({
     map: _makeFreeEntrySignTexture(), transparent: true, side: THREE.DoubleSide
   });
-  const freeSign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), freeSignMat);
-  freeSign.position.set(0, 3.85, 0.3);
+  const freeSign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), freeSignMat);
+  freeSign.position.set(0, 3.6, 0.12);
   doorGroup.add(freeSign);
 
-  // ---- Pulsing hazard dome lamps on each corner of the frame --------------
+  // ---- Warning lamps on the wall flanking the door ------------------------
   const lampGeo = new THREE.SphereGeometry(0.14, 16, 16);
   const makeLamp = (x, y, color = 0xffaa00) => {
     const m = new THREE.MeshStandardMaterial({
@@ -426,7 +377,7 @@ function _createPortalDoor() {
       roughness: 0.3, metalness: 0.4
     });
     const lamp = new THREE.Mesh(lampGeo, m);
-    lamp.position.set(x, y, 0.3);
+    lamp.position.set(x, y, 0.18);
     doorGroup.add(lamp);
     const light = new THREE.PointLight(color, 0.8, 5);
     light.position.copy(lamp.position);
@@ -435,47 +386,47 @@ function _createPortalDoor() {
     _animatedMaterials.push({ mat: m, base: 2.0, amp: 1.5, speed: 3.2 });
     return lamp;
   };
-  makeLamp(-2.4, 3.35);
-  makeLamp( 2.4, 3.35);
-  makeLamp(-2.4, 0.35);
-  makeLamp( 2.4, 0.35);
+  makeLamp(-2.0, 2.8);
+  makeLamp( 2.0, 2.8);
+  makeLamp(-2.0, 0.4);
+  makeLamp( 2.0, 0.4);
 
-  // ---- Top status bar (cyan LED strip) ------------------------------------
+  // ---- Cyan LED strip along top edge of opening ---------------------------
   const ledMat = new THREE.MeshStandardMaterial({
     color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.5
   });
-  const led = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.06, 0.06), ledMat);
-  led.position.set(0, 3.12, 0.32);
+  const led = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.06, 0.06), ledMat);
+  led.position.set(0, 3.05, 0.12);
   doorGroup.add(led);
   _animatedMaterials.push({ mat: ledMat, base: 2.5, amp: 1.0, speed: 2.5 });
 
-  // ---- Floor decal telegraphing the entry zone ----------------------------
+  // ---- Floor decal in front of the door -----------------------------------
   _floorDecalMat = new THREE.MeshBasicMaterial({
     map: _makeFloorDecalTexture(), transparent: true, depthWrite: false,
     opacity: 0.9, side: THREE.DoubleSide
   });
   const decal = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), _floorDecalMat);
   decal.rotation.x = -Math.PI / 2;
-  decal.position.set(0, 0.02, -1.6); // in front of the door, toward the player
+  decal.position.set(0, 0.02, 1.8); // south of door, toward the player
   doorGroup.add(decal);
   decal.userData.isFloorDecal = true;
 
-  // ---- Subtle "scan line" highlight that sweeps across the panels ---------
+  // ---- Scan line highlight sweeping across panels -------------------------
   _doorKeyHighlight = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.2, 0.08),
+    new THREE.PlaneGeometry(3.8, 0.08),
     new THREE.MeshBasicMaterial({
       color: 0x00ffcc, transparent: true, opacity: 0.0,
       blending: THREE.AdditiveBlending, depthWrite: false
     })
   );
-  _doorKeyHighlight.position.set(0, 1.6, 0.18);
+  _doorKeyHighlight.position.set(0, 1.5, 0.2);
   doorGroup.add(_doorKeyHighlight);
 
-  // ---- Sparks particle system near the panel seams ------------------------
+  // ---- Sparks near panel seams --------------------------------------------
   const SPARK_COUNT = 60;
   const sg = new THREE.BufferGeometry();
   const sp = new Float32Array(SPARK_COUNT * 3);
-  const sv = new Float32Array(SPARK_COUNT * 3); // velocities
+  const sv = new Float32Array(SPARK_COUNT * 3);
   for (let i = 0; i < SPARK_COUNT; i++) {
     sp[i * 3] = (Math.random() - 0.5) * 0.2;
     sp[i * 3 + 1] = 0.3 + Math.random() * 2.8;
@@ -503,12 +454,14 @@ export function initVibeJamPortals() {
   if (_portalInited) return;
   _portalInited = true;
 
-  // Caution-tape door goes first
+  // Caution-tape door against the north wall
   _portalDoor = _createPortalDoor();
   _scene.add(_portalDoor);
 
-  // Exit portal sits behind the door
-  const exitPos = { x: 17 * _TILE + _TILE / 2, y: 1.6, z: 3 * _TILE + _TILE / 2 + 1.5 };
+  // Exit portal — recessed into the north wall behind the door.
+  // The wall tile center is at z = TILE/2, so the portal sits just at the wall face.
+  const centerX = PORTAL_COL * _TILE + _TILE / 2;
+  const exitPos = { x: centerX, y: 1.6, z: _TILE * 0.5 };
   const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM 2026');
   _exitPortalGroup = ep;
   _scene.add(ep.group); _scene.add(ep.light);
@@ -541,45 +494,40 @@ export function animateVibeJamPortals(dt, state) {
 
   // --- Door proximity: AUTO OPEN (free entry) -----------------------------
   if (_portalDoor && (state === 'playing' || state === 'roundIntro')) {
-    const doorX = 17 * _TILE + _TILE / 2;
-    const doorZ = 3 * _TILE + _TILE / 2 - 1;
+    const doorX = PORTAL_COL * _TILE + _TILE / 2;
+    const doorZ = _TILE; // south face of north wall
     const dx = _camera.position.x - doorX;
     const dz = _camera.position.z - doorZ;
     const distance = Math.sqrt(dx * dx + dz * dz);
 
-    // Open when approaching, stay open while near; gently close when far.
     _doorTarget = distance < 6 ? 1 : (distance > 9 ? 0 : _doorTarget);
   }
 
   // Ease progress toward target
   if (_portalDoor && _leftPanel && _rightPanel) {
-    const rate = 2.2; // seconds to go 0->1
+    const rate = 2.2;
     _doorT += Math.sign(_doorTarget - _doorT) * Math.min(Math.abs(_doorTarget - _doorT), dt * rate);
     const eased = _easeOutCubic(Math.max(0, Math.min(1, _doorT)));
     _leftPanel.position.x  = THREE.MathUtils.lerp(_leftPanel.userData.closedX,  _leftPanel.userData.openX,  eased);
     _rightPanel.position.x = THREE.MathUtils.lerp(_rightPanel.userData.closedX, _rightPanel.userData.openX, eased);
 
-    // Subtle shake during fast motion (feels more kinetic)
     const vel = Math.abs(_doorTarget - _doorT);
     const shake = vel > 0.02 ? (Math.sin(t * 60) * 0.01) : 0;
-    _leftPanel.position.y = 1.6 + shake;
-    _rightPanel.position.y = 1.6 - shake;
+    _leftPanel.position.y = 1.5 + shake;
+    _rightPanel.position.y = 1.5 - shake;
 
-    // Sweep highlight: from bottom to top when opening
     if (_doorKeyHighlight) {
       const sweepT = (t * 0.6) % 1;
       _doorKeyHighlight.position.y = 0.3 + sweepT * 2.8;
       _doorKeyHighlight.material.opacity = (1 - eased) * 0.6;
     }
 
-    // Floor decal pulse — brighter when door is closed/opening
     if (_floorDecalMat) {
       const base = 0.55;
       const pulse = 0.35 * (0.5 + 0.5 * Math.sin(t * 3.2));
       _floorDecalMat.opacity = base + pulse * (1 - eased * 0.6);
     }
 
-    // Sparks — emit more while opening, fade when fully open or closed
     if (_sparks) {
       const active = vel > 0.015 ? 1 : 0;
       _sparks.material.opacity = THREE.MathUtils.lerp(_sparks.material.opacity, 0.7 * active, Math.min(1, dt * 8));
@@ -598,12 +546,11 @@ export function animateVibeJamPortals(dt, state) {
       _sparks.geometry.attributes.position.needsUpdate = true;
     }
 
-    // Hazard lamps — flicker slightly faster when door is actively moving
     for (let i = 0; i < _hazardLights.length; i++) {
       const h = _hazardLights[i];
-      const base = vel > 0.01 ? 2.8 : 1.6;
-      const amp = vel > 0.01 ? 1.8 : 0.8;
-      h.mat.emissiveIntensity = base + Math.sin(t * 6 + i * 1.3) * amp;
+      const baseI = vel > 0.01 ? 2.8 : 1.6;
+      const ampI = vel > 0.01 ? 1.8 : 0.8;
+      h.mat.emissiveIntensity = baseI + Math.sin(t * 6 + i * 1.3) * ampI;
       h.light.intensity = 0.6 + 0.4 * Math.sin(t * 6 + i * 1.3);
     }
   }
@@ -616,7 +563,7 @@ export function animateVibeJamPortals(dt, state) {
     _exitPortalGroup.particles.attributes.position.needsUpdate = true;
     _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
 
-    // Trigger when the door is sufficiently open (>= 70%)
+    // Player can enter portal when door is sufficiently open (>= 70%)
     if (_doorT > 0.7 && (state === 'playing' || state === 'roundIntro')) {
       const dx = _camera.position.x - _exitPortalGroup.group.position.x;
       const dz = _camera.position.z - _exitPortalGroup.group.position.z;
@@ -670,7 +617,6 @@ export function cleanupVibeJamPortals() {
   _portalInited = false;
 }
 
-// Incoming portal users — pre-open the door so they can walk straight through.
 export function handleIncomingPortalUser() {
   if (_portalInited && _portalDoor) {
     _doorTarget = 1;
