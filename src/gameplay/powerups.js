@@ -21,6 +21,41 @@ export function setPowerUpDeps(scene, camera, weapons, player, gameAccessors) {
   _getZombies = gameAccessors.getZombies;
   _getTotalKills = gameAccessors.getTotalKills;
   _setTotalKills = gameAccessors.setTotalKills;
+  initPowerUpLightPool();
+}
+
+// ===== POWERUP LIGHT POOL =====
+// Shared pool of PointLights for powerup drops. Adding/removing lights
+// changes Three.js's shader cache key and forces a synchronous recompile —
+// that's the random lag spike when a zombie drops an item. Keeping the
+// light count constant avoids it.
+const POWERUP_LIGHT_POOL_SIZE = 4;
+const powerUpLightPool = [];
+let powerUpLightPoolInited = false;
+
+function initPowerUpLightPool() {
+  if (powerUpLightPoolInited || !_scene) return;
+  for (let i = 0; i < POWERUP_LIGHT_POOL_SIZE; i++) {
+    const light = new THREE.PointLight(0xffffff, 0, 8);
+    light.position.set(0, -1000, 0);
+    _scene.add(light);
+    powerUpLightPool.push({ light, inUse: false });
+  }
+  powerUpLightPoolInited = true;
+}
+
+function acquirePowerUpLight() {
+  for (const slot of powerUpLightPool) {
+    if (!slot.inUse) { slot.inUse = true; return slot; }
+  }
+  return null; // pool exhausted — powerup just won't glow
+}
+
+function releasePowerUpLight(slot) {
+  if (!slot) return;
+  slot.inUse = false;
+  slot.light.intensity = 0;
+  slot.light.position.set(0, -1000, 0);
 }
 
 export const powerUps = [];
@@ -110,11 +145,14 @@ export function spawnPowerUp(wx, wz) {
   mesh.position.set(wx, 0.8, wz);
   _scene.add(mesh);
   
-  const light = new THREE.PointLight(new THREE.Color(type.color).getHex(), 2, 8);
-  light.position.set(wx, 1.2, wz);
-  _scene.add(light);
-  
-  const pu = { typeIdx, wx, wz, mesh, light, life: 20, bobPhase: Math.random() * Math.PI * 2 };
+  const lightSlot = acquirePowerUpLight();
+  if (lightSlot) {
+    lightSlot.light.color.setHex(new THREE.Color(type.color).getHex());
+    lightSlot.light.intensity = 2;
+    lightSlot.light.position.set(wx, 1.2, wz);
+  }
+
+  const pu = { typeIdx, wx, wz, mesh, lightSlot, life: 20, bobPhase: Math.random() * Math.PI * 2 };
   powerUps.push(pu);
   roundPowerUpsDropped++;
 }
@@ -129,12 +167,15 @@ export function updatePowerUps(dt) {
     pu.mesh.rotation.y += dt * 2;
     pu.mesh.rotation.x = Math.sin(pu.bobPhase * 0.7) * 0.2;
     
-    pu.light.intensity = 1.5 + Math.sin(pu.bobPhase * 2) * 0.5;
-    
+    if (pu.lightSlot) {
+      pu.lightSlot.light.position.y = pu.mesh.position.y + 0.4;
+      pu.lightSlot.light.intensity = 1.5 + Math.sin(pu.bobPhase * 2) * 0.5;
+    }
+
     if (pu.life < 5) {
       pu.mesh.material.opacity = 0.4 + Math.sin(pu.life * 6) * 0.4;
     }
-    
+
     const d = Math.hypot(pu.wx - _camera.position.x, pu.wz - _camera.position.z);
     if (d < 2) {
       const type = POWERUP_TYPES[pu.typeIdx];
@@ -143,16 +184,18 @@ export function updatePowerUps(dt) {
       beep(600, 'sine', 0.1, 0.12);
       setTimeout(() => beep(900, 'sine', 0.15, 0.12), 100);
       triggerScreenShake(0.3, 10);
-      
-      _scene.remove(pu.mesh); _scene.remove(pu.light);
+
+      _scene.remove(pu.mesh);
       pu.mesh.material.dispose(); pu.mesh.geometry.dispose();
+      releasePowerUpLight(pu.lightSlot);
       powerUps.splice(i, 1);
       continue;
     }
-    
+
     if (pu.life <= 0) {
-      _scene.remove(pu.mesh); _scene.remove(pu.light);
+      _scene.remove(pu.mesh);
       pu.mesh.material.dispose(); pu.mesh.geometry.dispose();
+      releasePowerUpLight(pu.lightSlot);
       powerUps.splice(i, 1);
     }
   }
@@ -168,11 +211,11 @@ export function updatePowerUps(dt) {
 }
 
 export function cleanupPowerUps() {
-  powerUps.forEach(pu => { 
-    _scene.remove(pu.mesh); 
-    if (pu.light) _scene.remove(pu.light); 
-    if (pu.mesh.material) pu.mesh.material.dispose(); 
-    if (pu.mesh.geometry) pu.mesh.geometry.dispose(); 
+  powerUps.forEach(pu => {
+    _scene.remove(pu.mesh);
+    if (pu.mesh.material) pu.mesh.material.dispose();
+    if (pu.mesh.geometry) pu.mesh.geometry.dispose();
+    releasePowerUpLight(pu.lightSlot);
   });
   powerUps.length = 0;
   _player._instaKill = false; _player._instaKillTimer = 0;
