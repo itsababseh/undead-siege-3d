@@ -52,7 +52,7 @@ import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures
 import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
 import { triggerRadioTransmission, updateRadioTransmission, closeRadio, easterEgg,
          buildGenerators, tryActivateGenerator, tryCatalyst, updateGenerators,
-         updatePersistentStats, getPlayerRank, setStoryDeps } from './world/story.js';
+         updatePersistentStats, getPlayerRank, setStoryDeps, setStoryDoors } from './world/story.js';
 // Phase 4 extractions
 import { mysteryBox, mysteryBoxMeshes, buildMysteryBox, tryMysteryBox,
          collectMysteryBoxWeapon, updateMysteryBox, resetMysteryBox,
@@ -372,6 +372,7 @@ const doors = [
   { id:'west', tiles:[[9,7],[9,8]], cost:1250, opened:false, label:'West Wing' },
   { id:'east', tiles:[[19,11],[19,12]], cost:2000, opened:false, label:'East Chamber' },
 ];
+setStoryDoors(doors);
 
 // ===== SPAWN POINTS =====
 const spawnPts = [

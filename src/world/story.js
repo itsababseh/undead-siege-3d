@@ -1,13 +1,17 @@
 // Story, Progression, Easter Egg, and Generator systems
 import * as THREE from 'three';
 import { beep, actx, masterGain } from '../audio/index.js';
+import { triggerScreenShake } from '../effects/index.js';
 
 // Dependencies passed via init
 // _gs is a shared game state object: { points, round, player, totalKills }
-let _scene, _camera, _TILE, _gs, _addFloatText;
+let _scene, _camera, _TILE, _gs, _addFloatText, _doors;
 export function setStoryDeps(scene, camera, TILE, gameState, addFloatText) {
   _scene = scene; _camera = camera; _TILE = TILE;
   _gs = gameState; _addFloatText = addFloatText;
+}
+export function setStoryDoors(doors) {
+  _doors = doors;
 }
 
 
@@ -177,7 +181,7 @@ export function tryActivateGenerator() {
     
     // Check door requirement
     if (gen.doorReq) {
-      const door = doors.find(d => d.id === gen.doorReq);
+      const door = _doors.find(d => d.id === gen.doorReq);
       if (!door || !door.opened) continue;
     }
     

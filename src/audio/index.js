@@ -693,59 +693,112 @@ function sfxWeaponSwitch() {
 function sfxKnife() {
   if (!actx || !masterGain) return;
   const t = actx.currentTime;
-  // Sharp metallic swipe
-  const bufSize = actx.sampleRate * 0.08;
-  const noiseBuf = actx.createBuffer(1, bufSize, actx.sampleRate);
-  const nd = noiseBuf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
-  const noise = actx.createBufferSource();
-  noise.buffer = noiseBuf;
-  const hp = actx.createBiquadFilter();
-  hp.type = 'highpass'; hp.frequency.value = 3000; hp.Q.value = 2;
-  const bp = actx.createBiquadFilter();
-  bp.type = 'bandpass'; bp.frequency.value = 5000; bp.Q.value = 3;
-  const ng = actx.createGain();
-  ng.gain.setValueAtTime(0.35, t);
-  ng.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
-  noise.connect(hp); hp.connect(bp); bp.connect(ng); ng.connect(masterGain);
-  noise.start(t); noise.stop(t + 0.08);
-  // Metallic ring
-  const osc = actx.createOscillator();
-  osc.type = 'sawtooth'; osc.frequency.setValueAtTime(1200, t);
-  osc.frequency.exponentialRampToValueAtTime(400, t + 0.06);
-  const og = actx.createGain();
-  og.gain.setValueAtTime(0.15, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-  osc.connect(og); og.connect(masterGain);
-  osc.start(t); osc.stop(t + 0.1);
-  // Low thud for impact feel
-  const thud = actx.createOscillator();
-  thud.type = 'sine'; thud.frequency.setValueAtTime(80, t + 0.03);
-  thud.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-  const tg = actx.createGain();
-  tg.gain.setValueAtTime(0, t);
-  tg.gain.linearRampToValueAtTime(0.25, t + 0.04);
-  tg.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-  thud.connect(tg); tg.connect(masterGain);
-  thud.start(t); thud.stop(t + 0.15);
+
+  // Layer 1: Sharp blade "shink" — fast filtered noise with aggressive attack
+  const bladeLen = Math.floor(actx.sampleRate * 0.06);
+  const bladeBuf = actx.createBuffer(1, bladeLen, actx.sampleRate);
+  const bd = bladeBuf.getChannelData(0);
+  for (let i = 0; i < bladeLen; i++) {
+    const env = Math.exp(-i / (bladeLen * 0.15)); // very fast exponential decay
+    bd[i] = (Math.random() * 2 - 1) * env;
+  }
+  const blade = actx.createBufferSource();
+  blade.buffer = bladeBuf;
+  const bladeHP = actx.createBiquadFilter();
+  bladeHP.type = 'highpass'; bladeHP.frequency.value = 4000; bladeHP.Q.value = 1;
+  const bladePeak = actx.createBiquadFilter();
+  bladePeak.type = 'peaking'; bladePeak.frequency.value = 7000; bladePeak.gain.value = 12; bladePeak.Q.value = 3;
+  const bladeG = actx.createGain();
+  bladeG.gain.setValueAtTime(0.5, t);
+  bladeG.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  blade.connect(bladeHP); bladeHP.connect(bladePeak); bladePeak.connect(bladeG); bladeG.connect(masterGain);
+  blade.start(t); blade.stop(t + 0.06);
+
+  // Layer 2: Metallic scrape — fast downward sweep square wave
+  const scrape = actx.createOscillator();
+  scrape.type = 'square';
+  scrape.frequency.setValueAtTime(3500, t);
+  scrape.frequency.exponentialRampToValueAtTime(800, t + 0.04);
+  const scrapeFilter = actx.createBiquadFilter();
+  scrapeFilter.type = 'bandpass'; scrapeFilter.frequency.value = 2500; scrapeFilter.Q.value = 2;
+  const scrapeG = actx.createGain();
+  scrapeG.gain.setValueAtTime(0.08, t);
+  scrapeG.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  scrape.connect(scrapeFilter); scrapeFilter.connect(scrapeG); scrapeG.connect(masterGain);
+  scrape.start(t); scrape.stop(t + 0.05);
+
+  // Layer 3: Quick whoosh — shaped noise for air movement
+  const whooshLen = Math.floor(actx.sampleRate * 0.1);
+  const whooshBuf = actx.createBuffer(1, whooshLen, actx.sampleRate);
+  const wd = whooshBuf.getChannelData(0);
+  for (let i = 0; i < whooshLen; i++) {
+    const p = i / whooshLen;
+    const env = Math.sin(p * Math.PI) * (1 - p * 0.5); // bell shape, biased early
+    wd[i] = (Math.random() * 2 - 1) * env;
+  }
+  const whoosh = actx.createBufferSource();
+  whoosh.buffer = whooshBuf;
+  const whooshBP = actx.createBiquadFilter();
+  whooshBP.type = 'bandpass'; whooshBP.frequency.setValueAtTime(1500, t);
+  whooshBP.frequency.linearRampToValueAtTime(3000, t + 0.04);
+  whooshBP.frequency.linearRampToValueAtTime(800, t + 0.1);
+  whooshBP.Q.value = 0.8;
+  const whooshG = actx.createGain();
+  whooshG.gain.setValueAtTime(0.2, t);
+  whooshG.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  whoosh.connect(whooshBP); whooshBP.connect(whooshG); whooshG.connect(masterGain);
+  whoosh.start(t); whoosh.stop(t + 0.1);
+
+  // Layer 4: Sub impact punch — tight sine thump on hit
+  const punch = actx.createOscillator();
+  punch.type = 'sine';
+  punch.frequency.setValueAtTime(120, t + 0.01);
+  punch.frequency.exponentialRampToValueAtTime(35, t + 0.08);
+  const punchG = actx.createGain();
+  punchG.gain.setValueAtTime(0, t);
+  punchG.gain.linearRampToValueAtTime(0.3, t + 0.015);
+  punchG.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  punch.connect(punchG); punchG.connect(masterGain);
+  punch.start(t); punch.stop(t + 0.08);
 }
 
 function sfxKnifeMiss() {
   if (!actx || !masterGain) return;
   const t = actx.currentTime;
-  const bufSize = actx.sampleRate * 0.12;
-  const noiseBuf = actx.createBuffer(1, bufSize, actx.sampleRate);
-  const nd = noiseBuf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) nd[i] = (Math.random() * 2 - 1) * Math.sin(i / bufSize * Math.PI);
-  const noise = actx.createBufferSource();
-  noise.buffer = noiseBuf;
-  const bpf = actx.createBiquadFilter();
-  bpf.type = 'bandpass'; bpf.frequency.value = 2000; bpf.Q.value = 1;
-  const ng = actx.createGain();
-  ng.gain.setValueAtTime(0.12, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-  noise.connect(bpf); bpf.connect(ng); ng.connect(masterGain);
-  noise.start(t); noise.stop(t + 0.12);
+
+  // Layer 1: Fast air whoosh — sweeping bandpass noise
+  const whooshLen = Math.floor(actx.sampleRate * 0.14);
+  const whooshBuf = actx.createBuffer(1, whooshLen, actx.sampleRate);
+  const wd = whooshBuf.getChannelData(0);
+  for (let i = 0; i < whooshLen; i++) {
+    const p = i / whooshLen;
+    const env = Math.sin(p * Math.PI) * Math.exp(-p * 2);
+    wd[i] = (Math.random() * 2 - 1) * env;
+  }
+  const whoosh = actx.createBufferSource();
+  whoosh.buffer = whooshBuf;
+  const whooshBP = actx.createBiquadFilter();
+  whooshBP.type = 'bandpass';
+  whooshBP.frequency.setValueAtTime(1000, t);
+  whooshBP.frequency.linearRampToValueAtTime(4000, t + 0.05);
+  whooshBP.frequency.linearRampToValueAtTime(600, t + 0.14);
+  whooshBP.Q.value = 1.2;
+  const whooshG = actx.createGain();
+  whooshG.gain.setValueAtTime(0.18, t);
+  whooshG.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+  whoosh.connect(whooshBP); whooshBP.connect(whooshG); whooshG.connect(masterGain);
+  whoosh.start(t); whoosh.stop(t + 0.14);
+
+  // Layer 2: Subtle blade whistle — high sine sweep
+  const whistle = actx.createOscillator();
+  whistle.type = 'sine';
+  whistle.frequency.setValueAtTime(2800, t);
+  whistle.frequency.exponentialRampToValueAtTime(1200, t + 0.08);
+  const whistleG = actx.createGain();
+  whistleG.gain.setValueAtTime(0.04, t);
+  whistleG.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  whistle.connect(whistleG); whistleG.connect(masterGain);
+  whistle.start(t); whistle.stop(t + 0.08);
 }
 
 
