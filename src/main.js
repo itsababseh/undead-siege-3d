@@ -867,9 +867,10 @@ function switchWeapon(idx) {
 
 // ===== KNIFE =====
 const KNIFE_RANGE = 2.5;
-const KNIFE_COOLDOWN = 0.5;
+const KNIFE_COOLDOWN = 0.6;
 let knifeCooldown = 0;
 let knifeAnimTimer = 0;
+const KNIFE_ANIM_DUR = 0.4;
 
 function getKnifeDamage() {
   if (player._instaKill) return 999999;
@@ -880,7 +881,7 @@ function tryKnife() {
   if (state !== 'playing' && state !== 'roundIntro') return;
   if (knifeCooldown > 0) return;
   knifeCooldown = KNIFE_COOLDOWN;
-  knifeAnimTimer = 0.3;
+  knifeAnimTimer = KNIFE_ANIM_DUR;
 
   // Show knife model briefly, hide current gun
   knifeModel.visible = true;
@@ -1066,15 +1067,15 @@ function update(dt) {
   if (knifeAnimTimer > 0) {
     knifeAnimTimer -= dt;
     // Knife lunge & slash animation (swing forward then pull back)
-    const t = 1 - (knifeAnimTimer / 0.3); // 0 → 1 over duration
+    const t = 1 - (knifeAnimTimer / KNIFE_ANIM_DUR); // 0 → 1 over duration
     const lunge = Math.sin(t * Math.PI); // peaks at midpoint
-    knifeModel.position.set(0.15 - lunge * 0.05, -0.12 + lunge * 0.06, -0.15 - lunge * 0.2);
-    knifeModel.rotation.x = -lunge * 0.5;
-    knifeModel.rotation.z = lunge * 0.3;
+    knifeModel.position.set(0.2 - lunge * 0.08, -0.15 + lunge * 0.08, -0.2 - lunge * 0.25);
+    knifeModel.rotation.x = -lunge * 0.6;
+    knifeModel.rotation.z = lunge * 0.35;
     if (knifeAnimTimer <= 0) {
       // Hide knife, restore current gun
       knifeModel.visible = false;
-      knifeModel.position.set(0.15, -0.12, -0.15);
+      knifeModel.position.set(0.2, -0.15, -0.2);
       knifeModel.rotation.set(0, 0, 0);
       gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
     }

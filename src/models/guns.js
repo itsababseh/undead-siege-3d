@@ -202,10 +202,11 @@ function buildRayGun() {
 // --- Combat Knife ---
 function buildKnife() {
   const g = new THREE.Group();
-  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.15, metalness: 0.95 });
-  const edgeMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, roughness: 0.1, metalness: 1.0 });
-  const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, metalness: 0.1 });
-  const guardMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.8 });
+  // Use BasicMaterial so knife is always visible regardless of lighting
+  const bladeMat = new THREE.MeshBasicMaterial({ color: 0x99aabb });
+  const edgeMat = new THREE.MeshBasicMaterial({ color: 0xddeeff });
+  const handleMat = new THREE.MeshBasicMaterial({ color: 0x2a1a0a });
+  const guardMat = new THREE.MeshBasicMaterial({ color: 0x444444 });
 
   // Blade — flat and wide like a combat knife, oriented along Z (forward)
   const blade = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.045, 0.22), bladeMat);
@@ -251,8 +252,9 @@ function buildKnife() {
   pommel.position.set(0, 0, 0.085);
   g.add(pommel);
 
-  // Position: right hand, pointing forward, slightly lower-right like CoD
-  g.position.set(0.15, -0.12, -0.15);
+  // Scale up for visibility, position like CoD knife in right hand
+  g.scale.set(1.8, 1.8, 1.8);
+  g.position.set(0.2, -0.15, -0.2);
   g.rotation.set(0, 0, 0);
 
   return g;
