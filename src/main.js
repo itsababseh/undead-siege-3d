@@ -646,27 +646,76 @@ function nextRound() {
 
 function getDifficultyTier() { return Math.floor((round - 1) / 5); }
 
-function spawnZombie() {
-  const candidates = [];
-  for (const s of spawnPts) {
-    if (s.door) {
-      const door = doors.find(d => d.id === s.door);
-      if (!door || !door.opened) continue;
+// Build the list of player-target positions for spawn distance checks.
+// Host camera + every remote player so zombies don't spawn on top of
+// any lobby member.
+function _spawnTargets() {
+  const out = [{ x: camera.position.x, z: camera.position.z }];
+  if (netcode.isConnected()) {
+    for (const rp of netcode.getRemotePlayers().values()) {
+      out.push({ x: rp.wx, z: rp.wz });
     }
-    const wx = s.x * TILE, wz = s.z * TILE;
-    if (mapAt(wx, wz) !== 0) continue;
-    const d = Math.hypot(wx - camera.position.x, wz - camera.position.z);
-    candidates.push({ wx, wz, d });
   }
-  if (!candidates.length) return;
+  return out;
+}
+
+// Find a random open tile suitable for spawning. Respects closed
+// doors (mapAt returns 1 for closed-door tiles), enforces a min
+// distance from the nearest player (3 tiles) so zombies don't
+// pop in your face, and a max distance (14 tiles) so they don't
+// spawn somewhere they physically can't reach.
+function _findRandomSpawnTile() {
+  const targets = _spawnTargets();
   const minDist = TILE * 3;
-  const viable = candidates.filter(c => c.d >= minDist);
-  const pool = viable.length > 0 ? viable : candidates;
-  const totalWeight = pool.reduce((sum, c) => sum + 1 / Math.max(c.d, 1), 0);
-  let roll = Math.random() * totalWeight, pick = pool[0];
-  for (const c of pool) {
-    roll -= 1 / Math.max(c.d, 1);
-    if (roll <= 0) { pick = c; break; }
+  const maxDist = TILE * 14;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const tx = Math.floor(Math.random() * MAP_W);
+    const tz = Math.floor(Math.random() * MAP_H);
+    const wx = tx * TILE + TILE * 0.5;
+    const wz = tz * TILE + TILE * 0.5;
+    if (mapAt(wx, wz) !== 0) continue;
+    let minD = Infinity;
+    for (const t of targets) {
+      const dx = wx - t.x, dz = wz - t.z;
+      const d = Math.hypot(dx, dz);
+      if (d < minD) minD = d;
+    }
+    if (minD < minDist) continue;
+    if (minD > maxDist) continue;
+    return { wx, wz };
+  }
+  return null;
+}
+
+function spawnZombie() {
+  // M4: truly random spawn locations across the whole accessible
+  // floor. Falls back to the hardcoded spawnPts list if the random
+  // picker can't find a suitable tile after 40 tries (rare — usually
+  // happens only when the player is in a tiny sealed area).
+  let pick = _findRandomSpawnTile();
+  if (!pick) {
+    const candidates = [];
+    for (const s of spawnPts) {
+      if (s.door) {
+        const door = doors.find(d => d.id === s.door);
+        if (!door || !door.opened) continue;
+      }
+      const wx = s.x * TILE, wz = s.z * TILE;
+      if (mapAt(wx, wz) !== 0) continue;
+      const d = Math.hypot(wx - camera.position.x, wz - camera.position.z);
+      candidates.push({ wx, wz, d });
+    }
+    if (!candidates.length) return;
+    const minDist = TILE * 3;
+    const viable = candidates.filter(c => c.d >= minDist);
+    const pool = viable.length > 0 ? viable : candidates;
+    const totalWeight = pool.reduce((sum, c) => sum + 1 / Math.max(c.d, 1), 0);
+    let roll = Math.random() * totalWeight;
+    pick = pool[0];
+    for (const c of pool) {
+      roll -= 1 / Math.max(c.d, 1);
+      if (roll <= 0) { pick = c; break; }
+    }
   }
   
   const tier = getDifficultyTier();
@@ -1002,39 +1051,57 @@ function tryKnife() {
   }
 
   if (bestZ) {
-    sfxKnife();
+    const mpActive = netcode.isConnected();
     const dmg = getKnifeDamage();
-    bestZ.hp -= dmg;
+
+    // Visual + audio feedback fires immediately in both modes.
+    sfxKnife();
     bestZ.flash = 1;
     points += player._doublePoints ? 20 : 10;
-    if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
     spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 5);
     showHitmarker(false);
     spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, dmg, false);
     triggerScreenShake(0.2, 8);
 
-    if (bestZ.hp <= 0) {
-      const idx = zombies.indexOf(bestZ);
-      if (idx >= 0) {
-        totalKills++;
-        const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
-        const pts = player._doublePoints ? basePts * 2 : basePts;
-        points += pts;
-        sfxKill();
-        showHitmarker(true);
-        spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, dmg, true);
-        spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
-        const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
-        addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
-        startZombieDeathAnim(bestZ);
-        spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
-        spawnPowerUp(bestZ.wx, bestZ.wz);
-        triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
-        removeZombieMesh(bestZ);
-        zombies.splice(idx, 1);
-        if (bestZ.isBoss) {
-          sfxBossKill();
-          triggerScreenShake(2.5, 5);
+    if (mpActive) {
+      // MP: route damage through the reducer so the server owns HP.
+      // The subscription update/delete callbacks will apply the HP
+      // drop locally (and fire the death VFX in killLocalZombieByHostZid
+      // on delete). Same pattern as tryShoot. Without this, knifing
+      // would locally kill+splice the zombie while the server row
+      // keeps going — next sync tick re-spawns the mesh and you get
+      // stacked ghost zombies.
+      const dmgApplied = player._instaKill ? 999999 : dmg;
+      try { netcode.callDamageZombie(bestZ.hostZid, dmgApplied); }
+      catch (e) { console.warn('[mp] damageZombie (knife) failed', e); }
+    } else {
+      // Single-player path — mutate local HP as before.
+      bestZ.hp -= dmg;
+      if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
+
+      if (bestZ.hp <= 0) {
+        const idx = zombies.indexOf(bestZ);
+        if (idx >= 0) {
+          totalKills++;
+          const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
+          const pts = player._doublePoints ? basePts * 2 : basePts;
+          points += pts;
+          sfxKill();
+          showHitmarker(true);
+          spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, dmg, true);
+          spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+          const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
+          addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
+          startZombieDeathAnim(bestZ);
+          spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
+          spawnPowerUp(bestZ.wx, bestZ.wz);
+          triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
+          removeZombieMesh(bestZ);
+          zombies.splice(idx, 1);
+          if (bestZ.isBoss) {
+            sfxBossKill();
+            triggerScreenShake(2.5, 5);
+          }
         }
       }
     }
@@ -1456,7 +1523,29 @@ function showDeath() {
         ${i+1}. R${e.round} · ${e.kills} kills · ${e.points} pts${isThis?' ← YOU':''}
       </div>`;
     });
-    
+
+    // Global leaderboard from SpacetimeDB (top 5). Rendered next to
+    // the local board so you can see where this run lands in the
+    // world ranking right after the death screen opens.
+    let globalLbHTML = '';
+    if (netcode.isConnected()) {
+      const globals = netcode.getHighScores().slice(0, 5);
+      if (globals.length === 0) {
+        globalLbHTML = '<div style="color:#555;text-align:center">No global scores yet</div>';
+      } else {
+        const myName = getLocalPlayerName();
+        globalLbHTML = globals.map((s, i) => {
+          const mine = s.name === myName && s.round === round && s.points === points && s.kills === totalKills;
+          const color = mine ? '#fc0' : '#aaf';
+          return `<div style="color:${color};${mine?'font-weight:bold':''}">
+            ${i+1}. ${String(s.name || 'Anon').slice(0,12)} · R${s.round} · ${s.points} pts${mine?' ← YOU':''}
+          </div>`;
+        }).join('');
+      }
+    } else {
+      globalLbHTML = '<div style="color:#555;text-align:center">Connect MP for global scores</div>';
+    }
+
     blocker.innerHTML = `
       <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
       <h1 style="color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3);position:relative">YOU DIED</h1>
@@ -1470,8 +1559,16 @@ function showDeath() {
         </div>
       </div>
       <div class="menu-divider"></div>
-      <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666;position:relative">🏆 HIGH SCORES</div>
-      <div style="font-size:12px;line-height:1.8;position:relative">${lbHTML}</div>
+      <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:10px;position:relative">
+        <div style="min-width:180px">
+          <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666">📂 YOUR BEST</div>
+          <div style="font-size:12px;line-height:1.8">${lbHTML}</div>
+        </div>
+        <div style="min-width:220px">
+          <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#4af">🌐 GLOBAL TOP 5</div>
+          <div style="font-size:12px;line-height:1.8">${globalLbHTML}</div>
+        </div>
+      </div>
       <button onclick="window._startGame()" style="margin-top:16px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;position:relative;overflow:hidden;transition:all 0.3s">FIGHT AGAIN</button>
       <br>
       <button onclick="window._vibeJamPortal()" style="margin-top:10px;background:none;border:2px solid #0f4;color:#0f4;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🌀 VIBE JAM PORTAL</button>
@@ -1816,6 +1913,15 @@ function _onMatchStarted() {
 }
 
 function _onMatchEnded() {
+  // Capture the ended-run stats BEFORE we reset local state so the
+  // summary overlay shows them. hostSync already submitted the score
+  // to the global leaderboard via callSubmitHighScore when it saw
+  // the status flip, so by the time this runs the global list is
+  // either up-to-date or about to be (subscription delta in-flight).
+  const endedRound = round;
+  const endedKills = totalKills;
+  const endedPoints = points;
+
   paused = false;
   hidePause();
   zombies.forEach(z => removeZombieMesh(z));
@@ -1832,7 +1938,74 @@ function _onMatchEnded() {
     blocker.classList.remove('hidden');
     blocker.style.opacity = '';
   }
-  // Back to the lobby panel (we're still in the lobby, match just ended)
+
+  // Show the run summary + leaderboard before returning to the
+  // lobby panel. User clicks CONTINUE to dismiss and go back to
+  // waiting-for-host.
+  showMpRunSummary(endedRound, endedKills, endedPoints);
+}
+
+// Match-ended summary overlay (MP only). Displays the ended run's
+// stats + the global leaderboard, with a CONTINUE button that
+// dismisses and returns to the lobby panel. Refreshes the leaderboard
+// once after a short delay to catch the score submission echo.
+function showMpRunSummary(endedRound, endedKills, endedPoints) {
+  let overlay = document.getElementById('mpRunSummaryOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'mpRunSummaryOverlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:60;background:rgba(0,0,0,0.88);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      font-family:monospace;color:#fff;text-align:center;padding:20px;
+    `;
+    document.body.appendChild(overlay);
+  }
+
+  const renderBody = () => {
+    const myName = getLocalPlayerName();
+    const globals = netcode.isConnected() ? netcode.getHighScores().slice(0, 10) : [];
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const globalHtml = globals.length === 0
+      ? '<div style="color:#555;text-align:center;padding:8px">No scores yet</div>'
+      : globals.map((s, i) => {
+        const mine = s.name === myName && s.round === endedRound && s.points === endedPoints && s.kills === endedKills;
+        const color = mine ? '#fc0' : '#aaf';
+        return `<div style="color:${color};${mine?'font-weight:bold':''}">
+          ${String(i+1).padStart(2,' ')}. ${esc((s.name || 'Anon').slice(0,14))} · R${s.round} · ${s.points} pts${mine?' ← YOU':''}
+        </div>`;
+      }).join('');
+
+    overlay.innerHTML = `
+      <h1 style="color:#c00;font-size:clamp(32px,6vw,56px);text-shadow:0 0 40px #c00;letter-spacing:6px;margin:0 0 6px">RUN ENDED</h1>
+      <div style="color:#aaa;font-size:13px;letter-spacing:3px;margin-bottom:18px">SQUAD WIPED</div>
+      <div style="display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-bottom:18px">
+        <div><div style="color:#fc0;font-size:28px;font-weight:bold">${endedRound}</div><div style="font-size:10px;color:#aaa;letter-spacing:2px">ROUND</div></div>
+        <div><div style="color:#fc0;font-size:28px;font-weight:bold">${endedKills}</div><div style="font-size:10px;color:#aaa;letter-spacing:2px">KILLS</div></div>
+        <div><div style="color:#fc0;font-size:28px;font-weight:bold">${endedPoints}</div><div style="font-size:10px;color:#aaa;letter-spacing:2px">POINTS</div></div>
+      </div>
+      <div style="border-top:1px solid #333;padding-top:12px;max-width:420px;width:100%">
+        <div style="color:#4af;font-size:11px;letter-spacing:2px;margin-bottom:8px">🌐 GLOBAL LEADERBOARD</div>
+        <div id="mpRunSummaryLb" style="font:12px monospace;line-height:1.8;color:#aaa;text-align:left;padding:0 20px">${globalHtml}</div>
+      </div>
+      <button id="mpRunSummaryContinue" style="margin-top:22px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 14px 'Courier New';cursor:pointer;letter-spacing:3px">CONTINUE</button>
+    `;
+    const btn = document.getElementById('mpRunSummaryContinue');
+    if (btn) btn.addEventListener('click', dismissMpRunSummary);
+  };
+
+  renderBody();
+  overlay.style.display = 'flex';
+  // The leaderboard score submission is in-flight as we render —
+  // refresh once after ~500ms to pick up the echoed high_score row.
+  setTimeout(renderBody, 500);
+  setTimeout(renderBody, 1500);
+}
+
+function dismissMpRunSummary() {
+  const overlay = document.getElementById('mpRunSummaryOverlay');
+  if (overlay) overlay.style.display = 'none';
+  // Return to the lobby panel so host can click START GAME again.
   showLobbyPanel();
 }
 
