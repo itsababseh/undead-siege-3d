@@ -252,9 +252,10 @@ function buildKnife() {
   pommel.position.set(0, 0, 0.085);
   g.add(pommel);
 
-  // Scale up for visibility, position like CoD knife in right hand
+  // Scale up for visibility — position near origin like gun models
+  // gunGroup is at (0.25, -0.2, -0.5) so local (0,0,0) = right hand area
   g.scale.set(1.8, 1.8, 1.8);
-  g.position.set(0.2, -0.15, -0.2);
+  g.position.set(0, 0, 0);
   g.rotation.set(0, 0, 0);
 
   return g;
