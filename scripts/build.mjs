@@ -9,7 +9,7 @@
 // Output: dist/index.html  (plus dist/og-image.png, dist/styles/)
 
 import { build } from 'esbuild';
-import { readFile, writeFile, mkdir, cp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, cp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -19,8 +19,10 @@ const ROOT = resolve(__dirname, '..');
 const DIST = resolve(ROOT, 'dist');
 
 async function main() {
-  console.log('[build] cleaning dist/');
-  if (existsSync(DIST)) await rm(DIST, { recursive: true, force: true });
+  // Don't rmdir dist/ — a running `launch.bat` may have an http.server holding
+  // it open, which would fail with EBUSY on Windows. Just overwrite the files
+  // we write; stale files are harmless.
+  console.log('[build] preparing dist/');
   await mkdir(DIST, { recursive: true });
 
   console.log('[build] bundling src/main.js with esbuild');

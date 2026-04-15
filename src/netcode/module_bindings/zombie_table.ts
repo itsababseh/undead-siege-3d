@@ -11,13 +11,13 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  identity: __t.identity().primaryKey(),
-  name: __t.string(),
+  hostZid: __t.u64().primaryKey().name("host_zid"),
+  zombieType: __t.i32().name("zombie_type"),
   wx: __t.f32(),
   wz: __t.f32(),
   ry: __t.f32(),
   hp: __t.i32(),
-  points: __t.i32(),
-  online: __t.bool(),
-  lastSeen: __t.timestamp().name("last_seen"),
+  maxHp: __t.i32().name("max_hp"),
+  flashLevel: __t.f32().name("flash_level"),
+  spawnedAt: __t.timestamp().name("spawned_at"),
 });

@@ -6,9 +6,31 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AdvanceRoundReducer from "../advance_round_reducer";
+import ClaimHostReducer from "../claim_host_reducer";
+import ConsumePowerupReducer from "../consume_powerup_reducer";
+import DamageZombieReducer from "../damage_zombie_reducer";
+import HostHeartbeatReducer from "../host_heartbeat_reducer";
+import OpenDoorReducer from "../open_door_reducer";
+import RemoveZombieReducer from "../remove_zombie_reducer";
 import SetPlayerNameReducer from "../set_player_name_reducer";
+import SetRoundReducer from "../set_round_reducer";
+import SpawnPowerupReducer from "../spawn_powerup_reducer";
+import SpawnZombieReducer from "../spawn_zombie_reducer";
+import SyncZombiePositionsReducer from "../sync_zombie_positions_reducer";
 import UpdatePlayerTransformReducer from "../update_player_transform_reducer";
 
+export type AdvanceRoundParams = __Infer<typeof AdvanceRoundReducer>;
+export type ClaimHostParams = __Infer<typeof ClaimHostReducer>;
+export type ConsumePowerupParams = __Infer<typeof ConsumePowerupReducer>;
+export type DamageZombieParams = __Infer<typeof DamageZombieReducer>;
+export type HostHeartbeatParams = __Infer<typeof HostHeartbeatReducer>;
+export type OpenDoorParams = __Infer<typeof OpenDoorReducer>;
+export type RemoveZombieParams = __Infer<typeof RemoveZombieReducer>;
 export type SetPlayerNameParams = __Infer<typeof SetPlayerNameReducer>;
+export type SetRoundParams = __Infer<typeof SetRoundReducer>;
+export type SpawnPowerupParams = __Infer<typeof SpawnPowerupReducer>;
+export type SpawnZombieParams = __Infer<typeof SpawnZombieReducer>;
+export type SyncZombiePositionsParams = __Infer<typeof SyncZombiePositionsReducer>;
 export type UpdatePlayerTransformParams = __Infer<typeof UpdatePlayerTransformReducer>;
 

@@ -10,14 +10,12 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default __t.row({
-  identity: __t.identity().primaryKey(),
-  name: __t.string(),
+export default {
+  hostZid: __t.u64(),
+  zombieType: __t.i32(),
   wx: __t.f32(),
   wz: __t.f32(),
   ry: __t.f32(),
   hp: __t.i32(),
-  points: __t.i32(),
-  online: __t.bool(),
-  lastSeen: __t.timestamp().name("last_seen"),
-});
+  maxHp: __t.i32(),
+};

@@ -34,18 +34,55 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AdvanceRoundReducer from "./advance_round_reducer";
+import ClaimHostReducer from "./claim_host_reducer";
+import ConsumePowerupReducer from "./consume_powerup_reducer";
+import DamageZombieReducer from "./damage_zombie_reducer";
+import HostHeartbeatReducer from "./host_heartbeat_reducer";
+import OpenDoorReducer from "./open_door_reducer";
+import RemoveZombieReducer from "./remove_zombie_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
+import SetRoundReducer from "./set_round_reducer";
+import SpawnPowerupReducer from "./spawn_powerup_reducer";
+import SpawnZombieReducer from "./spawn_zombie_reducer";
+import SyncZombiePositionsReducer from "./sync_zombie_positions_reducer";
 import UpdatePlayerTransformReducer from "./update_player_transform_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import DoorRow from "./door_table";
+import GameStateRow from "./game_state_table";
 import PlayerRow from "./player_table";
+import PowerUpRow from "./power_up_table";
+import ZombieRow from "./zombie_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  door: __table({
+    name: 'door',
+    indexes: [
+      { accessor: 'doorId', name: 'door_door_id_idx_btree', algorithm: 'btree', columns: [
+        'doorId',
+      ] },
+    ],
+    constraints: [
+      { name: 'door_door_id_key', constraint: 'unique', columns: ['doorId'] },
+    ],
+  }, DoorRow),
+  gameState: __table({
+    name: 'game_state',
+    indexes: [
+      { accessor: 'gameId', name: 'game_state_game_id_idx_btree', algorithm: 'btree', columns: [
+        'gameId',
+      ] },
+    ],
+    constraints: [
+      { name: 'game_state_game_id_key', constraint: 'unique', columns: ['gameId'] },
+    ],
+  }, GameStateRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -57,11 +94,44 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  powerUp: __table({
+    name: 'power_up',
+    indexes: [
+      { accessor: 'puId', name: 'power_up_pu_id_idx_btree', algorithm: 'btree', columns: [
+        'puId',
+      ] },
+    ],
+    constraints: [
+      { name: 'power_up_pu_id_key', constraint: 'unique', columns: ['puId'] },
+    ],
+  }, PowerUpRow),
+  zombie: __table({
+    name: 'zombie',
+    indexes: [
+      { accessor: 'hostZid', name: 'zombie_host_zid_idx_btree', algorithm: 'btree', columns: [
+        'hostZid',
+      ] },
+    ],
+    constraints: [
+      { name: 'zombie_host_zid_key', constraint: 'unique', columns: ['hostZid'] },
+    ],
+  }, ZombieRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("advance_round", AdvanceRoundReducer),
+  __reducerSchema("claim_host", ClaimHostReducer),
+  __reducerSchema("consume_powerup", ConsumePowerupReducer),
+  __reducerSchema("damage_zombie", DamageZombieReducer),
+  __reducerSchema("host_heartbeat", HostHeartbeatReducer),
+  __reducerSchema("open_door", OpenDoorReducer),
+  __reducerSchema("remove_zombie", RemoveZombieReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
+  __reducerSchema("set_round", SetRoundReducer),
+  __reducerSchema("spawn_powerup", SpawnPowerupReducer),
+  __reducerSchema("spawn_zombie", SpawnZombieReducer),
+  __reducerSchema("sync_zombie_positions", SyncZombiePositionsReducer),
   __reducerSchema("update_player_transform", UpdatePlayerTransformReducer),
 );
 

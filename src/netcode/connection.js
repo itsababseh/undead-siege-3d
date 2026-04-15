@@ -1,16 +1,13 @@
-// Netcode wrapper — thin layer on top of the generated SpacetimeDB bindings.
-// Keeps the game code ignorant of the SDK: it calls connect/disconnect and
-// reads the remotePlayers map, that's it.
+// Netcode wrapper — all the SpacetimeDB surface area the game touches.
+// Tables subscribed: player, game_state, zombie, door, power_up.
 //
-// Milestone 1 scope: one global lobby, each client streams its own transform
-// at ~20 Hz, renders every other player's last-known transform. No zombies,
-// no wave sync. Everything authoritative is still local.
+// Authority model: HOST AUTHORITY. One client is elected host. The host
+// runs the existing zombie AI locally and pushes state to the Zombie table
+// at ~15 Hz. HP is server-authoritative (damage_zombie reducer).
 
 import { DbConnection } from './module_bindings/index.ts';
 
 // ── Config ────────────────────────────────────────────────────────────────
-// Override with ?stdb=ws://host:3000 on the URL, or localStorage.stdbUri,
-// otherwise default to local dev. Database name is fixed for now.
 function resolveUri() {
   const params = new URLSearchParams(window.location.search);
   return (
@@ -22,20 +19,53 @@ function resolveUri() {
 const MODULE_NAME = 'undead-siege';
 const TOKEN_KEY = 'undead-siege.stdb.token';
 const TRANSFORM_HZ = 20;
+const ZOMBIE_SYNC_HZ = 15;
+const HOST_HEARTBEAT_HZ = 0.5; // every 2s
 
 // ── State ─────────────────────────────────────────────────────────────────
 let _conn = null;
 let _connecting = false;
 let _localIdentity = null;
-let _status = 'disconnected'; // 'disconnected' | 'connecting' | 'connected' | 'error'
+let _status = 'disconnected';
 let _statusMessage = '';
+
+// Timers
 let _transformTimer = 0;
-let _pendingTransform = null; // { wx, wz, ry }
+let _zombieSyncTimer = 0;
+let _hostHeartbeatTimer = 0;
+let _pendingTransform = null;
+
 const _listeners = new Set();
 
-// Map<identityHex, { identity, name, wx, wz, ry, hp, lastUpdate }>
-const _remotePlayers = new Map();
+// Subscribed table snapshots (kept in sync via onInsert/onUpdate/onDelete)
+// Keyed by whatever natural key makes sense for the table.
+const _remotePlayers = new Map(); // identityHex -> { identity, name, wx, wz, ry, hp }
+const _zombies = new Map();       // hostZidStr  -> { hostZid, zombieType, wx, wz, ry, hp, maxHp, flashLevel }
+const _doors = new Map();         // doorId      -> { doorId, opened }
+const _powerUps = new Map();      // puIdStr     -> { puId, typeIdx, wx, wz }
+let _gameState = null;            // singleton { gameId, hostIdentity, round, hostLastSeen }
 
+// Host simulation pushes — set by main.js via setHostZombiesProvider()
+let _hostZombiesProvider = null;
+
+// Event callbacks — main.js registers these to react to table changes.
+// Must be fire-and-forget; called from subscription delta events.
+let _onZombieInsert = null;
+let _onZombieUpdate = null;
+let _onZombieDelete = null;
+let _onDoorUpdate = null;
+let _onPowerUpInsert = null;
+let _onPowerUpDelete = null;
+let _onGameStateUpdate = null;
+export function setOnZombieInsert(fn) { _onZombieInsert = fn; }
+export function setOnZombieUpdate(fn) { _onZombieUpdate = fn; }
+export function setOnZombieDelete(fn) { _onZombieDelete = fn; }
+export function setOnDoorUpdate(fn) { _onDoorUpdate = fn; }
+export function setOnPowerUpInsert(fn) { _onPowerUpInsert = fn; }
+export function setOnPowerUpDelete(fn) { _onPowerUpDelete = fn; }
+export function setOnGameStateUpdate(fn) { _onGameStateUpdate = fn; }
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 function notify() {
   for (const cb of _listeners) {
     try { cb({ status: _status, message: _statusMessage }); }
@@ -50,14 +80,13 @@ function setStatus(status, message = '') {
 }
 
 function identityHex(identity) {
-  return typeof identity.toHexString === 'function'
+  return typeof identity?.toHexString === 'function'
     ? identity.toHexString()
     : String(identity);
 }
 
 function syncPlayerFromRow(row) {
   const hex = identityHex(row.identity);
-  // Skip self — local player is rendered from the camera, not from the table
   if (_localIdentity && hex === identityHex(_localIdentity)) return;
   _remotePlayers.set(hex, {
     identity: row.identity,
@@ -70,12 +99,38 @@ function syncPlayerFromRow(row) {
   });
 }
 
+function syncZombieFromRow(row) {
+  _zombies.set(row.hostZid.toString(), {
+    hostZid: row.hostZid,
+    zombieType: row.zombieType,
+    wx: row.wx,
+    wz: row.wz,
+    ry: row.ry,
+    hp: row.hp,
+    maxHp: row.maxHp,
+    flashLevel: row.flashLevel,
+    lastUpdate: performance.now(),
+  });
+}
+
+function syncDoorFromRow(row) {
+  _doors.set(row.doorId, { doorId: row.doorId, opened: row.opened });
+}
+
+function syncPowerUpFromRow(row) {
+  _powerUps.set(row.puId.toString(), {
+    puId: row.puId,
+    typeIdx: row.typeIdx,
+    wx: row.wx,
+    wz: row.wz,
+  });
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 /** Subscribe to status changes. Returns unsubscribe fn. */
 export function onStatus(cb) {
   _listeners.add(cb);
-  // Fire immediately with current state
   try { cb({ status: _status, message: _statusMessage }); }
   catch (e) { console.error('[netcode] listener failed', e); }
   return () => _listeners.delete(cb);
@@ -84,9 +139,20 @@ export function onStatus(cb) {
 export function getStatus() { return _status; }
 export function isConnected() { return _status === 'connected'; }
 export function getRemotePlayers() { return _remotePlayers; }
+export function getZombies() { return _zombies; }
+export function getDoors() { return _doors; }
+export function getPowerUps() { return _powerUps; }
+export function getGameState() { return _gameState; }
 export function getLocalIdentity() { return _localIdentity; }
 
-/** Open the connection. Idempotent. */
+export function isHost() {
+  if (!_gameState || !_gameState.hostIdentity || !_localIdentity) return false;
+  return identityHex(_gameState.hostIdentity) === identityHex(_localIdentity);
+}
+
+/** Main.js supplies a function returning the host's authoritative zombie list. */
+export function setHostZombiesProvider(fn) { _hostZombiesProvider = fn; }
+
 export function connect() {
   if (_conn || _connecting) return;
   _connecting = true;
@@ -105,27 +171,77 @@ export function connect() {
         if (token) localStorage.setItem(TOKEN_KEY, token);
         console.log('[netcode] connected as', identityHex(identity));
 
-        // Subscribe to the player table. For M1 we grab every row; once we
-        // add rooms we'll filter by game_id.
         conn.subscriptionBuilder()
           .onApplied(() => {
-            // Seed remotePlayers with the initial set
             _remotePlayers.clear();
+            _zombies.clear();
+            _doors.clear();
+            _powerUps.clear();
+            _gameState = null;
             for (const row of conn.db.player.iter()) syncPlayerFromRow(row);
+            for (const row of conn.db.zombie.iter()) syncZombieFromRow(row);
+            for (const row of conn.db.door.iter()) syncDoorFromRow(row);
+            for (const row of conn.db.powerUp.iter()) syncPowerUpFromRow(row);
+            for (const row of conn.db.gameState.iter()) { _gameState = row; break; }
             setStatus('connected');
+            // Try to claim host on connection. Idempotent — if someone else
+            // has it, this is a no-op.
+            try { conn.reducers.claimHost(); }
+            catch (e) { console.warn('[netcode] claimHost failed', e); }
           })
           .onError((err) => {
             console.error('[netcode] subscription error', err);
             setStatus('error', String(err));
           })
-          .subscribe(['SELECT * FROM player']);
+          .subscribe([
+            'SELECT * FROM player',
+            'SELECT * FROM zombie',
+            'SELECT * FROM door',
+            'SELECT * FROM power_up',
+            'SELECT * FROM game_state',
+          ]);
 
-        // Keep the map in sync with live deltas
-        conn.db.player.onInsert((_ctx, row) => syncPlayerFromRow(row));
-        conn.db.player.onUpdate((_ctx, _oldRow, row) => syncPlayerFromRow(row));
-        conn.db.player.onDelete((_ctx, row) => {
+        conn.db.player.onInsert((_c, row) => syncPlayerFromRow(row));
+        conn.db.player.onUpdate((_c, _o, row) => syncPlayerFromRow(row));
+        conn.db.player.onDelete((_c, row) => {
           _remotePlayers.delete(identityHex(row.identity));
         });
+
+        conn.db.zombie.onInsert((_c, row) => {
+          syncZombieFromRow(row);
+          if (_onZombieInsert) { try { _onZombieInsert(row); } catch (e) { console.warn('[netcode] onZombieInsert cb', e); } }
+        });
+        conn.db.zombie.onUpdate((_c, _o, row) => {
+          syncZombieFromRow(row);
+          if (_onZombieUpdate) { try { _onZombieUpdate(row); } catch (e) { console.warn('[netcode] onZombieUpdate cb', e); } }
+        });
+        conn.db.zombie.onDelete((_c, row) => {
+          _zombies.delete(row.hostZid.toString());
+          if (_onZombieDelete) { try { _onZombieDelete(row); } catch (e) { console.warn('[netcode] onZombieDelete cb', e); } }
+        });
+
+        conn.db.door.onInsert((_c, row) => {
+          syncDoorFromRow(row);
+          if (_onDoorUpdate) { try { _onDoorUpdate(row); } catch (e) { console.warn('[netcode] onDoorUpdate cb', e); } }
+        });
+        conn.db.door.onUpdate((_c, _o, row) => {
+          syncDoorFromRow(row);
+          if (_onDoorUpdate) { try { _onDoorUpdate(row); } catch (e) { console.warn('[netcode] onDoorUpdate cb', e); } }
+        });
+        conn.db.door.onDelete((_c, row) => _doors.delete(row.doorId));
+
+        conn.db.powerUp.onInsert((_c, row) => {
+          syncPowerUpFromRow(row);
+          if (_onPowerUpInsert) { try { _onPowerUpInsert(row); } catch (e) { console.warn('[netcode] onPowerUpInsert cb', e); } }
+        });
+        conn.db.powerUp.onUpdate((_c, _o, row) => syncPowerUpFromRow(row));
+        conn.db.powerUp.onDelete((_c, row) => {
+          _powerUps.delete(row.puId.toString());
+          if (_onPowerUpDelete) { try { _onPowerUpDelete(row); } catch (e) { console.warn('[netcode] onPowerUpDelete cb', e); } }
+        });
+
+        conn.db.gameState.onInsert((_c, row) => { _gameState = row; if (_onGameStateUpdate) { try { _onGameStateUpdate(row); } catch (e) {} } });
+        conn.db.gameState.onUpdate((_c, _o, row) => { _gameState = row; if (_onGameStateUpdate) { try { _onGameStateUpdate(row); } catch (e) {} } });
       })
       .onConnectError((_ctx, err) => {
         console.error('[netcode] connect error', err);
@@ -137,6 +253,10 @@ export function connect() {
         _conn = null;
         _localIdentity = null;
         _remotePlayers.clear();
+        _zombies.clear();
+        _doors.clear();
+        _powerUps.clear();
+        _gameState = null;
         _connecting = false;
         setStatus('disconnected');
       })
@@ -155,29 +275,103 @@ export function disconnect() {
   _conn = null;
   _localIdentity = null;
   _remotePlayers.clear();
+  _zombies.clear();
+  _doors.clear();
+  _powerUps.clear();
+  _gameState = null;
   _connecting = false;
   setStatus('disconnected');
 }
 
-/** Called every frame by the game loop with the local player's transform. */
+// ── Per-frame call from main.js ───────────────────────────────────────────
+
 export function setLocalTransform(wx, wz, ry) {
   _pendingTransform = { wx, wz, ry };
 }
 
-/** Called every frame. Flushes pending transform at TRANSFORM_HZ. */
 export function update(dt) {
   if (!isConnected() || !_conn) return;
+
+  // 1. Local transform push (~20 Hz)
   _transformTimer += dt;
-  const interval = 1 / TRANSFORM_HZ;
-  if (_transformTimer >= interval && _pendingTransform) {
+  if (_transformTimer >= 1 / TRANSFORM_HZ && _pendingTransform) {
     _transformTimer = 0;
     const { wx, wz, ry } = _pendingTransform;
+    try { _conn.reducers.updatePlayerTransform({ wx, wz, ry }); }
+    catch (e) { console.warn('[netcode] updatePlayerTransform failed', e); }
+  }
+
+  // 2. Host heartbeat + opportunistic re-claim (every 2s)
+  _hostHeartbeatTimer += dt;
+  if (_hostHeartbeatTimer >= 1 / HOST_HEARTBEAT_HZ) {
+    _hostHeartbeatTimer = 0;
     try {
-      _conn.reducers.updatePlayerTransform({ wx, wz, ry });
-    } catch (e) {
-      // A thrown reducer on the server (e.g. "no player row") shouldn't kill
-      // the game loop — log and move on.
-      console.warn('[netcode] updatePlayerTransform failed', e);
+      if (isHost()) _conn.reducers.hostHeartbeat();
+      else _conn.reducers.claimHost(); // take over if current host timed out
+    } catch (e) { console.warn('[netcode] host heartbeat/claim failed', e); }
+  }
+
+  // 3. Zombie sync (host only, ~15 Hz)
+  _zombieSyncTimer += dt;
+  if (_zombieSyncTimer >= 1 / ZOMBIE_SYNC_HZ) {
+    _zombieSyncTimer = 0;
+    if (isHost() && _hostZombiesProvider) {
+      try {
+        const updates = _hostZombiesProvider();
+        if (updates && updates.length > 0) {
+          _conn.reducers.syncZombiePositions({ updates });
+        }
+      } catch (e) { console.warn('[netcode] syncZombiePositions failed', e); }
     }
   }
+}
+
+// ── Reducer helpers (called from main.js directly) ───────────────────────
+
+export function callSpawnZombie(args) {
+  if (!_conn) return;
+  try { _conn.reducers.spawnZombie(args); }
+  catch (e) { console.warn('[netcode] spawnZombie failed', e); }
+}
+
+export function callDamageZombie(hostZid, damage) {
+  if (!_conn) return;
+  try { _conn.reducers.damageZombie({ hostZid, damage }); }
+  catch (e) { console.warn('[netcode] damageZombie failed', e); }
+}
+
+export function callRemoveZombie(hostZid) {
+  if (!_conn) return;
+  try { _conn.reducers.removeZombie({ hostZid }); }
+  catch (e) { console.warn('[netcode] removeZombie failed', e); }
+}
+
+export function callAdvanceRound() {
+  if (!_conn) return;
+  try { _conn.reducers.advanceRound(); }
+  catch (e) { console.warn('[netcode] advanceRound failed', e); }
+}
+
+export function callSetRound(round) {
+  if (!_conn) return;
+  try { _conn.reducers.setRound({ round }); }
+  catch (e) { console.warn('[netcode] setRound failed', e); }
+}
+
+export function callOpenDoor(doorId) {
+  if (!_conn) return;
+  try { _conn.reducers.openDoor({ doorId }); }
+  catch (e) { console.warn('[netcode] openDoor failed', e); }
+}
+
+export function callSpawnPowerUp(args) {
+  if (!_conn) return;
+  try { _conn.reducers.spawnPowerup(args); }
+  catch (e) { console.warn('[netcode] spawnPowerup failed', e); }
+}
+
+export function callConsumePowerUp(puId) {
+  if (!_conn) return;
+  try { _conn.reducers.consumePowerup({ puId }); }
+  catch (e) { console.warn('[netcode] consumePowerup failed', e); }
 }

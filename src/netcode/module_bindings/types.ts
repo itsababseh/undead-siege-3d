@@ -10,6 +10,20 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const Door = __t.object("Door", {
+  doorId: __t.i32(),
+  opened: __t.bool(),
+});
+export type Door = __Infer<typeof Door>;
+
+export const GameState = __t.object("GameState", {
+  gameId: __t.u64(),
+  hostIdentity: __t.option(__t.identity()),
+  round: __t.i32(),
+  hostLastSeen: __t.timestamp(),
+});
+export type GameState = __Infer<typeof GameState>;
+
 export const Player = __t.object("Player", {
   identity: __t.identity(),
   name: __t.string(),
@@ -17,8 +31,40 @@ export const Player = __t.object("Player", {
   wz: __t.f32(),
   ry: __t.f32(),
   hp: __t.i32(),
+  points: __t.i32(),
   online: __t.bool(),
   lastSeen: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;
+
+export const PowerUp = __t.object("PowerUp", {
+  puId: __t.u64(),
+  typeIdx: __t.i32(),
+  wx: __t.f32(),
+  wz: __t.f32(),
+  spawnedAt: __t.timestamp(),
+});
+export type PowerUp = __Infer<typeof PowerUp>;
+
+export const Zombie = __t.object("Zombie", {
+  hostZid: __t.u64(),
+  zombieType: __t.i32(),
+  wx: __t.f32(),
+  wz: __t.f32(),
+  ry: __t.f32(),
+  hp: __t.i32(),
+  maxHp: __t.i32(),
+  flashLevel: __t.f32(),
+  spawnedAt: __t.timestamp(),
+});
+export type Zombie = __Infer<typeof Zombie>;
+
+export const ZombiePosUpdate = __t.object("ZombiePosUpdate", {
+  hostZid: __t.u64(),
+  wx: __t.f32(),
+  wz: __t.f32(),
+  ry: __t.f32(),
+  flashLevel: __t.f32(),
+});
+export type ZombiePosUpdate = __Infer<typeof ZombiePosUpdate>;
 

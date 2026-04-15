@@ -272,6 +272,9 @@ const weaponMags = {};
 setAudioDeps(camera, player, weapons);
 setZombieDeps(scene, camera);
 initRemotePlayers(scene, camera);
+// Defer until after all the functions below are declared by putting this
+// into a microtask — registerNetcodeZombieHooks is defined further down.
+queueMicrotask(() => registerNetcodeZombieHooks());
 setEffectsDeps(scene, camera, player, weapons, controls);
 setGunDeps(scene, camera, player, weapons);
 initGunModels();
@@ -563,6 +566,7 @@ function spawnZombie() {
   spd *= speedMult;
 
   const z = {
+    hostZid: makeHostZid(),
     wx: pick.wx, wz: pick.wz,
     hp, maxHp: hp, spd, dmg,
     atkTimer: 1, flash: 0,
@@ -583,6 +587,152 @@ function spawnZombie() {
   zombies.push(z);
   zSpawned++;
   createZombieMesh(z);
+
+  // Multiplayer: if we're host, tell the server about this new zombie.
+  // Non-hosts don't get here because the spawn loop is gated earlier.
+  if (netcode.isConnected() && netcode.isHost()) {
+    const zType = isBoss ? 2 : isElite ? 1 : 0;
+    netcode.callSpawnZombie({
+      hostZid: z.hostZid,
+      zombieType: zType,
+      wx: z.wx, wz: z.wz, ry: 0,
+      hp: z.hp, maxHp: z.maxHp,
+    });
+  }
+}
+
+// Random u64 for host-picked zombie IDs. BigInt because the server expects u64.
+// Math.random()*2^53 is plenty of entropy for a single host's lifetime.
+function makeHostZid() {
+  const hi = BigInt(Math.floor(Math.random() * 0x100000000));
+  const lo = BigInt(Math.floor(Math.random() * 0x100000000));
+  return (hi << 32n) | lo;
+}
+
+// Build a local zombie object from a server Zombie row. Used on non-host
+// clients to mirror the server state into the game's own zombies[] array
+// so the existing mesh/render/attack code keeps working.
+function makeLocalZombieFromRow(row) {
+  const isBoss = row.zombieType === 2;
+  const isElite = row.zombieType === 1;
+  return {
+    hostZid: row.hostZid,
+    wx: row.wx, wz: row.wz,
+    hp: row.hp, maxHp: row.maxHp,
+    spd: 0, dmg: 10,
+    atkTimer: 1, flash: row.flashLevel || 0,
+    radius: isBoss ? 1.5 : 0.8,
+    isBoss, isElite,
+    _animOffset: Math.random() * PI2,
+    _hasLimp: false,
+    _limpPhase: 0,
+    _limpSeverity: 0,
+    _baseSpd: 0,
+    stuckCheck: null,
+    _remote: true, // mark as not locally simulated
+  };
+}
+
+// Kill/clean up a local zombie by hostZid. Fires death anim/FX and
+// awards the local player the points for the kill (matches SP feel).
+// Called when the server's damage_zombie reducer deletes a row.
+function killLocalZombieByHostZid(hostZid) {
+  const idx = zombies.findIndex(z => z.hostZid === hostZid);
+  if (idx < 0) return;
+  const z = zombies[idx];
+  totalKills++;
+  const basePts = z.isBoss ? 500 : z.isElite ? 120 : 60;
+  const pts = player._doublePoints ? basePts * 2 : basePts;
+  points += pts;
+  sfxKill();
+  showHitmarker(true);
+  const c = z.isBoss ? '#f44' : z.isElite ? '#ff8' : '#fc0';
+  addFloatText(z.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, z.isBoss ? 2.5 : 1);
+  startZombieDeathAnim(z);
+  spawnBloodSplatter(z.wx, 1.2, z.wz);
+  triggerScreenShake(z.isBoss ? 1.5 : z.isElite ? 0.5 : 0.15, 8);
+  removeZombieMesh(z);
+  zombies.splice(idx, 1);
+  if (z.isBoss) {
+    sfxBossKill();
+    triggerScreenShake(2.5, 5);
+  }
+}
+
+// Register subscription callbacks at startup. Non-host uses these to
+// mirror the Zombie table into local zombies[]. Host also uses the
+// onUpdate callback to pick up HP changes made by non-host damage.
+function registerNetcodeZombieHooks() {
+  netcode.setOnZombieInsert((row) => {
+    // Skip if we already have a local entry (host just inserted it itself,
+    // or we're replaying initial subscription state).
+    if (zombies.some(z => z.hostZid === row.hostZid)) return;
+    const z = makeLocalZombieFromRow(row);
+    zombies.push(z);
+    createZombieMesh(z);
+  });
+
+  netcode.setOnZombieUpdate((row) => {
+    const z = zombies.find(zz => zz.hostZid === row.hostZid);
+    if (!z) {
+      // Unknown row — treat as an insert so we don't miss it.
+      const nz = makeLocalZombieFromRow(row);
+      zombies.push(nz);
+      createZombieMesh(nz);
+      return;
+    }
+    z.wx = row.wx;
+    z.wz = row.wz;
+    z.hp = row.hp;
+    z.maxHp = row.maxHp;
+    z.flash = Math.max(z.flash, row.flashLevel || 0);
+  });
+
+  netcode.setOnZombieDelete((row) => {
+    killLocalZombieByHostZid(row.hostZid);
+  });
+
+  netcode.setOnDoorUpdate((row) => {
+    // Mirror into the local doors array so everything else just works.
+    const d = doors.find(dd => dd.id === row.doorId);
+    if (d && row.opened && !d.opened) {
+      d.opened = true;
+      // Re-run client-side open-door effects (remove blockage meshes etc).
+      try { if (typeof openDoorLocal === 'function') openDoorLocal(d); } catch (e) {}
+    }
+  });
+
+  netcode.setOnGameStateUpdate((row) => {
+    if (!row) return;
+    // If the server round got ahead (another player advanced), fast-forward
+    // the UI: round number, intro text, SFX. Spawn quotas are irrelevant for
+    // non-hosts (only the host runs the spawn loop).
+    if (typeof row.round === 'number' && row.round > round) {
+      round = row.round;
+      if (!netcode.isHost()) {
+        state = 'roundIntro';
+        roundIntroTimer = 3;
+        sfxRound();
+        showCenterMsg(`ROUND ${round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
+      }
+    }
+  });
+
+  // Host pushes local zombie positions each tick.
+  netcode.setHostZombiesProvider(() => {
+    const out = [];
+    for (const z of zombies) {
+      if (!z.hostZid) continue;
+      out.push({
+        hostZid: z.hostZid,
+        wx: z.wx,
+        wz: z.wz,
+        ry: 0,
+        flashLevel: z.flash,
+      });
+    }
+    return out;
+  });
 }
 
 
@@ -802,38 +952,53 @@ function tryShoot() {
     }
     
     if (bestZ) {
-      bestZ.hp -= w.dmg;
-      bestZ.flash = 1;
+      const mpActive = netcode.isConnected();
+
+      // Visual + audio feedback fires immediately in all modes.
       sfxHit();
+      bestZ.flash = 1;
       points += player._doublePoints ? 20 : 10;
-      if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
       spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
       showHitmarker(false);
       spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
-      
-      if (bestZ.hp <= 0) {
-        const idx = zombies.indexOf(bestZ);
-        if (idx >= 0) {
-          totalKills++;
-          const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
-          const pts = player._doublePoints ? basePts * 2 : basePts;
-          points += pts;
-          sfxKill();
-          showHitmarker(true);
-          spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
-          if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10); }
-          else { spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8); }
-          const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
-          addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
-          startZombieDeathAnim(bestZ);
-          spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
-          spawnPowerUp(bestZ.wx, bestZ.wz);
-          triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
-          removeZombieMesh(bestZ);
-          zombies.splice(idx, 1);
-          if (bestZ.isBoss) {
-            sfxBossKill();
-            triggerScreenShake(2.5, 5);
+
+      if (mpActive) {
+        // Server-authoritative HP: send the damage through the reducer.
+        // The subscription onUpdate/onDelete handlers on this client will
+        // see the hp drop (or the row being deleted) and reflect it locally.
+        // Insta-kill is applied as a giant damage value — matches the SP feel.
+        const dmg = player._instaKill ? 999999 : w.dmg;
+        try { netcode.callDamageZombie(bestZ.hostZid, dmg); }
+        catch (e) { console.warn('[mp] damageZombie failed', e); }
+      } else {
+        // Single-player: mutate local HP as before.
+        bestZ.hp -= w.dmg;
+        if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
+
+        if (bestZ.hp <= 0) {
+          const idx = zombies.indexOf(bestZ);
+          if (idx >= 0) {
+            totalKills++;
+            const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
+            const pts = player._doublePoints ? basePts * 2 : basePts;
+            points += pts;
+            sfxKill();
+            showHitmarker(true);
+            spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
+            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10); }
+            else { spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8); }
+            const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
+            addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
+            startZombieDeathAnim(bestZ);
+            spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
+            spawnPowerUp(bestZ.wx, bestZ.wz);
+            triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
+            removeZombieMesh(bestZ);
+            zombies.splice(idx, 1);
+            if (bestZ.isBoss) {
+              sfxBossKill();
+              triggerScreenShake(2.5, 5);
+            }
           }
         }
       }
@@ -948,21 +1113,36 @@ function tryBuyDoor() {
       if (d < TILE * 2.5) {
         if (points >= door.cost) {
           points -= door.cost;
-          door.opened = true;
-          doorsOpenedCount++;
-          for (const [dtx, dtz] of door.tiles) { map[dtz * MAP_W + dtx] = 0; }
-          doorMeshes.filter(dm => door.tiles.some(([dx,dz]) => dm.x === dx && dm.z === dz))
-            .forEach(dm => { scene.remove(dm.mesh); });
           sfxDoorOpen();
-          zToSpawn += 4;
-          maxAlive = Math.min(maxAlive + 3, 30);
-          addFloatText(`${door.label} OPENED!`, '#4f4', 2.5);
-          addFloatText('More zombies incoming!', '#f84', 2);
+          // In MP let the reducer be the source of truth — the onDoorUpdate
+          // callback will run openDoorLocal for everyone (including us).
+          if (netcode.isConnected()) {
+            try { netcode.callOpenDoor(door.id); }
+            catch (e) { console.warn('[mp] openDoor failed', e); openDoorLocal(door); }
+          } else {
+            openDoorLocal(door);
+          }
         } else { addFloatText(`Need $${door.cost} for ${door.label}`, '#f88'); }
         return;
       }
     }
   }
+}
+
+// Shared "door opens" visual + map side-effects. Called locally in SP,
+// or from the netcode subscription callback in MP (so non-buyers also see
+// the door open and their zombie spawn quotas go up).
+function openDoorLocal(door) {
+  if (door.opened) return;
+  door.opened = true;
+  doorsOpenedCount++;
+  for (const [dtx, dtz] of door.tiles) { map[dtz * MAP_W + dtx] = 0; }
+  doorMeshes.filter(dm => door.tiles.some(([dx,dz]) => dm.x === dx && dm.z === dz))
+    .forEach(dm => { scene.remove(dm.mesh); });
+  zToSpawn += 4;
+  maxAlive = Math.min(maxAlive + 3, 30);
+  addFloatText(`${door.label} OPENED!`, '#4f4', 2.5);
+  addFloatText('More zombies incoming!', '#f84', 2);
 }
 
 
@@ -1024,23 +1204,29 @@ function _update(dt) {
   if (keyPressed('r')) doReload();
   if (keyPressed('e')) tryBuy();
   
-  if (zSpawned < zToSpawn) {
+  // Multiplayer authority check. In MP, only the host runs the zombie
+  // spawn loop, AI, collision, and wave progression. Non-hosts mirror the
+  // Zombie table from the server via subscription callbacks (see below).
+  const _mpActive = netcode.isConnected();
+  const _isHostOrSP = !_mpActive || netcode.isHost();
+
+  if (_isHostOrSP && zSpawned < zToSpawn) {
     spawnTimer -= dt;
     if (spawnTimer <= 0 && zombies.length < maxAlive) {
       spawnZombie();
       spawnTimer = Math.max(0.5, 2.5 - round * 0.12);
     }
   }
-  
+
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     z.flash = Math.max(0, z.flash - dt * 5);
-    
+
     const dx = camera.position.x - z.wx;
     const dz = camera.position.z - z.wz;
     const d = Math.hypot(dx, dz);
-    
-    if (d > 1.5) {
+
+    if (_isHostOrSP && d > 1.5) {
       let curSpd = z.spd;
       if (z._hasLimp) {
         z._limpPhase += dt * (3 + z._limpSeverity * 2);
@@ -1145,13 +1331,16 @@ function _update(dt) {
   updateRadioTransmission(dt);
   updateGenerators(dt);
   
-  if (zSpawned >= zToSpawn && zombies.length === 0) {
+  if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length === 0) {
     const bonus = round * 100;
     points += bonus;
     sfxRoundEnd();
     triggerRoundTransition();
     addFloatText(`+${bonus} ROUND BONUS`, '#fc0', 2);
     nextRound();
+    if (_mpActive) {
+      try { netcode.callAdvanceRound(); } catch (e) { console.warn('[mp] advanceRound failed', e); }
+    }
   }
 }
 

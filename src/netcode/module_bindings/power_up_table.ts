@@ -11,13 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  identity: __t.identity().primaryKey(),
-  name: __t.string(),
+  puId: __t.u64().primaryKey().name("pu_id"),
+  typeIdx: __t.i32().name("type_idx"),
   wx: __t.f32(),
   wz: __t.f32(),
-  ry: __t.f32(),
-  hp: __t.i32(),
-  points: __t.i32(),
-  online: __t.bool(),
-  lastSeen: __t.timestamp().name("last_seen"),
+  spawnedAt: __t.timestamp().name("spawned_at"),
 });
