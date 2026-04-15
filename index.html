@@ -573,7 +573,7 @@ function mapAt(wx, wz) {
 // Wall colors (Three.js hex): 1=grey, 2=brown, 3=green, 4=door-west(red), 5=door-east(red)
 const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
-// ===== VIBE JAM PORTAL SYSTEM WITH SCI-FI DOOR =====
+// ===== VIBE JAM PORTAL SYSTEM =====
 const _vjPortalParams = new URLSearchParams(window.location.search);
 const _arrivedViaPortal = _vjPortalParams.get('portal') === 'true' || _vjPortalParams.get('portal') === '1';
 const _portalReferer = _vjPortalParams.get('ref') || '';
@@ -581,10 +581,6 @@ let _exitPortalGroup = null;
 let _startPortalGroup = null;
 let _startPortalActiveAt = 0;
 let _portalInited = false;
-let _portalDoor = null;
-let _doorOpen = false;
-let _doorOpening = false;
-let _neonSigns = [];
 
 function _makePortalMesh(color, pos, label) {
   const group = new THREE.Group();
@@ -639,61 +635,14 @@ function _makePortalMesh(color, pos, label) {
   return { group, light, particles: geom };
 }
 
-function _createPortalDoor() {
-  try {
-    const doorGroup = new THREE.Group();
-    const doorPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 - 1 };
-    doorGroup.position.set(doorPos.x, 0, doorPos.z);
-    
-    // Simple door frame
-    const frameGeo = new THREE.BoxGeometry(4, 3.2, 0.2);
-    const frameMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2a });
-    const frame = new THREE.Mesh(frameGeo, frameMat);
-    frame.position.y = 1.6;
-    doorGroup.add(frame);
-    
-    // Door panels
-    const panelGeo = new THREE.BoxGeometry(1.8, 2.8, 0.15);
-    const panelMat = new THREE.MeshBasicMaterial({ color: 0x333366 });
-    
-    const leftPanel = new THREE.Mesh(panelGeo, panelMat);
-    leftPanel.position.set(-0.9, 1.6, 0.05);
-    leftPanel.name = 'leftPanel';
-    doorGroup.add(leftPanel);
-    
-    const rightPanel = new THREE.Mesh(panelGeo, panelMat);
-    rightPanel.position.set(0.9, 1.6, 0.05);
-    rightPanel.name = 'rightPanel';
-    doorGroup.add(rightPanel);
-    
-    // Simple signage
-    const signGeo = new THREE.PlaneGeometry(4, 1);
-    const signMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
-    const sign = new THREE.Mesh(signGeo, signMat);
-    sign.position.set(0, 3.8, 0.2);
-    doorGroup.add(sign);
-    
-    return doorGroup;
-  } catch (e) {
-    console.error('Door creation error:', e);
-    return new THREE.Group(); // Return empty group if error
-  }
-}
-
 function initVibeJamPortals() {
   if (_portalInited) return;
   _portalInited = true;
-  
-  // Create portal door
-  _portalDoor = _createPortalDoor();
-  scene.add(_portalDoor);
-  
-  // Exit portal behind door (moved further back so it's truly behind the door)
-  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 + 2.5 };
-  const ep = _makePortalMesh(0x00ff44, exitPos, '');
+  // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
+  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
+  const ep = _makePortalMesh(0x00ff44, exitPos, 'PORTAL ESCAPE HATCH');
   _exitPortalGroup = ep;
   scene.add(ep.group); scene.add(ep.light);
-  
   // Start (return) portal — only if player arrived via another jam game
   if (_arrivedViaPortal && _portalReferer) {
     const startPos = { x: 12 * TILE, y: 1.6, z: 13 * TILE };
@@ -706,51 +655,19 @@ function initVibeJamPortals() {
 
 function animateVibeJamPortals(dt) {
   if (!_portalInited) return;
-  try {
-    const t = Date.now() * 0.001;
-    
-    // Handle door opening
-    if (_portalDoor && !_doorOpen && !_doorOpening && (state === 'playing' || state === 'roundIntro')) {
-      const doorX = 17 * TILE + TILE / 2;
-      const doorZ = 3 * TILE + TILE / 2 - 1;
-      const dx = camera.position.x - doorX;
-      const dz = camera.position.z - doorZ;
-      if (Math.sqrt(dx * dx + dz * dz) < 2.5) {
-        _doorOpening = true;
-      }
+  const t = Date.now() * 0.001;
+  if (_exitPortalGroup) {
+    _exitPortalGroup.group.rotation.z += dt * 0.5;
+    const pp = _exitPortalGroup.particles.attributes.position.array;
+    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
+    _exitPortalGroup.particles.attributes.position.needsUpdate = true;
+    _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
+    // Check proximity
+    if (state === 'playing' || state === 'roundIntro') {
+      const dx = camera.position.x - _exitPortalGroup.group.position.x;
+      const dz = camera.position.z - _exitPortalGroup.group.position.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
     }
-    
-    // Animate door panels
-    if (_doorOpening && _portalDoor) {
-      const leftPanel = _portalDoor.getObjectByName('leftPanel');
-      const rightPanel = _portalDoor.getObjectByName('rightPanel');
-      if (leftPanel && rightPanel) {
-        const speed = dt * 3;
-        leftPanel.position.x = Math.max(-2.5, leftPanel.position.x - speed);
-        rightPanel.position.x = Math.min(2.5, rightPanel.position.x + speed);
-        if (leftPanel.position.x <= -2.4 && rightPanel.position.x >= 2.4) {
-          _doorOpen = true;
-          _doorOpening = false;
-        }
-      }
-    }
-    
-    if (_exitPortalGroup) {
-      _exitPortalGroup.group.rotation.z += dt * 0.5;
-      const pp = _exitPortalGroup.particles.attributes.position.array;
-      for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
-      _exitPortalGroup.particles.attributes.position.needsUpdate = true;
-      _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
-      // Check portal entry - only when door is open
-      if (_doorOpen && (state === 'playing' || state === 'roundIntro')) {
-        const dx = camera.position.x - _exitPortalGroup.group.position.x;
-        const dz = camera.position.z - _exitPortalGroup.group.position.z;
-        if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
-      }
-    }
-  } catch (e) {
-    console.error('Portal animation error:', e);
-  }
   }
   if (_startPortalGroup) {
     _startPortalGroup.group.rotation.z -= dt * 0.5;
