@@ -319,7 +319,7 @@ export function cleanupVibeJamPortals() {
 
 // Add function to handle incoming portal users (for players entering from other games)
 export function handleIncomingPortalUser() {
-  if (_portalDoor && !_doorOpen && !_doorOpening) {
+  if (_portalInited && _portalDoor && !_doorOpen && !_doorOpening) {
     _doorOpening = true;
   }
 }
