@@ -1069,13 +1069,13 @@ function update(dt) {
     // Knife lunge & slash animation (swing forward then pull back)
     const t = 1 - (knifeAnimTimer / KNIFE_ANIM_DUR); // 0 → 1 over duration
     const lunge = Math.sin(t * Math.PI); // peaks at midpoint
-    knifeModel.position.set(0.2 - lunge * 0.08, -0.15 + lunge * 0.08, -0.2 - lunge * 0.25);
+    knifeModel.position.set(-lunge * 0.05, lunge * 0.06, -lunge * 0.25);
     knifeModel.rotation.x = -lunge * 0.6;
     knifeModel.rotation.z = lunge * 0.35;
     if (knifeAnimTimer <= 0) {
       // Hide knife, restore current gun
       knifeModel.visible = false;
-      knifeModel.position.set(0.2, -0.15, -0.2);
+      knifeModel.position.set(0, 0, 0);
       knifeModel.rotation.set(0, 0, 0);
       gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
     }
