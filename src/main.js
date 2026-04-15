@@ -291,49 +291,13 @@ initReviveMp({
   sfxPlayerDeath,
   setPlayerHp: (hp) => { player.hp = hp; },
 });
-initBuying({
-  camera,
-  TILE,
-  wallBuys, perkMachines, perks, weapons, player,
-  weaponMags,
-  doors,
-  map, MAP_W, doorMeshes, scene,
-  PERK_DURATION,
-  addFloatText,
-  sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
-  getPoints: () => points,
-  setPoints: (v) => { points = v; },
-  getRound: () => round,
-  getZToSpawn: () => zToSpawn,
-  setZToSpawn: (v) => { zToSpawn = v; },
-  getMaxAlive: () => maxAlive,
-  setMaxAlive: (v) => { maxAlive = v; },
-  getDoorsOpenedCount: () => doorsOpenedCount,
-  setDoorsOpenedCount: (v) => { doorsOpenedCount = v; },
-  tryActivateGenerator,
-  tryCatalyst,
-  tryMysteryBox,
-  collectMysteryBoxWeapon,
-  tryPackAPunch,
-});
-initShooting({
-  player, weapons, zombies, camera, muzzleLight, TILE,
-  mapAt,
-  sfxShoot, sfxEmpty, sfxHit, sfxKill, sfxBossKill, sfxReload, sfxWeaponSwitch,
-  setGunKick: (v) => { gunKick = v; },
-  spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles,
-  spawnDmgNumber, spawnBloodSplatter, spawnPowerUp,
-  showHitmarker, addFloatText,
-  startZombieDeathAnim, removeZombieMesh,
-  triggerScreenShake,
-  weaponMags,
-  getPoints: () => points,
-  setPoints: (v) => { points = v; },
-  getTotalKills: () => totalKills,
-  setTotalKills: (v) => { totalKills = v; },
-  getState: () => state,
-  setQuickSwapWeapon: (v) => { _quickSwapWeapon = v; },
-});
+// NOTE: initBuying + initShooting are wired up AFTER the declarations of
+// `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. (see wireGameplayModules
+// call further down). Calling them here would trip a temporal dead zone
+// on those `const`s and silently leave the ctx with undefined refs —
+// which is how the refactor originally broke shooting (ctx.zombies was
+// bound before the const initializer ran).
+
 // Register netcode subscription callbacks. Done in a microtask so that
 // any forward-referenced helpers (openDoorLocal etc.) are guaranteed to
 // be initialized by the time the callback body runs.
@@ -483,6 +447,56 @@ setMinimapDeps({
   mysteryBox, packAPunch, easterEgg,
   getZombies: () => zombies,
   powerUps, POWERUP_TYPES,
+});
+
+// Wire the extracted gameplay modules AFTER all their const-scoped
+// dependencies have been declared (zombies, doors, wallBuys, perks,
+// PERK_DURATION, weaponMags, etc). Doing this at the top of the file
+// would hit a TDZ on those consts and leave the modules' ctx holding
+// undefined references — that's how shooting silently stopped hitting
+// anything after the first pass of the refactor.
+initBuying({
+  camera,
+  TILE,
+  wallBuys, perkMachines, perks, weapons, player,
+  weaponMags,
+  doors,
+  map, MAP_W, doorMeshes, scene,
+  PERK_DURATION,
+  addFloatText,
+  sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
+  getPoints: () => points,
+  setPoints: (v) => { points = v; },
+  getRound: () => round,
+  getZToSpawn: () => zToSpawn,
+  setZToSpawn: (v) => { zToSpawn = v; },
+  getMaxAlive: () => maxAlive,
+  setMaxAlive: (v) => { maxAlive = v; },
+  getDoorsOpenedCount: () => doorsOpenedCount,
+  setDoorsOpenedCount: (v) => { doorsOpenedCount = v; },
+  tryActivateGenerator,
+  tryCatalyst,
+  tryMysteryBox,
+  collectMysteryBoxWeapon,
+  tryPackAPunch,
+});
+initShooting({
+  player, weapons, zombies, camera, muzzleLight, TILE,
+  mapAt,
+  sfxShoot, sfxEmpty, sfxHit, sfxKill, sfxBossKill, sfxReload, sfxWeaponSwitch,
+  setGunKick: (v) => { gunKick = v; },
+  spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles,
+  spawnDmgNumber, spawnBloodSplatter, spawnPowerUp,
+  showHitmarker, addFloatText,
+  startZombieDeathAnim, removeZombieMesh,
+  triggerScreenShake,
+  weaponMags,
+  getPoints: () => points,
+  setPoints: (v) => { points = v; },
+  getTotalKills: () => totalKills,
+  setTotalKills: (v) => { totalKills = v; },
+  getState: () => state,
+  setQuickSwapWeapon: (v) => { _quickSwapWeapon = v; },
 });
 
 
