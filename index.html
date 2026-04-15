@@ -635,12 +635,78 @@ function _makePortalMesh(color, pos, label) {
   return { group, light, particles: geom };
 }
 
+function _createEmergencyExitDoor(portalPos) {
+  // Emergency exit door structure with escape tape
+  const doorGroup = new THREE.Group();
+  
+  // Door frame (metal emergency exit style)
+  const frameGeom = new THREE.BoxGeometry(4, 5, 0.3);
+  const frameMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+  const doorFrame = new THREE.Mesh(frameGeom, frameMat);
+  doorFrame.position.set(portalPos.x, portalPos.y + 2.5, portalPos.z - 2);
+  
+  // Door panels (slightly open)
+  const panelGeom = new THREE.BoxGeometry(1.8, 4.5, 0.2);
+  const panelMat = new THREE.MeshBasicMaterial({ color: 0x2a4a2a });
+  
+  const leftPanel = new THREE.Mesh(panelGeom, panelMat);
+  leftPanel.position.set(portalPos.x - 0.8, portalPos.y + 2.25, portalPos.z - 1.9);
+  leftPanel.rotation.y = -0.3; // Slightly open
+  
+  const rightPanel = new THREE.Mesh(panelGeom, panelMat);
+  rightPanel.position.set(portalPos.x + 0.8, portalPos.y + 2.25, portalPos.z - 1.9);
+  rightPanel.rotation.y = 0.3; // Slightly open
+  
+  // Emergency exit sign
+  const signGeom = new THREE.BoxGeometry(3, 0.8, 0.1);
+  const signMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+  const exitSign = new THREE.Mesh(signGeom, signMat);
+  exitSign.position.set(portalPos.x, portalPos.y + 4.5, portalPos.z - 2.2);
+  
+  // Escape tape (yellow and black stripes)
+  for (let i = 0; i < 8; i++) {
+    const tapeGeom = new THREE.BoxGeometry(0.3, 0.2, 0.05);
+    const tapeMat = new THREE.MeshBasicMaterial({ 
+      color: i % 2 === 0 ? 0xffff00 : 0x000000 
+    });
+    const tape = new THREE.Mesh(tapeGeom, tapeMat);
+    
+    // Wrap tape around door frame
+    const angle = (i / 8) * Math.PI * 2;
+    tape.position.set(
+      portalPos.x + Math.cos(angle) * 2.2,
+      portalPos.y + 2.5 + Math.sin(angle * 2) * 0.5,
+      portalPos.z - 2 + Math.sin(angle) * 0.3
+    );
+    tape.rotation.y = angle;
+    doorGroup.add(tape);
+  }
+  
+  // Add emergency lighting
+  const emergencyLight = new THREE.PointLight(0x00ff00, 1, 10);
+  emergencyLight.position.set(portalPos.x, portalPos.y + 4, portalPos.z - 2);
+  
+  doorGroup.add(doorFrame);
+  doorGroup.add(leftPanel);
+  doorGroup.add(rightPanel);
+  doorGroup.add(exitSign);
+  doorGroup.add(emergencyLight);
+  
+  scene.add(doorGroup);
+  
+  return doorGroup;
+}
+
 function initVibeJamPortals() {
   if (_portalInited) return;
   _portalInited = true;
   // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
   const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
-  const ep = _makePortalMesh(0x00ff44, exitPos, 'PORTAL ESCAPE HATCH');
+  
+  // Create emergency exit door structure
+  _createEmergencyExitDoor(exitPos);
+  
+  const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM PORTAL');
   _exitPortalGroup = ep;
   scene.add(ep.group); scene.add(ep.light);
   // Start (return) portal — only if player arrived via another jam game
