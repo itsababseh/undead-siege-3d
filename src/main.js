@@ -22,7 +22,7 @@ import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './ne
 import { makeHostZid, createHostSync } from './netcode/hostSync.js';
 import {
   initReviveMp, isLocallyDowned, onLocalHpZero,
-  tickDowned, tickRevive,
+  tickDowned, tickRevive, hasReviveGrace,
 } from './netcode/reviveMp.js';
 
 // Local player name helper — used for high-score submission + chat.
@@ -1397,7 +1397,9 @@ function _update(dt) {
     // doesn't make you invulnerable. Downed players already have hp=0
     // and can't take more damage, so skip the attack while downed
     // (also means host-while-downed doesn't fire sfxHurt every frame).
-    if (!_iAmDowned && localD < 1.8 && state === 'playing') {
+    // Post-revive grace window (2s) also blocks damage so a just-
+    // revived player can't be instant re-downed by the same biter.
+    if (!_iAmDowned && !hasReviveGrace() && localD < 1.8 && state === 'playing') {
       z.atkTimer -= dt;
       if (z.atkTimer <= 0) {
         player.hp -= z.dmg;

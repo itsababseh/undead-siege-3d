@@ -25,6 +25,12 @@ let _downed = false;
 // arriving where tickDowned would see the stale (downed=false) local
 // cache and auto-undown us.
 let _downedAckedByServer = false;
+// 2-second post-revive grace window. Just-revived players can't take
+// zombie damage until this elapses — stops the "instant re-down"
+// situation where you stand up with 50 hp and the same zombie that
+// downed you bites you again on the next frame.
+const REVIVE_GRACE_SEC = 2.0;
+let _reviveGraceUntil = 0;
 let _reviveProgress = 0;
 let _reviveTargetHex = null;
 
@@ -37,6 +43,14 @@ function getBar() { return document.getElementById('reviveBar'); }
 function getTargetName() { return document.getElementById('reviveTargetName'); }
 
 export function isLocallyDowned() { return _downed; }
+
+/**
+ * True while the local player is in their post-revive grace window.
+ * Zombie damage should be ignored while this is true.
+ */
+export function hasReviveGrace() {
+  return performance.now() < _reviveGraceUntil;
+}
 
 /**
  * Called from main.js when the local player's HP hits 0 during a zombie
@@ -87,6 +101,9 @@ export function tickDowned() {
     _downed = false;
     _downedAckedByServer = false;
     _ctx.setPlayerHp(50);
+    // Start the post-revive invulnerability window so the same zombie
+    // that downed us can't instant-bite us back to zero.
+    _reviveGraceUntil = performance.now() + REVIVE_GRACE_SEC * 1000;
     if (ov) ov.style.display = 'none';
   }
 }
