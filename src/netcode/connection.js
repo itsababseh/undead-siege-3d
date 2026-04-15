@@ -57,6 +57,8 @@ const _remotePlayers = new Map(); // identityHex -> { identity, name, wx, wz, ry
 const _zombies = new Map();       // hostZidStr  -> { hostZid, zombieType, wx, wz, ry, hp, maxHp, flashLevel }
 const _doors = new Map();         // doorId      -> { doorId, opened }
 const _powerUps = new Map();      // puIdStr     -> { puId, typeIdx, wx, wz }
+const _chatMessages = [];         // ordered oldest→newest array of { msgId, senderName, text, createdAt, identity }
+const _highScores = [];           // array of { scoreId, name, round, points, kills }
 let _gameState = null;            // singleton { gameId, hostIdentity, round, hostLastSeen }
 
 // Host simulation pushes — set by main.js via setHostZombiesProvider()
@@ -71,6 +73,8 @@ let _onDoorUpdate = null;
 let _onPowerUpInsert = null;
 let _onPowerUpDelete = null;
 let _onGameStateUpdate = null;
+let _onChatMessage = null;
+let _onHighScoresChange = null;
 export function setOnZombieInsert(fn) { _onZombieInsert = fn; }
 export function setOnZombieUpdate(fn) { _onZombieUpdate = fn; }
 export function setOnZombieDelete(fn) { _onZombieDelete = fn; }
@@ -78,6 +82,11 @@ export function setOnDoorUpdate(fn) { _onDoorUpdate = fn; }
 export function setOnPowerUpInsert(fn) { _onPowerUpInsert = fn; }
 export function setOnPowerUpDelete(fn) { _onPowerUpDelete = fn; }
 export function setOnGameStateUpdate(fn) { _onGameStateUpdate = fn; }
+export function setOnChatMessage(fn) { _onChatMessage = fn; }
+export function setOnHighScoresChange(fn) { _onHighScoresChange = fn; }
+
+export function getChatMessages() { return _chatMessages; }
+export function getHighScores() { return _highScores; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function notify() {
@@ -142,6 +151,36 @@ function syncPowerUpFromRow(row) {
   });
 }
 
+function rowToChat(row) {
+  return {
+    msgId: row.msgId,
+    sender: row.sender,
+    senderName: row.senderName,
+    text: row.text,
+    createdAt: row.createdAt,
+  };
+}
+
+function rowToHighScore(row) {
+  return {
+    scoreId: row.scoreId,
+    name: row.name,
+    round: row.round,
+    points: row.points,
+    kills: row.kills,
+    createdAt: row.createdAt,
+  };
+}
+
+// Keep _highScores sorted best-first (round desc, points desc).
+function rebucketHighScores() {
+  _highScores.sort((a, b) => {
+    if (a.round !== b.round) return b.round - a.round;
+    if (a.points !== b.points) return b.points - a.points;
+    return Number(a.scoreId - b.scoreId);
+  });
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 /** Subscribe to status changes. Returns unsubscribe fn. */
@@ -193,11 +232,17 @@ export function connect() {
             _zombies.clear();
             _doors.clear();
             _powerUps.clear();
+            _chatMessages.length = 0;
+            _highScores.length = 0;
             _gameState = null;
             for (const row of conn.db.player.iter()) syncPlayerFromRow(row);
             for (const row of conn.db.zombie.iter()) syncZombieFromRow(row);
             for (const row of conn.db.door.iter()) syncDoorFromRow(row);
             for (const row of conn.db.powerUp.iter()) syncPowerUpFromRow(row);
+            for (const row of conn.db.chatMessage.iter()) _chatMessages.push(rowToChat(row));
+            _chatMessages.sort((a, b) => Number(a.msgId - b.msgId));
+            for (const row of conn.db.highScore.iter()) _highScores.push(rowToHighScore(row));
+            rebucketHighScores();
             for (const row of conn.db.gameState.iter()) { _gameState = row; break; }
             setStatus('connected');
             // Try to claim host on connection. Idempotent — if someone else
@@ -215,6 +260,8 @@ export function connect() {
             'SELECT * FROM door',
             'SELECT * FROM power_up',
             'SELECT * FROM game_state',
+            'SELECT * FROM high_score',
+            'SELECT * FROM chat_message',
           ]);
 
         conn.db.player.onInsert((_c, row) => syncPlayerFromRow(row));
@@ -258,6 +305,34 @@ export function connect() {
 
         conn.db.gameState.onInsert((_c, row) => { _gameState = row; if (_onGameStateUpdate) { try { _onGameStateUpdate(row); } catch (e) {} } });
         conn.db.gameState.onUpdate((_c, _o, row) => { _gameState = row; if (_onGameStateUpdate) { try { _onGameStateUpdate(row); } catch (e) {} } });
+
+        conn.db.chatMessage.onInsert((_c, row) => {
+          const msg = rowToChat(row);
+          _chatMessages.push(msg);
+          // Keep the local array bounded so renderers don't walk the whole
+          // history every frame.
+          if (_chatMessages.length > 120) _chatMessages.splice(0, _chatMessages.length - 120);
+          if (_onChatMessage) { try { _onChatMessage(msg); } catch (e) {} }
+        });
+        conn.db.chatMessage.onDelete((_c, row) => {
+          const key = row.msgId;
+          for (let i = _chatMessages.length - 1; i >= 0; i--) {
+            if (_chatMessages[i].msgId === key) { _chatMessages.splice(i, 1); break; }
+          }
+        });
+
+        conn.db.highScore.onInsert((_c, row) => {
+          _highScores.push(rowToHighScore(row));
+          rebucketHighScores();
+          if (_onHighScoresChange) { try { _onHighScoresChange(); } catch (e) {} }
+        });
+        conn.db.highScore.onDelete((_c, row) => {
+          const key = row.scoreId;
+          for (let i = _highScores.length - 1; i >= 0; i--) {
+            if (_highScores[i].scoreId === key) { _highScores.splice(i, 1); break; }
+          }
+          if (_onHighScoresChange) { try { _onHighScoresChange(); } catch (e) {} }
+        });
       })
       .onConnectError((_ctx, err) => {
         console.error('[netcode] connect error', err);
@@ -294,6 +369,8 @@ export function disconnect() {
   _zombies.clear();
   _doors.clear();
   _powerUps.clear();
+  _chatMessages.length = 0;
+  _highScores.length = 0;
   _gameState = null;
   _connecting = false;
   _lastSentTransform = null;
@@ -452,6 +529,24 @@ export function callRevivePlayer(targetIdentity) {
   if (!_conn) return;
   try { _conn.reducers.revivePlayer({ targetIdentity }); }
   catch (e) { console.warn('[netcode] revivePlayer failed', e); }
+}
+
+export function callSubmitHighScore({ name, round, points, kills }) {
+  if (!_conn) return;
+  try { _conn.reducers.submitHighScore({ name, round, points, kills }); }
+  catch (e) { console.warn('[netcode] submitHighScore failed', e); }
+}
+
+export function callSendChat(text) {
+  if (!_conn) return;
+  try { _conn.reducers.sendChat({ text }); }
+  catch (e) { console.warn('[netcode] sendChat failed', e); }
+}
+
+export function callSetPlayerName(name) {
+  if (!_conn) return;
+  try { _conn.reducers.setPlayerName({ name }); }
+  catch (e) { console.warn('[netcode] setPlayerName failed', e); }
 }
 
 /**

@@ -16,10 +16,12 @@ import RemoveZombieReducer from "../remove_zombie_reducer";
 import ReportPlayerAliveReducer from "../report_player_alive_reducer";
 import ReportPlayerDownedReducer from "../report_player_downed_reducer";
 import RevivePlayerReducer from "../revive_player_reducer";
+import SendChatReducer from "../send_chat_reducer";
 import SetPlayerNameReducer from "../set_player_name_reducer";
 import SetRoundReducer from "../set_round_reducer";
 import SpawnPowerupReducer from "../spawn_powerup_reducer";
 import SpawnZombieReducer from "../spawn_zombie_reducer";
+import SubmitHighScoreReducer from "../submit_high_score_reducer";
 import SyncZombiePositionsReducer from "../sync_zombie_positions_reducer";
 import UpdatePlayerTransformReducer from "../update_player_transform_reducer";
 
@@ -33,10 +35,12 @@ export type RemoveZombieParams = __Infer<typeof RemoveZombieReducer>;
 export type ReportPlayerAliveParams = __Infer<typeof ReportPlayerAliveReducer>;
 export type ReportPlayerDownedParams = __Infer<typeof ReportPlayerDownedReducer>;
 export type RevivePlayerParams = __Infer<typeof RevivePlayerReducer>;
+export type SendChatParams = __Infer<typeof SendChatReducer>;
 export type SetPlayerNameParams = __Infer<typeof SetPlayerNameReducer>;
 export type SetRoundParams = __Infer<typeof SetRoundReducer>;
 export type SpawnPowerupParams = __Infer<typeof SpawnPowerupReducer>;
 export type SpawnZombieParams = __Infer<typeof SpawnZombieReducer>;
+export type SubmitHighScoreParams = __Infer<typeof SubmitHighScoreReducer>;
 export type SyncZombiePositionsParams = __Infer<typeof SyncZombiePositionsReducer>;
 export type UpdatePlayerTransformParams = __Infer<typeof UpdatePlayerTransformReducer>;
 

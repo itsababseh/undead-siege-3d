@@ -239,6 +239,74 @@ export const revive_player = spacetimedb.reducer(
   }
 );
 
+// ── Leaderboard ─────────────────────────────────────────────────────────
+
+// Submit a finished run to the global leaderboard. The client calls this
+// on death (SP game-over or MP all-dead). We cap name length + sanitize
+// minimally — the leaderboard is public, so nothing personally identifying
+// should go in here anyway.
+const MAX_LEADERBOARD_ROWS = 100;
+export const submit_high_score = spacetimedb.reducer(
+  { name: t.string(), round: t.i32(), points: t.i32(), kills: t.i32() },
+  (ctx, { name, round, points, kills }) => {
+    if (round <= 0) return; // never reached round 1, not worth recording
+    const trimmed = name.trim().slice(0, 24) || 'Anonymous';
+    ctx.db.highScore.insert({
+      scoreId: 0n, // auto-inc placeholder
+      name: trimmed,
+      round,
+      points,
+      kills,
+      createdAt: ctx.timestamp,
+    });
+
+    // Prune to the top MAX_LEADERBOARD_ROWS by (round desc, points desc)
+    // so the table doesn't grow forever. Collect and sort in-memory —
+    // fine for a small module, not recommended for BitCraft-scale.
+    const all = [...ctx.db.highScore.iter()];
+    if (all.length <= MAX_LEADERBOARD_ROWS) return;
+    all.sort((a, b) => {
+      if (a.round !== b.round) return b.round - a.round;
+      if (a.points !== b.points) return b.points - a.points;
+      return Number(a.scoreId - b.scoreId);
+    });
+    for (let i = MAX_LEADERBOARD_ROWS; i < all.length; i++) {
+      ctx.db.highScore.scoreId.delete(all[i].scoreId);
+    }
+  }
+);
+
+// ── Chat ────────────────────────────────────────────────────────────────
+
+const MAX_CHAT_LEN = 200;
+const MAX_CHAT_ROWS = 100;
+export const send_chat = spacetimedb.reducer(
+  { text: t.string() },
+  (ctx, { text }) => {
+    const trimmed = text.trim().slice(0, MAX_CHAT_LEN);
+    if (!trimmed) return;
+    const player = ctx.db.player.identity.find(ctx.sender);
+    const senderName = player ? player.name : 'Unknown';
+    ctx.db.chatMessage.insert({
+      msgId: 0n,
+      sender: ctx.sender,
+      senderName,
+      text: trimmed,
+      createdAt: ctx.timestamp,
+    });
+
+    // Prune oldest rows so the table stays small. Same trick as the
+    // leaderboard — in-memory sort is fine at this scale.
+    const all = [...ctx.db.chatMessage.iter()];
+    if (all.length <= MAX_CHAT_ROWS) return;
+    all.sort((a, b) => Number(a.msgId - b.msgId));
+    const toDrop = all.length - MAX_CHAT_ROWS;
+    for (let i = 0; i < toDrop; i++) {
+      ctx.db.chatMessage.msgId.delete(all[i].msgId);
+    }
+  }
+);
+
 // ── Zombies (host-authoritative positions, server-authoritative HP) ───────
 
 // Host creates a new zombie row. hostZid must be unique (host picks).

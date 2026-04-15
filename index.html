@@ -63,6 +63,18 @@
   <div class="menu-stats" id="menuStats"></div>
   <div class="menu-divider"></div>
   <div class="menu-scores" id="menuScores"></div>
+
+  <!-- Global leaderboard — top 10 rounds from SpacetimeDB high_score -->
+  <div id="menuGlobalLb" style="display:none;margin-top:14px;max-width:360px;margin-left:auto;margin-right:auto;font:11px monospace;text-align:left;">
+    <div style="color:#4af;letter-spacing:2px;text-align:center;margin-bottom:6px;font-size:11px">🌐 GLOBAL LEADERBOARD</div>
+    <div id="menuGlobalLbList" style="color:#aaa;line-height:1.7"></div>
+  </div>
+
+  <!-- Name input for chat + leaderboard submissions -->
+  <div style="margin-top:12px;font:11px monospace;color:#888">
+    <span style="color:#4af">NAME:</span>
+    <input id="menuNameInput" type="text" maxlength="24" placeholder="Survivor" style="background:transparent;border:none;border-bottom:1px solid #4af;color:#fff;font:inherit;outline:none;width:160px;text-align:center;margin-left:4px;caret-color:#4af">
+  </div>
 </div>
 
 <!-- State Transition Overlays -->

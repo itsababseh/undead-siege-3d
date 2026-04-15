@@ -10,6 +10,15 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const ChatMessage = __t.object("ChatMessage", {
+  msgId: __t.u64(),
+  sender: __t.identity(),
+  senderName: __t.string(),
+  text: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type ChatMessage = __Infer<typeof ChatMessage>;
+
 export const Door = __t.object("Door", {
   doorId: __t.i32(),
   opened: __t.bool(),
@@ -23,6 +32,16 @@ export const GameState = __t.object("GameState", {
   hostLastSeen: __t.timestamp(),
 });
 export type GameState = __Infer<typeof GameState>;
+
+export const HighScore = __t.object("HighScore", {
+  scoreId: __t.u64(),
+  name: __t.string(),
+  round: __t.i32(),
+  points: __t.i32(),
+  kills: __t.i32(),
+  createdAt: __t.timestamp(),
+});
+export type HighScore = __Infer<typeof HighScore>;
 
 export const Player = __t.object("Player", {
   identity: __t.identity(),

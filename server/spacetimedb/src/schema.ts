@@ -99,11 +99,42 @@ export const PowerUp = table(
   }
 );
 
+// HighScore: persistent leaderboard row. Inserted when a player dies
+// (or whenever the client reports a run end). NOT wiped by resetSession
+// — unlike zombies/powerups this is meant to survive forever.
+export const HighScore = table(
+  { name: 'high_score', public: true },
+  {
+    scoreId: t.u64().primaryKey().autoInc(),
+    name: t.string(),
+    round: t.i32(),
+    points: t.i32(),
+    kills: t.i32(),
+    createdAt: t.timestamp(),
+  }
+);
+
+// ChatMessage: transient in-game chat. The server prunes old messages
+// so the table stays bounded. Clients subscribe to the whole table and
+// render the most recent N in a HUD window.
+export const ChatMessage = table(
+  { name: 'chat_message', public: true },
+  {
+    msgId: t.u64().primaryKey().autoInc(),
+    sender: t.identity(),
+    senderName: t.string(),
+    text: t.string(),
+    createdAt: t.timestamp(),
+  }
+);
+
 const spacetimedb = schema({
   player: Player,
   gameState: GameState,
   zombie: Zombie,
   door: Door,
   powerUp: PowerUp,
+  highScore: HighScore,
+  chatMessage: ChatMessage,
 });
 export default spacetimedb;

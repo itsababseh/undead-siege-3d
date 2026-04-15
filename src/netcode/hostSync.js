@@ -191,7 +191,23 @@ export function createHostSync(ctx) {
         // Server rolled round backward → session reset (last player
         // left, or all players died). The zombie deletes come in via
         // onZombieDelete; here we just acknowledge the fresh round so
-        // any new arrivals start from 1.
+        // any new arrivals start from 1. Also: since a reset implies a
+        // wipe, push the just-ended run to the global leaderboard so
+        // nobody has to die individually to get recorded.
+        const endedRound = prev;
+        const endedPoints = getPoints();
+        const endedKills = getTotalKills();
+        if (endedRound > 0) {
+          const name = (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+          try {
+            netcode.callSubmitHighScore({
+              name,
+              round: endedRound,
+              points: endedPoints,
+              kills: endedKills,
+            });
+          } catch (e) { console.warn('[netcode] submitHighScore on reset failed', e); }
+        }
         if (!netcode.isHost()) {
           setState('roundIntro');
           setRoundIntroTimer(3);

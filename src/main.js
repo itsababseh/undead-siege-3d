@@ -24,10 +24,23 @@ import {
   initReviveMp, isLocallyDowned, onLocalHpZero,
   tickDowned, tickRevive,
 } from './netcode/reviveMp.js';
+
+// Local player name helper — used for high-score submission + chat.
+function getLocalPlayerName() {
+  return (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+}
+function setLocalPlayerName(name) {
+  const trimmed = (name || '').trim().slice(0, 24);
+  localStorage.setItem('undead.playerName', trimmed || 'Survivor');
+  if (netcode.isConnected()) netcode.callSetPlayerName(trimmed || 'Survivor');
+}
+window._setLocalPlayerName = setLocalPlayerName;
+window._getLocalPlayerName = getLocalPlayerName;
 import { initBuying, tryBuy, openDoorLocal } from './gameplay/buying.js';
 import {
   initShooting, tryShoot, doReload, finishReload, switchWeapon,
 } from './gameplay/shooting.js';
+import { initChat, tickChat, isChatInputActive } from './netcode/chat.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
   initMenuBackground, stopMenuBackground, restartMenuBackground,
@@ -292,6 +305,7 @@ initReviveMp({
   setPlayerHp: (hp) => { player.hp = hp; },
   getReviveSpeedMult: () => player.reviveSpeedMult || 1,
 });
+initChat();
 // NOTE: initBuying + initShooting are wired up AFTER the declarations of
 // `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. (see wireGameplayModules
 // call further down). Calling them here would trip a temporal dead zone
@@ -754,12 +768,36 @@ const _hostSync = createHostSync({
 // ===== INPUT =====
 const gameKeys = ['w','a','s','d','r','e','q','f','1','2','3','4'];
 let _quickSwapWeapon = 0;
+// True when a text/number/textarea input (or contentEditable) currently
+// owns the keyboard — e.g. the main-menu NAME field, the in-game chat
+// input, or any future search boxes. When true, the game must NOT treat
+// keystrokes as gameplay input (no WASD pan, no E buy, no F knife) and
+// must NOT preventDefault so the native input actually receives chars.
+function isTextInputFocused() {
+  if (isChatInputActive()) return true;
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
 document.addEventListener('keydown', e => {
+  if (isTextInputFocused()) {
+    // Clear any held gameplay keys so releasing focus mid-hold doesn't
+    // leave WASD latched, and let the event reach the focused element.
+    for (const kk of Object.keys(keys)) keys[kk] = false;
+    return;
+  }
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (gameKeys.includes(k)) e.preventDefault();
 });
-document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+document.addEventListener('keyup', e => {
+  if (isTextInputFocused()) return;
+  keys[e.key.toLowerCase()] = false;
+});
 
 renderer.domElement.addEventListener('mousedown', () => {
   initAudio(); startBackgroundMusic(); mouseDown = true;
@@ -1345,6 +1383,15 @@ function showDeath() {
   updatePersistentStats();
   closeRadio();
   const board = saveScore(round, totalKills, points);
+  // Also push to the global SpacetimeDB leaderboard when connected —
+  // both SP and MP death paths reach here (MP session-reset path
+  // submits separately in hostSync to handle the all-died case).
+  if (netcode.isConnected() && round > 0) {
+    netcode.callSubmitHighScore({
+      name: getLocalPlayerName(),
+      round, points, kills: totalKills,
+    });
+  }
   
   const veil = document.getElementById('deathVeil');
   veil.style.background = 'rgba(0,0,0,0.85)';
@@ -1432,6 +1479,7 @@ function gameLoop(time) {
   netcode.update(dt);
   netcode.setLocalTransform(camera.position.x, camera.position.z, controls._yaw);
   updateRemotePlayers(dt, netcode.getRemotePlayers());
+  tickChat();
 
   if (state === 'menu') return;
 
@@ -1508,6 +1556,48 @@ window._startGame = function() {
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
+
+// ===== NAME INPUT + GLOBAL LEADERBOARD (menu) =====
+(() => {
+  const nameInput = document.getElementById('menuNameInput');
+  const lbWrap = document.getElementById('menuGlobalLb');
+  const lbList = document.getElementById('menuGlobalLbList');
+  if (!nameInput || !lbWrap || !lbList) return;
+
+  // Seed the name input from localStorage so existing players keep their name.
+  nameInput.value = getLocalPlayerName();
+  nameInput.addEventListener('change', () => setLocalPlayerName(nameInput.value));
+  nameInput.addEventListener('blur', () => setLocalPlayerName(nameInput.value));
+
+  function renderLb() {
+    if (!netcode.isConnected()) {
+      lbWrap.style.display = 'none';
+      return;
+    }
+    const scores = netcode.getHighScores();
+    if (!scores || scores.length === 0) {
+      lbWrap.style.display = 'block';
+      lbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first.</div>';
+      return;
+    }
+    lbWrap.style.display = 'block';
+    const top = scores.slice(0, 10);
+    lbList.innerHTML = top.map((s, i) => {
+      const rank = (i + 1).toString().padStart(2, ' ');
+      const name = (s.name || 'Anon').slice(0, 14).padEnd(14, ' ');
+      return `<div><span style="color:#666">${rank}.</span> <span style="color:#fff">${escapeMenuHtml(name)}</span> <span style="color:#fc0">R${s.round}</span> <span style="color:#4af">${s.points}</span> <span style="color:#8f8">${s.kills}k</span></div>`;
+    }).join('');
+  }
+
+  function escapeMenuHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  netcode.setOnHighScoresChange(renderLb);
+  netcode.onStatus(({ status }) => { if (status === 'connected') renderLb(); else renderLb(); });
+  // Initial render attempt in case we connect before this code runs.
+  renderLb();
+})();
 
 // ===== MULTIPLAYER BUTTON =====
 (() => {

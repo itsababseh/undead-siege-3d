@@ -44,18 +44,22 @@ import RemoveZombieReducer from "./remove_zombie_reducer";
 import ReportPlayerAliveReducer from "./report_player_alive_reducer";
 import ReportPlayerDownedReducer from "./report_player_downed_reducer";
 import RevivePlayerReducer from "./revive_player_reducer";
+import SendChatReducer from "./send_chat_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
 import SetRoundReducer from "./set_round_reducer";
 import SpawnPowerupReducer from "./spawn_powerup_reducer";
 import SpawnZombieReducer from "./spawn_zombie_reducer";
+import SubmitHighScoreReducer from "./submit_high_score_reducer";
 import SyncZombiePositionsReducer from "./sync_zombie_positions_reducer";
 import UpdatePlayerTransformReducer from "./update_player_transform_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import ChatMessageRow from "./chat_message_table";
 import DoorRow from "./door_table";
 import GameStateRow from "./game_state_table";
+import HighScoreRow from "./high_score_table";
 import PlayerRow from "./player_table";
 import PowerUpRow from "./power_up_table";
 import ZombieRow from "./zombie_table";
@@ -64,6 +68,17 @@ import ZombieRow from "./zombie_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  chatMessage: __table({
+    name: 'chat_message',
+    indexes: [
+      { accessor: 'msgId', name: 'chat_message_msg_id_idx_btree', algorithm: 'btree', columns: [
+        'msgId',
+      ] },
+    ],
+    constraints: [
+      { name: 'chat_message_msg_id_key', constraint: 'unique', columns: ['msgId'] },
+    ],
+  }, ChatMessageRow),
   door: __table({
     name: 'door',
     indexes: [
@@ -86,6 +101,17 @@ const tablesSchema = __schema({
       { name: 'game_state_game_id_key', constraint: 'unique', columns: ['gameId'] },
     ],
   }, GameStateRow),
+  highScore: __table({
+    name: 'high_score',
+    indexes: [
+      { accessor: 'scoreId', name: 'high_score_score_id_idx_btree', algorithm: 'btree', columns: [
+        'scoreId',
+      ] },
+    ],
+    constraints: [
+      { name: 'high_score_score_id_key', constraint: 'unique', columns: ['scoreId'] },
+    ],
+  }, HighScoreRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -133,10 +159,12 @@ const reducersSchema = __reducers(
   __reducerSchema("report_player_alive", ReportPlayerAliveReducer),
   __reducerSchema("report_player_downed", ReportPlayerDownedReducer),
   __reducerSchema("revive_player", RevivePlayerReducer),
+  __reducerSchema("send_chat", SendChatReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
   __reducerSchema("set_round", SetRoundReducer),
   __reducerSchema("spawn_powerup", SpawnPowerupReducer),
   __reducerSchema("spawn_zombie", SpawnZombieReducer),
+  __reducerSchema("submit_high_score", SubmitHighScoreReducer),
   __reducerSchema("sync_zombie_positions", SyncZombiePositionsReducer),
   __reducerSchema("update_player_transform", UpdatePlayerTransformReducer),
 );
