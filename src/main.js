@@ -262,7 +262,7 @@ const player = {
   owned: [true, false, false, false],
   reloading: false, reloadTimer: 0,
   fireTimer: 0, fireRateMult: 1, reloadMult: 1,
-  hpRegen: false, hpRegenTimer: 0,
+  hpRegen: false, hpRegenTimer: 0, reviveSpeedMult: 1,
   perksOwned: {},
   bobPhase: 0,
 };
@@ -290,6 +290,7 @@ initReviveMp({
   keys,
   sfxPlayerDeath,
   setPlayerHp: (hp) => { player.hp = hp; },
+  getReviveSpeedMult: () => player.reviveSpeedMult || 1,
 });
 // NOTE: initBuying + initShooting are wired up AFTER the declarations of
 // `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. (see wireGameplayModules
@@ -347,9 +348,9 @@ const perks = [
   { id:'doubletap', name:'Double Tap', desc:'2x Fire Rate', cost:2000, color:'#fc0', minRound:5,
     apply() { player.fireRateMult = 0.5; },
     unapply() { player.fireRateMult = 1; }},
-  { id:'quickrevive', name:'Quick Revive', desc:'HP Regen', cost:1500, color:'#4af', minRound:1,
-    apply() { player.hpRegen = true; },
-    unapply() { player.hpRegen = false; }},
+  { id:'quickrevive', name:'Quick Revive', desc:'HP Regen + Fast Revive', cost:1500, color:'#4af', minRound:1,
+    apply() { player.hpRegen = true; player.reviveSpeedMult = 4; },
+    unapply() { player.hpRegen = false; player.reviveSpeedMult = 1; }},
 ];
 const perkMachines = [
   { tx:10, tz:11, perkIdx:0 },
@@ -510,7 +511,7 @@ function initGame() {
   player.owned = [true, false, false, false];
   player.reloading = false; player.reloadTimer = 0;
   player.fireTimer = 0; player.fireRateMult = 1; player.reloadMult = 1;
-  player.hpRegen = false; player.hpRegenTimer = 0;
+  player.hpRegen = false; player.hpRegenTimer = 0; player.reviveSpeedMult = 1;
   player.perksOwned = {};
   
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
