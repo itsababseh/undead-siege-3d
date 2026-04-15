@@ -690,6 +690,63 @@ function sfxWeaponSwitch() {
   setTimeout(() => beep(700, 'square', 0.02, 0.05), 60);
 }
 
+function sfxKnife() {
+  if (!actx || !masterGain) return;
+  const t = actx.currentTime;
+  // Sharp metallic swipe
+  const bufSize = actx.sampleRate * 0.08;
+  const noiseBuf = actx.createBuffer(1, bufSize, actx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+  const noise = actx.createBufferSource();
+  noise.buffer = noiseBuf;
+  const hp = actx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 3000; hp.Q.value = 2;
+  const bp = actx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 5000; bp.Q.value = 3;
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(0.35, t);
+  ng.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
+  noise.connect(hp); hp.connect(bp); bp.connect(ng); ng.connect(masterGain);
+  noise.start(t); noise.stop(t + 0.08);
+  // Metallic ring
+  const osc = actx.createOscillator();
+  osc.type = 'sawtooth'; osc.frequency.setValueAtTime(1200, t);
+  osc.frequency.exponentialRampToValueAtTime(400, t + 0.06);
+  const og = actx.createGain();
+  og.gain.setValueAtTime(0.15, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  osc.connect(og); og.connect(masterGain);
+  osc.start(t); osc.stop(t + 0.1);
+  // Low thud for impact feel
+  const thud = actx.createOscillator();
+  thud.type = 'sine'; thud.frequency.setValueAtTime(80, t + 0.03);
+  thud.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+  const tg = actx.createGain();
+  tg.gain.setValueAtTime(0, t);
+  tg.gain.linearRampToValueAtTime(0.25, t + 0.04);
+  tg.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  thud.connect(tg); tg.connect(masterGain);
+  thud.start(t); thud.stop(t + 0.15);
+}
+
+function sfxKnifeMiss() {
+  if (!actx || !masterGain) return;
+  const t = actx.currentTime;
+  const bufSize = actx.sampleRate * 0.12;
+  const noiseBuf = actx.createBuffer(1, bufSize, actx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) nd[i] = (Math.random() * 2 - 1) * Math.sin(i / bufSize * Math.PI);
+  const noise = actx.createBufferSource();
+  noise.buffer = noiseBuf;
+  const bpf = actx.createBiquadFilter();
+  bpf.type = 'bandpass'; bpf.frequency.value = 2000; bpf.Q.value = 1;
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(0.12, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  noise.connect(bpf); bpf.connect(ng); ng.connect(masterGain);
+  noise.start(t); noise.stop(t + 0.12);
+}
 
 
 // Export all audio functions and state
@@ -700,7 +757,7 @@ export {
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
-  sfxPlayerDeath,
+  sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playMetalCreak
 };
