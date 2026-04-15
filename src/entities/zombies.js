@@ -1349,7 +1349,126 @@ function removeZombieMesh(z) {
   }
 }
 
+// ===== ZOMBIE MESH MANAGEMENT =====
+const zombieMeshes = new Map();
 
+function createZombieMesh(zombie) {
+  if (!_scene || !zombie) return;
+  
+  const type = zombie.type || 'normal';
+  const variant = zombie.variant || 0;
+  
+  // Get sprite sheet for this zombie type
+  let spriteSheet;
+  if (type === 'boss' && zombieSpriteSheets.boss[variant]) {
+    spriteSheet = zombieSpriteSheets.boss[variant];
+  } else if (type === 'elite' && zombieSpriteSheets.elite[variant]) {
+    spriteSheet = zombieSpriteSheets.elite[variant];
+  } else if (zombieSpriteSheets.normal[variant]) {
+    spriteSheet = zombieSpriteSheets.normal[variant];
+  } else {
+    spriteSheet = zombieSpriteSheets.normal[0]; // fallback
+  }
+  
+  if (!spriteSheet) return;
+  
+  // Create texture from sprite sheet
+  const texture = new THREE.CanvasTexture(spriteSheet);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  
+  // Create billboard geometry  
+  const scale = type === 'boss' ? 3.5 : type === 'elite' ? 2.2 : 1.8;
+  const geometry = new THREE.PlaneGeometry(scale, scale);
+  
+  // Create material with sprite sheet
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    alphaTest: 0.1,
+    side: THREE.DoubleSide
+  });
+  
+  // Create mesh
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(zombie.x, scale / 2, zombie.z);
+  
+  // Store zombie reference and animation data
+  mesh.userData = {
+    zombie: zombie,
+    animTime: 0,
+    currentFrame: 0,
+    type: type,
+    variant: variant
+  };
+  
+  // Add to scene and tracking map
+  _scene.add(mesh);
+  zombieMeshes.set(zombie, mesh);
+  
+  return mesh;
+}
+
+function removeZombieMesh(zombie) {
+  if (!_scene || !zombie) return;
+  
+  const mesh = zombieMeshes.get(zombie);
+  if (mesh) {
+    _scene.remove(mesh);
+    
+    // Dispose of geometry and material
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      if (mesh.material.map) mesh.material.map.dispose();
+      mesh.material.dispose();
+    }
+    
+    zombieMeshes.delete(zombie);
+  }
+}
+
+function updateZombieMesh(zombie, deltaTime) {
+  const mesh = zombieMeshes.get(zombie);
+  if (!mesh || !mesh.userData) return;
+  
+  const userData = mesh.userData;
+  
+  // Update position
+  mesh.position.set(zombie.x, mesh.position.y, zombie.z);
+  
+  // Billboard effect - face camera
+  if (_camera) {
+    mesh.lookAt(_camera.position);
+  }
+  
+  // Animate sprite frames for walking animation
+  if (zombie.moving || zombie.attacking) {
+    userData.animTime += deltaTime * 4; // animation speed
+    const newFrame = Math.floor(userData.animTime) % ZOMBIE_FRAMES;
+    
+    if (newFrame !== userData.currentFrame) {
+      userData.currentFrame = newFrame;
+      
+      // Update UV coordinates to show correct frame
+      const geometry = mesh.geometry;
+      const uvAttribute = geometry.attributes.uv;
+      const frameWidth = 1 / ZOMBIE_FRAMES;
+      const frameOffset = newFrame * frameWidth;
+      
+      // Update UV mapping for current frame
+      uvAttribute.setXY(0, frameOffset, 1); // bottom-left
+      uvAttribute.setXY(1, frameOffset + frameWidth, 1); // bottom-right  
+      uvAttribute.setXY(2, frameOffset, 0); // top-left
+      uvAttribute.setXY(3, frameOffset + frameWidth, 0); // top-right
+      uvAttribute.needsUpdate = true;
+    }
+  }
+  
+  // Handle death animation
+  if (zombie.hp <= 0 && !zombie.dying) {
+    zombie.dying = true;
+  }
+}
 
 // Export sprite system
 export {

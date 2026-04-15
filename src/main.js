@@ -349,6 +349,7 @@ function buildPerkMachines() {
   });
 }
 buildPerkMachines();
+initZombieSprites();
 updateLoadBar(50, 'Fortifying defenses...');
 
 // ===== WALL BUY MARKERS =====
