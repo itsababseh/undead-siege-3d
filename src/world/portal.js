@@ -69,14 +69,158 @@ function _makePortalMesh(color, pos, label) {
   return { group, light, particles: geom };
 }
 
+// Portal door system
+let _portalDoor = null;
+let _doorOpen = false;
+let _doorOpening = false;
+let _neonSigns = [];
+
+function _createPortalDoor() {
+  const doorGroup = new THREE.Group();
+  
+  // Door position - slightly in front of the portal
+  const doorPos = { x: 17 * _TILE + _TILE / 2, y: 1.6, z: 3 * _TILE + _TILE / 2 - 1 };
+  doorGroup.position.set(doorPos.x, 0, doorPos.z);
+  
+  // Main door frame (like from Half-Life/Portal games)
+  const frameGeo = new THREE.BoxGeometry(4, 3.2, 0.2);
+  const frameMat = new THREE.MeshStandardMaterial({ 
+    color: 0x2a2a2a, 
+    metalness: 0.8, 
+    roughness: 0.3,
+    emissive: 0x001122
+  });
+  const frame = new THREE.Mesh(frameGeo, frameMat);
+  frame.position.y = 1.6;
+  doorGroup.add(frame);
+  
+  // Door panels (sliding style like in sci-fi games)
+  const panelGeo = new THREE.BoxGeometry(1.8, 2.8, 0.15);
+  const panelMat = new THREE.MeshStandardMaterial({ 
+    color: 0x333366, 
+    metalness: 0.7, 
+    roughness: 0.2,
+    emissive: 0x000033
+  });
+  
+  const leftPanel = new THREE.Mesh(panelGeo, panelMat);
+  leftPanel.position.set(-0.9, 1.6, 0.05);
+  leftPanel.name = 'leftPanel';
+  doorGroup.add(leftPanel);
+  
+  const rightPanel = new THREE.Mesh(panelGeo, panelMat);
+  rightPanel.position.set(0.9, 1.6, 0.05);
+  rightPanel.name = 'rightPanel';
+  doorGroup.add(rightPanel);
+  
+  // Neon accent lights (Cyberpunk/Tron style)
+  const neonGeo = new THREE.CylinderGeometry(0.05, 0.05, 2.6);
+  const neonMat = new THREE.MeshStandardMaterial({ 
+    color: 0x00ffcc, 
+    emissive: 0x00ffcc, 
+    emissiveIntensity: 2
+  });
+  
+  const leftNeon = new THREE.Mesh(neonGeo, neonMat);
+  leftNeon.position.set(-1.8, 1.6, 0.1);
+  doorGroup.add(leftNeon);
+  
+  const rightNeon = new THREE.Mesh(neonGeo, neonMat);
+  rightNeon.position.set(1.8, 1.6, 0.1);
+  doorGroup.add(rightNeon);
+  
+  // Neon strip lights around frame
+  for (let i = 0; i < 8; i++) {
+    const stripGeo = new THREE.BoxGeometry(0.5, 0.1, 0.05);
+    const strip = new THREE.Mesh(stripGeo, neonMat);
+    strip.position.set(-1.75 + i * 0.5, 3, 0.15);
+    doorGroup.add(strip);
+    _neonSigns.push(strip);
+  }
+  
+  // Portal signage (inspired by Half-Life/Portal)
+  const signCanvas = document.createElement('canvas');
+  signCanvas.width = 512; signCanvas.height = 128;
+  const ctx = signCanvas.getContext('2d');
+  
+  // Black background
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, 512, 128);
+  
+  // Aperture Science style logo/text
+  ctx.fillStyle = '#00ffcc';
+  ctx.font = 'bold 24px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('▲ VIBE JAM PORTAL ▲', 256, 40);
+  ctx.font = '16px monospace';
+  ctx.fillText('INTERDIMENSIONAL TRAVEL', 256, 65);
+  ctx.fillText('[ PRESS E TO ENTER ]', 256, 85);
+  ctx.font = '12px monospace';
+  ctx.fillText('WARNING: SIDE EFFECTS MAY INCLUDE FUN', 256, 105);
+  
+  const signGeo = new THREE.PlaneGeometry(4, 1);
+  const signMat = new THREE.MeshBasicMaterial({ 
+    map: new THREE.CanvasTexture(signCanvas), 
+    transparent: true 
+  });
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(0, 3.8, 0.2);
+  doorGroup.add(sign);
+  
+  // Warning lights (like in sci-fi games)
+  const warningGeo = new THREE.SphereGeometry(0.1);
+  const warningMat = new THREE.MeshStandardMaterial({ 
+    color: 0xff4444, 
+    emissive: 0xff0000, 
+    emissiveIntensity: 1.5 
+  });
+  
+  const leftWarning = new THREE.Mesh(warningGeo, warningMat);
+  leftWarning.position.set(-2.2, 3.5, 0.2);
+  doorGroup.add(leftWarning);
+  
+  const rightWarning = new THREE.Mesh(warningGeo, warningMat);
+  rightWarning.position.set(2.2, 3.5, 0.2);
+  doorGroup.add(rightWarning);
+  
+  _neonSigns.push(leftWarning, rightWarning);
+  
+  return doorGroup;
+}
+
+function _animateDoorOpening(door, dt) {
+  if (!_doorOpening) return;
+  
+  const leftPanel = door.getObjectByName('leftPanel');
+  const rightPanel = door.getObjectByName('rightPanel');
+  
+  if (leftPanel && rightPanel) {
+    const speed = dt * 3; // Door opening speed
+    leftPanel.position.x = Math.max(-2.5, leftPanel.position.x - speed);
+    rightPanel.position.x = Math.min(2.5, rightPanel.position.x + speed);
+    
+    // Door fully opened
+    if (leftPanel.position.x <= -2.4 && rightPanel.position.x >= 2.4) {
+      _doorOpen = true;
+      _doorOpening = false;
+    }
+  }
+}
+
 export function initVibeJamPortals() {
   if (_portalInited) return;
   _portalInited = true;
-  // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
-  const exitPos = { x: 17 * _TILE + _TILE / 2, y: 1.6, z: 3 * _TILE + _TILE / 2 };
-  const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM PORTAL');
+  
+  // Create the portal door first
+  _portalDoor = _createPortalDoor();
+  _scene.add(_portalDoor);
+  
+  // Exit portal — positioned behind the door
+  const exitPos = { x: 17 * _TILE + _TILE / 2, y: 1.6, z: 3 * _TILE + _TILE / 2 + 1.5 };
+  const ep = _makePortalMesh(0x00ff44, exitPos, '');
   _exitPortalGroup = ep;
   _scene.add(ep.group); _scene.add(ep.light);
+  
   // Start (return) portal — only if player arrived via another jam game
   if (_arrivedViaPortal && _portalReferer) {
     const startPos = { x: 12 * _TILE, y: 1.6, z: 13 * _TILE };
@@ -90,19 +234,47 @@ export function initVibeJamPortals() {
 export function animateVibeJamPortals(dt, state) {
   if (!_portalInited) return;
   const t = Date.now() * 0.001;
+  
+  // Animate neon signs
+  _neonSigns.forEach(sign => {
+    if (sign.material.emissiveIntensity !== undefined) {
+      sign.material.emissiveIntensity = 1.5 + Math.sin(t * 4) * 0.5;
+    }
+  });
+  
+  // Animate door opening/closing
+  if (_portalDoor) {
+    _animateDoorOpening(_portalDoor, dt);
+    
+    // Check door interaction - closer range for door opening
+    if (!_doorOpen && !_doorOpening && (state === 'playing' || state === 'roundIntro')) {
+      const doorX = 17 * _TILE + _TILE / 2;
+      const doorZ = 3 * _TILE + _TILE / 2 - 1;
+      const dx = _camera.position.x - doorX;
+      const dz = _camera.position.z - doorZ;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      
+      if (distance < 2.5) {
+        _doorOpening = true;
+      }
+    }
+  }
+  
   if (_exitPortalGroup) {
     _exitPortalGroup.group.rotation.z += dt * 0.5;
     const pp = _exitPortalGroup.particles.attributes.position.array;
     for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
     _exitPortalGroup.particles.attributes.position.needsUpdate = true;
     _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
-    // Check proximity
-    if (state === 'playing' || state === 'roundIntro') {
+    
+    // Check portal entry - only when door is open
+    if (_doorOpen && (state === 'playing' || state === 'roundIntro')) {
       const dx = _camera.position.x - _exitPortalGroup.group.position.x;
       const dz = _camera.position.z - _exitPortalGroup.group.position.z;
       if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
     }
   }
+  
   if (_startPortalGroup) {
     _startPortalGroup.group.rotation.z -= dt * 0.5;
     const pp = _startPortalGroup.particles.attributes.position.array;
@@ -138,6 +310,17 @@ export function _triggerReturnPortal() {
 export function cleanupVibeJamPortals() {
   if (_exitPortalGroup) { _scene.remove(_exitPortalGroup.group); _scene.remove(_exitPortalGroup.light); _exitPortalGroup = null; }
   if (_startPortalGroup) { _scene.remove(_startPortalGroup.group); _scene.remove(_startPortalGroup.light); _startPortalGroup = null; }
+  if (_portalDoor) { _scene.remove(_portalDoor); _portalDoor = null; }
+  _neonSigns.length = 0;
+  _doorOpen = false;
+  _doorOpening = false;
   _portalInited = false;
+}
+
+// Add function to handle incoming portal users (for players entering from other games)
+export function handleIncomingPortalUser() {
+  if (_portalDoor && !_doorOpen && !_doorOpening) {
+    _doorOpening = true;
+  }
 }
 

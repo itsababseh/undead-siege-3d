@@ -47,7 +47,7 @@ import {
   updateGunModel, setGunDeps, initGunModels
 } from './models/guns.js';
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
-         _triggerExitPortal, cleanupVibeJamPortals, setPortalDeps } from './world/portal.js';
+         _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
 import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';
 import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
 import { triggerRadioTransmission, updateRadioTransmission, closeRadio, easterEgg,
@@ -1314,6 +1314,8 @@ if (_arrivedViaPortal) {
     const btn = document.getElementById('startBtn');
     if (btn && btn.offsetParent !== null) {
       clearInterval(_portalAutoStart);
+      // Open portal door for incoming users
+      handleIncomingPortalUser();
       setTimeout(() => {
         if (typeof window._startGame === 'function') window._startGame();
       }, 300);
