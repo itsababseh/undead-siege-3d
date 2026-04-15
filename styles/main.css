@@ -44,7 +44,8 @@ canvas{display:block}
 #bossFill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:linear-gradient(180deg,rgba(255,255,255,0.18),transparent)}
 #bossLabel{position:fixed;top:36px;left:50%;transform:translateX(-50%);color:#f44;font-size:11px;font-weight:bold;letter-spacing:2px;display:none;text-shadow:0 0 8px rgba(255,50,50,0.4)}
 #perkIcons{position:fixed;bottom:68px;left:15px;display:flex;flex-wrap:wrap;gap:5px;z-index:13;max-width:calc(50vw - 30px)}
-.perk-icon{width:28px;height:28px;border-radius:4px;border:2px solid;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5);flex-shrink:0}
+.perk-icon{width:auto;min-width:28px;height:28px;border-radius:4px;border:2px solid;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5);flex-shrink:0;padding:0 4px;gap:2px;white-space:nowrap}
+@keyframes perkBlink{0%,100%{opacity:1}50%{opacity:0.3}}
 .perk-icon.powerup-active{width:auto;min-width:28px;padding:0 6px;gap:3px;font-size:9px;white-space:nowrap;animation:hpShimmer 1s infinite}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
 #centerMsg{position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}

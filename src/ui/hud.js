@@ -81,8 +81,10 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   const perkEl = document.getElementById('perkIcons');
   let perkHTML = '';
   for (const p of _perks) {
-    if (_player.perksOwned[p.id]) {
-      perkHTML += `<div class="perk-icon" style="border-color:${p.color};color:${p.color}">${p.name.substring(0,3).toUpperCase()}</div>`;
+    if (_player.perksOwned[p.id] > 0) {
+      const secs = Math.ceil(_player.perksOwned[p.id]);
+      const warn = secs <= 15 ? ';animation:perkBlink 0.5s infinite' : '';
+      perkHTML += `<div class="perk-icon" style="border-color:${p.color};color:${p.color}${warn}">${p.name.substring(0,3).toUpperCase()} ${secs}s</div>`;
     }
   }
   if (_player._instaKill && _player._instaKillTimer > 0) {
@@ -118,7 +120,7 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
       const perk = _perks[pm.perkIdx];
       const bx = (pm.tx+0.5)*_TILE, bz = (pm.tz+0.5)*_TILE;
       if (Math.hypot(bx-px, bz-pz) < _TILE*2) {
-        if (_player.perksOwned[perk.id]) buyText = `${perk.name} (OWNED)`;
+        if (_player.perksOwned[perk.id] > 0) buyText = `${perk.name} (${Math.ceil(_player.perksOwned[perk.id])}s left)`;
         else if (round < perk.minRound) buyText = `${perk.name} - Unlocks Round ${perk.minRound}`;
         else buyText = `${keyLabel} ${perk.name} (${perk.desc}) - $${perk.cost}`;
         break;
@@ -282,7 +284,7 @@ export function showPause() {
   document.getElementById('pauseOverlay').style.display = 'flex';
   let perkInfo = '';
   for (const p of _perks) {
-    if (_player.perksOwned[p.id]) perkInfo += `${p.name} (${p.desc}) · `;
+    if (_player.perksOwned[p.id] > 0) perkInfo += `${p.name} (${Math.ceil(_player.perksOwned[p.id])}s) · `;
   }
   document.getElementById('pausePerks').textContent = perkInfo ? `PERKS: ${perkInfo.slice(0,-3)}` : '';
 }

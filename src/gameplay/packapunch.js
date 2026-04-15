@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { beep } from '../audio/index.js';
 import { addFloatText, triggerScreenShake } from '../effects/index.js';
+import { applyPaPCamo } from '../models/guns.js';
 
 let _scene, _TILE, _camera, _weapons, _player, _getPoints, _setPoints;
 
@@ -81,6 +82,8 @@ export function tryPackAPunch() {
   _weapons[wi].maxAmmo = Math.floor(_weapons[wi].maxAmmo * 1.5);
   _player.mag = _weapons[wi].mag;
   _player.ammo[wi] = _weapons[wi].maxAmmo;
+  
+  applyPaPCamo(wi);
   
   const papNames = { 'M1911': 'Mustang & Sally', 'MP40': 'The Afterburner', 'Trench Gun': 'Gut Shot', 'Ray Gun': 'Porter\'s X2' };
   const origName = _weapons[wi].name;

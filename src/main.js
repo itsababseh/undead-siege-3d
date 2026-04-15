@@ -47,7 +47,7 @@ import {
 import {
   gunGroup, gunModels, muzzleMesh, knifeModel,
   buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
-  updateGunModel, setGunDeps, initGunModels
+  updateGunModel, setGunDeps, initGunModels, updatePaPCamo, resetPaPCamo
 } from './models/guns.js';
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
@@ -311,15 +311,20 @@ const wallBuys = [
 ];
 
 // ===== PERKS =====
+const PERK_DURATION = 90; // seconds — all perks expire after 90s
 const perks = [
   { id:'juggernog', name:'Juggernog', desc:'+75 HP', cost:2500, color:'#e44', minRound:1,
-    apply() { player.maxHp = 175; player.hp = Math.min(player.hp+75, 175); }},
+    apply() { player.maxHp = 175; player.hp = Math.min(player.hp+75, 175); },
+    unapply() { player.maxHp = 100; player.hp = Math.min(player.hp, 100); }},
   { id:'speedcola', name:'Speed Cola', desc:'Faster Reload', cost:3000, color:'#4e4', minRound:3,
-    apply() { player.reloadMult = 0.5; }},
+    apply() { player.reloadMult = 0.5; },
+    unapply() { player.reloadMult = 1; }},
   { id:'doubletap', name:'Double Tap', desc:'2x Fire Rate', cost:2000, color:'#fc0', minRound:5,
-    apply() { player.fireRateMult = 0.5; }},
+    apply() { player.fireRateMult = 0.5; },
+    unapply() { player.fireRateMult = 1; }},
   { id:'quickrevive', name:'Quick Revive', desc:'HP Regen', cost:1500, color:'#4af', minRound:1,
-    apply() { player.hpRegen = true; }},
+    apply() { player.hpRegen = true; },
+    unapply() { player.hpRegen = false; }},
 ];
 const perkMachines = [
   { tx:10, tz:11, perkIdx:0 },
@@ -454,6 +459,7 @@ function initGame() {
     weapons[i].maxAmmo = origWeaponStats[i].maxAmmo;
   }
   resetPackAPunch();
+  resetPaPCamo();
   resetMysteryBox();
   cleanupPowerUps();
   
@@ -1062,14 +1068,14 @@ function tryBuy() {
     const bx = (pm.tx + 0.5) * TILE, bz = (pm.tz + 0.5) * TILE;
     const d = Math.hypot(bx - px, bz - pz);
     if (d < TILE * 2) {
-      if (player.perksOwned[perk.id]) { addFloatText(`Already have ${perk.name}`, '#888'); }
+      if (player.perksOwned[perk.id] > 0) { addFloatText(`Already have ${perk.name} (${Math.ceil(player.perksOwned[perk.id])}s left)`, '#888'); }
       else if (round < perk.minRound) { addFloatText(`${perk.name} unlocks round ${perk.minRound}`, '#888'); }
       else if (points >= perk.cost) {
         points -= perk.cost;
-        player.perksOwned[perk.id] = true;
+        player.perksOwned[perk.id] = PERK_DURATION;
         perk.apply();
         sfxBuyPerk();
-        addFloatText(`${perk.name} ACTIVE!`, perk.color, 2.5);
+        addFloatText(`${perk.name} ACTIVE! (${PERK_DURATION}s)`, perk.color, 2.5);
       } else { addFloatText(`Need $${perk.cost} for ${perk.name}`, '#f88'); }
       return;
     }
@@ -1161,6 +1167,20 @@ function _update(dt) {
   if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
     player.hpRegenTimer += dt;
     if (player.hpRegenTimer >= 2) { player.hp = Math.min(player.hp + 5, player.maxHp); player.hpRegenTimer = 0; }
+  }
+  
+  // Perk expiration timers
+  for (const perk of perks) {
+    if (player.perksOwned[perk.id] > 0) {
+      player.perksOwned[perk.id] -= dt;
+      if (player.perksOwned[perk.id] <= 0) {
+        player.perksOwned[perk.id] = 0;
+        perk.unapply();
+        addFloatText(`${perk.name} EXPIRED!`, '#888', 2.5);
+        beep(300, 'sine', 0.15, 0.08);
+        beep(200, 'sine', 0.15, 0.08);
+      }
+    }
   }
   
   if (player.reloading) {
@@ -1516,6 +1536,7 @@ function gameLoop(time) {
   controls._applyRotation();
   updateCenterMsg(dt);
   updateGunModel(dt, gunKick);
+  updatePaPCamo();
   updateLights(dt);
   updateHitmarker(dt);
   updateScreenShake(dt);
