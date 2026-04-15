@@ -1218,13 +1218,47 @@ function _update(dt) {
     }
   }
 
+  // Build the list of valid attack/AI targets once per frame. In MP this
+  // includes the local player plus every remote player; in SP it's just
+  // the local camera. The zombie AI (host-side) picks whichever is nearest
+  // per-zombie; the attack check below always runs against the local player.
+  const targets = [];
+  targets.push({ x: camera.position.x, z: camera.position.z, isLocal: true });
+  if (_mpActive) {
+    for (const rp of netcode.getRemotePlayers().values()) {
+      targets.push({ x: rp.wx, z: rp.wz, isLocal: false });
+    }
+  }
+
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     z.flash = Math.max(0, z.flash - dt * 5);
 
-    const dx = camera.position.x - z.wx;
-    const dz = camera.position.z - z.wz;
-    const d = Math.hypot(dx, dz);
+    // Local distance — used by the attack check and some FX. Always the
+    // local camera, because each client applies attacks to its own player.
+    const localDx = camera.position.x - z.wx;
+    const localDz = camera.position.z - z.wz;
+    const localD = Math.hypot(localDx, localDz);
+
+    // AI distance — used by the movement loop. On host, this is the
+    // NEAREST player (local or remote) so zombies don't all chase one guy.
+    // On SP / non-host this is just the local camera.
+    let dx, dz, d;
+    if (_isHostOrSP && _mpActive) {
+      let bestD = Infinity, bestT = targets[0];
+      for (const t of targets) {
+        const tx = t.x - z.wx, tz = t.z - z.wz;
+        const td = tx * tx + tz * tz;
+        if (td < bestD) { bestD = td; bestT = t; }
+      }
+      dx = bestT.x - z.wx;
+      dz = bestT.z - z.wz;
+      d = Math.sqrt(bestD);
+    } else {
+      dx = localDx;
+      dz = localDz;
+      d = localD;
+    }
 
     if (_isHostOrSP && d > 1.5) {
       let curSpd = z.spd;
@@ -1290,7 +1324,11 @@ function _update(dt) {
       }
     }
     
-    if (d < 1.8 && state === 'playing') {
+    // Attack check always uses LOCAL distance — each client applies
+    // damage to its own player regardless of who the AI is chasing.
+    // Fires whether the pause overlay is up or not; in MP, pausing
+    // doesn't make you invulnerable.
+    if (localD < 1.8 && state === 'playing') {
       z.atkTimer -= dt;
       if (z.atkTimer <= 0) {
         player.hp -= z.dmg;
