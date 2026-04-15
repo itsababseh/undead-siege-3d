@@ -262,7 +262,7 @@ const weapons = [
   { name: 'M1911', dmg: 40, rate: 0.3, mag: 8, maxAmmo: 999, reload: 1.5, auto: false, spread: 0.02, color: '#fc0' },
   { name: 'MP40', dmg: 25, rate: 0.08, mag: 32, maxAmmo: 192, reload: 2.0, auto: true, spread: 0.06, color: '#6cf' },
   { name: 'Trench Gun', dmg: 120, rate: 0.7, mag: 6, maxAmmo: 54, reload: 2.5, auto: false, spread: 0.1, pellets: 5, color: '#f84' },
-  { name: 'Ray Gun', dmg: 300, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true },
+  { name: 'Ray Gun', dmg: 1000, rate: 0.35, mag: 20, maxAmmo: 160, reload: 3.0, auto: false, spread: 0.01, color: '#0f0', isRayGun: true, splashRadius: 3.5 },
 ];
 const origWeaponStats = weapons.map(w => ({ name: w.name, dmg: w.dmg, mag: w.mag, maxAmmo: w.maxAmmo }));
 
@@ -865,7 +865,11 @@ function tryShoot() {
       sfxHit();
       bestZ.flash = 1;
       points += player._doublePoints ? 20 : 10;
-      spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
+      if (w.isRayGun) {
+        spawnEnergyParticles(bestZ.wx, 1.2, bestZ.wz, 6);
+      } else {
+        spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
+      }
       showHitmarker(false);
       spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
 
@@ -892,7 +896,7 @@ function tryShoot() {
             sfxKill();
             showHitmarker(true);
             spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
-            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 10); }
+            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 15); }
             else { spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8); }
             const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
             addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
@@ -905,6 +909,37 @@ function tryShoot() {
             if (bestZ.isBoss) {
               sfxBossKill();
               triggerScreenShake(2.5, 5);
+            }
+          }
+        }
+
+        // Ray Gun splash damage — hurts all nearby zombies
+        if (w.splashRadius) {
+          const splashDmg = Math.floor(w.dmg * 0.5);
+          const sx = bestZ.wx, sz = bestZ.wz;
+          for (let si = zombies.length - 1; si >= 0; si--) {
+            const sz2 = zombies[si];
+            if (sz2 === bestZ) continue;
+            const sd = Math.hypot(sz2.wx - sx, sz2.wz - sz);
+            if (sd > w.splashRadius) continue;
+            const falloff = 1 - (sd / w.splashRadius);
+            const dmgAmt = Math.floor(splashDmg * falloff);
+            if (dmgAmt <= 0) continue;
+            sz2.hp -= dmgAmt;
+            sz2.flash = 0.5;
+            spawnEnergyParticles(sz2.wx, 1, sz2.wz, 3);
+            spawnDmgNumber(sz2.wx, 1.6 + Math.random() * 0.3, sz2.wz, dmgAmt, false);
+            if (player._instaKill && sz2.hp > 0) sz2.hp = 0;
+            if (sz2.hp <= 0) {
+              totalKills++;
+              const sPts = player._doublePoints ? 120 : 60;
+              points += sPts;
+              sfxKill();
+              addFloatText(`+${sPts}`, '#0f0', 1);
+              startZombieDeathAnim(sz2);
+              spawnPowerUp(sz2.wx, sz2.wz);
+              removeZombieMesh(sz2);
+              zombies.splice(si, 1);
             }
           }
         }

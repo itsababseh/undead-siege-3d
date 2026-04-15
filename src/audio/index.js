@@ -169,27 +169,75 @@ function sfxRayGun() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    // Sci-fi descending whine
-    const o = actx.createOscillator(), g = actx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(2200, t);
-    o.frequency.exponentialRampToValueAtTime(150, t + 0.35);
-    g.gain.setValueAtTime(0.14, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.35);
-    // Electric zap layer
-    const o2 = actx.createOscillator(), g2 = actx.createGain();
-    o2.type = 'square'; o2.frequency.value = 120;
-    g2.gain.setValueAtTime(0.06, t);
-    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.15);
-    // Energy pulse
-    const o3 = actx.createOscillator(), g3 = actx.createGain();
-    o3.type = 'triangle'; o3.frequency.setValueAtTime(800, t);
-    o3.frequency.exponentialRampToValueAtTime(1600, t + 0.05);
-    o3.frequency.exponentialRampToValueAtTime(400, t + 0.2);
-    g3.gain.setValueAtTime(0.08, t);
-    g3.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-    o3.connect(g3); g3.connect(masterGain); o3.start(t); o3.stop(t + 0.25);
+
+    // Layer 1: Rising energy charge → sharp "PEW" discharge
+    // Quick rising whine that snaps into a descending tone
+    const pew = actx.createOscillator(), pewG = actx.createGain();
+    pew.type = 'sine';
+    pew.frequency.setValueAtTime(400, t);
+    pew.frequency.exponentialRampToValueAtTime(3200, t + 0.03);  // fast rise
+    pew.frequency.exponentialRampToValueAtTime(180, t + 0.3);    // long descend
+    pewG.gain.setValueAtTime(0.22, t);
+    pewG.gain.linearRampToValueAtTime(0.18, t + 0.03);
+    pewG.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    pew.connect(pewG); pewG.connect(masterGain);
+    pew.start(t); pew.stop(t + 0.35);
+
+    // Layer 2: Electric crackle — filtered noise burst
+    const crackLen = Math.floor(actx.sampleRate * 0.08);
+    const crackBuf = actx.createBuffer(1, crackLen, actx.sampleRate);
+    const cd = crackBuf.getChannelData(0);
+    for (let i = 0; i < crackLen; i++) {
+      cd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (crackLen * 0.12));
+    }
+    const crack = actx.createBufferSource();
+    crack.buffer = crackBuf;
+    const crackBP = actx.createBiquadFilter();
+    crackBP.type = 'bandpass'; crackBP.frequency.value = 4500; crackBP.Q.value = 2;
+    const crackG = actx.createGain();
+    crackG.gain.setValueAtTime(0.25, t);
+    crackG.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    crack.connect(crackBP); crackBP.connect(crackG); crackG.connect(masterGain);
+    crack.start(t); crack.stop(t + 0.08);
+
+    // Layer 3: Harmonic ring — the sci-fi "ray" resonance
+    const ring = actx.createOscillator(), ringG = actx.createGain();
+    ring.type = 'triangle';
+    ring.frequency.setValueAtTime(1800, t + 0.02);
+    ring.frequency.exponentialRampToValueAtTime(600, t + 0.25);
+    ringG.gain.setValueAtTime(0, t);
+    ringG.gain.linearRampToValueAtTime(0.1, t + 0.025);
+    ringG.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    ring.connect(ringG); ringG.connect(masterGain);
+    ring.start(t); ring.stop(t + 0.3);
+
+    // Layer 4: Deep bass reverb thump — impact weight
+    const bass = actx.createOscillator(), bassG = actx.createGain();
+    bass.type = 'sine';
+    bass.frequency.setValueAtTime(100, t + 0.01);
+    bass.frequency.exponentialRampToValueAtTime(30, t + 0.25);
+    bassG.gain.setValueAtTime(0, t);
+    bassG.gain.linearRampToValueAtTime(0.3, t + 0.02);
+    bassG.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    bass.connect(bassG); bassG.connect(masterGain);
+    bass.start(t); bass.stop(t + 0.3);
+
+    // Layer 5: High-freq sizzle tail — energy dissipation
+    const sizzLen = Math.floor(actx.sampleRate * 0.2);
+    const sizzBuf = actx.createBuffer(1, sizzLen, actx.sampleRate);
+    const sd = sizzBuf.getChannelData(0);
+    for (let i = 0; i < sizzLen; i++) {
+      sd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sizzLen * 0.25));
+    }
+    const sizz = actx.createBufferSource();
+    sizz.buffer = sizzBuf;
+    const sizzHP = actx.createBiquadFilter();
+    sizzHP.type = 'highpass'; sizzHP.frequency.value = 6000; sizzHP.Q.value = 0.5;
+    const sizzG = actx.createGain();
+    sizzG.gain.setValueAtTime(0.06, t + 0.03);
+    sizzG.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    sizz.connect(sizzHP); sizzHP.connect(sizzG); sizzG.connect(masterGain);
+    sizz.start(t + 0.03); sizz.stop(t + 0.25);
   } catch(e) {}
 }
 
