@@ -66,6 +66,21 @@
 <div id="gameTransition"></div>
 <div id="deathVeil"></div>
 
+<!-- MP downed state: shown when our HP hits 0 in multiplayer. -->
+<div id="downedOverlay" style="display:none;position:fixed;inset:0;pointer-events:none;z-index:50;background:radial-gradient(ellipse at center,rgba(120,0,0,0.25),rgba(0,0,0,0.85));font-family:monospace;color:#fff;text-align:center;padding-top:20vh;">
+  <div style="font-size:54px;font-weight:bold;color:#f44;text-shadow:0 0 20px #f00,0 0 40px #f00;letter-spacing:4px;">DOWNED</div>
+  <div style="margin-top:16px;font-size:20px;color:#fca;">Waiting for a teammate to revive you…</div>
+  <div id="downedHint" style="margin-top:24px;font-size:16px;color:#888;">If your whole squad goes down, the session resets.</div>
+</div>
+
+<!-- MP revive prompt: shown on the reviver's HUD when near a downed teammate. -->
+<div id="reviveHud" style="display:none;position:fixed;left:50%;bottom:18%;transform:translateX(-50%);z-index:49;font-family:monospace;color:#fff;text-align:center;pointer-events:none;">
+  <div id="reviveLabel" style="font-size:18px;text-shadow:0 0 6px #000;margin-bottom:6px;">Hold <b style="color:#8f8">E</b> to revive <span id="reviveTargetName">Survivor</span></div>
+  <div style="width:240px;height:8px;background:rgba(0,0,0,0.6);border:1px solid #666;border-radius:4px;overflow:hidden;">
+    <div id="reviveBar" style="height:100%;width:0%;background:linear-gradient(90deg,#2d5,#8f8);transition:width 0.05s linear;"></div>
+  </div>
+</div>
+
 <div id="hud" class="hidden">
   <div id="crosshair">
     <div class="ch ch-h ch-l"></div>

@@ -16,9 +16,15 @@
 import { schema, table, t } from 'spacetimedb/server';
 
 // Player: one row per connected client.
-// `alive` is flipped false when the local HP hits 0 (reported via the
-// report_player_alive reducer) and back to true on new-game start.
-// Used for the "all players dead → reset session" lifecycle rule.
+//
+// Lifecycle flags:
+//   `alive`  — currently "in the game" in any form. False only when the
+//              session-reset trigger fires (everyone truly out). Client
+//              flips this on initGame(true) / teardown(false).
+//   `downed` — incapacitated, waiting for a teammate revive. In MP, HP
+//              hitting 0 enters this state instead of the single-player
+//              game-over. If every `alive` player is also `downed`, the
+//              server resets the session (nobody can save them).
 export const Player = table(
   { name: 'player', public: true },
   {
@@ -31,6 +37,7 @@ export const Player = table(
     points: t.i32(),
     online: t.bool(),
     alive: t.bool(),
+    downed: t.bool(),
     lastSeen: t.timestamp(),
   }
 );

@@ -74,7 +74,7 @@ function createMesh(hex, name) {
   group.add(nameSprite);
 
   _scene.add(group);
-  return { group, body, nameSprite, bodyMat: mat };
+  return { group, body, nameSprite, bodyMat: mat, _hex: hex };
 }
 
 function disposeMesh(rec) {
@@ -107,6 +107,7 @@ export function updateRemotePlayers(dt, remoteMap) {
     rec.targetWx = data.wx;
     rec.targetWz = data.wz;
     rec.targetRy = data.ry;
+    rec.downed = !!data.downed;
   }
   for (const [hex, rec] of _meshes) {
     if (!seen.has(hex)) {
@@ -129,6 +130,26 @@ export function updateRemotePlayers(dt, remoteMap) {
 
     rec.group.position.set(rec.renderWx, 0, rec.renderWz);
     rec.group.rotation.y = rec.renderRy;
+
+    // Downed visuals: tilt the capsule onto its side, desaturate the
+    // body color, and pulse an emissive red so teammates can see at a
+    // glance who needs a revive. The nose indicator rotates with the
+    // body; the name sprite stays upright because it's a billboard.
+    if (rec.downed) {
+      rec.body.rotation.z = Math.PI / 2;
+      rec.body.position.y = 0.35;
+      const pulse = 0.4 + 0.4 * Math.sin(performance.now() / 250);
+      rec.bodyMat.color.setRGB(0.6, 0.15, 0.15);
+      rec.bodyMat.emissive.setRGB(pulse, 0, 0);
+      rec.bodyMat.emissiveIntensity = 0.8;
+    } else if (rec.body.rotation.z !== 0) {
+      rec.body.rotation.z = 0;
+      rec.body.position.y = 0.9;
+      // Restore the per-identity stable color
+      rec.bodyMat.color.copy(colorFromHex(rec._hex || ''));
+      rec.bodyMat.emissive.copy(rec.bodyMat.color);
+      rec.bodyMat.emissiveIntensity = 0.15;
+    }
   }
 }
 

@@ -109,6 +109,8 @@ function syncPlayerFromRow(row) {
     wz: row.wz,
     ry: row.ry,
     hp: row.hp,
+    alive: row.alive,
+    downed: row.downed,
     lastUpdate: performance.now(),
   });
 }
@@ -438,4 +440,29 @@ export function callReportPlayerAlive(alive) {
   if (!_conn) return;
   try { _conn.reducers.reportPlayerAlive({ alive }); }
   catch (e) { console.warn('[netcode] reportPlayerAlive failed', e); }
+}
+
+export function callReportPlayerDowned() {
+  if (!_conn) return;
+  try { _conn.reducers.reportPlayerDowned(); }
+  catch (e) { console.warn('[netcode] reportPlayerDowned failed', e); }
+}
+
+export function callRevivePlayer(targetIdentity) {
+  if (!_conn) return;
+  try { _conn.reducers.revivePlayer({ targetIdentity }); }
+  catch (e) { console.warn('[netcode] revivePlayer failed', e); }
+}
+
+/**
+ * Returns true if the local player row says we're downed.
+ * Queried each frame by main.js to decide whether to show the
+ * DOWNED overlay and block input.
+ */
+export function isLocalPlayerDowned() {
+  if (!_conn || !_localIdentity) return false;
+  try {
+    const row = _conn.db.player.identity.find(_localIdentity);
+    return row ? !!row.downed : false;
+  } catch (e) { return false; }
 }

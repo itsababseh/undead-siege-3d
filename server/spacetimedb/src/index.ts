@@ -36,10 +36,13 @@ export const init = spacetimedb.init((ctx) => {
 export const onConnect = spacetimedb.clientConnected((ctx) => {
   const existing = ctx.db.player.identity.find(ctx.sender);
   if (existing) {
+    // Rejoin from a fresh tab: clear downed state so they aren't stuck
+    // in a "waiting for revive" screen the moment they reconnect.
     ctx.db.player.identity.update({
       ...existing,
       online: true,
       alive: true,
+      downed: false,
       lastSeen: ctx.timestamp,
     });
     return;
@@ -55,6 +58,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     points: 500,
     online: true,
     alive: true,
+    downed: false,
     lastSeen: ctx.timestamp,
   });
 });
@@ -88,10 +92,11 @@ function anyPlayersLeft(ctx: any): boolean {
   return false;
 }
 
-// True if any player row is still alive. Used to decide whether an
-// all-dead check should reset the session.
-function anyAlivePlayers(ctx: any): boolean {
-  for (const p of ctx.db.player.iter()) if (p.alive) return true;
+// True if any player is still "up" — alive and not currently downed.
+// Used to decide whether the session should reset. A fully-downed
+// squad counts as wiped: nobody's left to revive them.
+function anyUpPlayers(ctx: any): boolean {
+  for (const p of ctx.db.player.iter()) if (p.alive && !p.downed) return true;
   return false;
 }
 
@@ -172,20 +177,65 @@ export const set_player_name = spacetimedb.reducer(
   }
 );
 
-// Client reports its own alive/dead state.
-//   - alive=false: local HP hit 0, player is on the death screen
-//   - alive=true:  player started a new game (from menu or after respawn)
-// When alive=false and no players remain alive, we reset the session so
-// the next round starts clean for anyone who then picks "play again".
+// Client reports its own alive state.
+//   - alive=true:  starting a fresh game (from menu or after session reset)
+//   - alive=false: teardown (leaving the game / back to menu)
+// The "HP hit 0" case is handled by report_player_downed below — in MP
+// we enter a revivable downed state instead of instantly dying.
 export const report_player_alive = spacetimedb.reducer(
   { alive: t.bool() },
   (ctx, { alive }) => {
     const row = ctx.db.player.identity.find(ctx.sender);
     if (!row) return;
-    ctx.db.player.identity.update({ ...row, alive });
-    if (!alive && !anyAlivePlayers(ctx)) {
+    ctx.db.player.identity.update({
+      ...row,
+      alive,
+      // Starting a fresh game clears any leftover downed state from
+      // a previous run.
+      downed: alive ? false : row.downed,
+      hp: alive ? 100 : row.hp,
+    });
+    if (!alive && !anyUpPlayers(ctx)) {
       resetSession(ctx);
     }
+  }
+);
+
+// Client reports its local HP hit 0 in MP — enter the revivable downed
+// state. If this leaves nobody standing, reset the session.
+export const report_player_downed = spacetimedb.reducer((ctx) => {
+  const row = ctx.db.player.identity.find(ctx.sender);
+  if (!row) return;
+  ctx.db.player.identity.update({ ...row, downed: true, hp: 0 });
+  if (!anyUpPlayers(ctx)) {
+    resetSession(ctx);
+  }
+});
+
+// Any player revives another. Caller is the reviver, targetIdentity is
+// the one being revived. Server sanity-checks physical proximity so a
+// client can't remote-revive a teammate on the other side of the map.
+// MAX_REVIVE_DIST is generous (5 world units ≈ a bit more than a tile
+// of padding) to tolerate normal network-position drift.
+const MAX_REVIVE_DIST = 5.0;
+export const revive_player = spacetimedb.reducer(
+  { targetIdentity: t.identity() },
+  (ctx, { targetIdentity }) => {
+    const reviver = ctx.db.player.identity.find(ctx.sender);
+    const target = ctx.db.player.identity.find(targetIdentity);
+    if (!reviver || !target) return;
+    if (!target.downed) return;
+    if (reviver.downed || !reviver.alive) return;
+    const dx = reviver.wx - target.wx;
+    const dz = reviver.wz - target.wz;
+    if (dx * dx + dz * dz > MAX_REVIVE_DIST * MAX_REVIVE_DIST) {
+      throw new SenderError('too far from target to revive');
+    }
+    ctx.db.player.identity.update({
+      ...target,
+      downed: false,
+      hp: 50, // partial HP on revive (matches CoD Zombies)
+    });
   }
 );
 

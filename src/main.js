@@ -232,6 +232,23 @@ scene.add(muzzleLight);
 // ===== GAME STATE =====
 let state = 'menu';
 let paused = false;
+// MP-only: local player is in the "downed, waiting for revive" state.
+// Set when our HP hits 0 in a connected session; cleared when the
+// server clears our Player.downed (another player completed a revive).
+let _downed = false;
+// MP-only: when standing next to a downed teammate and holding E, this
+// fills from 0→1 over REVIVE_TIME_SEC seconds. On completion we call
+// the revive_player reducer and reset.
+let _reviveProgress = 0;
+let _reviveTargetHex = null;
+const REVIVE_TIME_SEC = 3.0;
+const REVIVE_RANGE = 3.0;
+
+// DOM references are lazy because the elements are in index.html.
+function _getDownedOverlay() { return document.getElementById('downedOverlay'); }
+function _getReviveHud() { return document.getElementById('reviveHud'); }
+function _getReviveBar() { return document.getElementById('reviveBar'); }
+function _getReviveTargetName() { return document.getElementById('reviveTargetName'); }
 let round = 0, points = 500, totalKills = 0;
 const gameState = { get points() { return points; }, set points(v) { points = v; },
                     get round() { return round; }, set round(v) { round = v; },
@@ -517,10 +534,23 @@ function initGame() {
 
 function nextRound() {
   round++;
-  zToSpawn = Math.floor(6 + round * 3 + doorsOpenedCount * 2);
+  // Scale the wave by the number of active players in MP so a four-
+  // player squad doesn't breeze through a solo-tuned wave count.
+  // Treat everyone who's online as contributing to the scale whether
+  // or not they're currently alive — downed players will be revived
+  // during the round.
+  let playerScale = 1;
+  if (netcode.isConnected()) {
+    const remoteCount = netcode.getRemotePlayers().size;
+    playerScale = 1 + remoteCount; // local + remotes
+  }
+  zToSpawn = Math.floor((6 + round * 3 + doorsOpenedCount * 2) * (0.6 + playerScale * 0.4));
   zSpawned = 0;
   resetRoundPowerUps();
-  maxAlive = Math.min(6 + round * 2 + doorsOpenedCount * 2, 30);
+  maxAlive = Math.min(
+    Math.floor((6 + round * 2 + doorsOpenedCount * 2) * (0.7 + playerScale * 0.3)),
+    30 + (playerScale - 1) * 5
+  );
   spawnTimer = 0;
   state = 'roundIntro';
   roundIntroTimer = 3;
@@ -1196,7 +1226,24 @@ function update(dt) {
 
 function _update(dt) {
   if (paused) return;
-  
+
+  // MP: while locally downed, keep rendering and show the overlay,
+  // but skip all game logic (movement, shooting, buying, etc.).
+  // The server will clear our downed flag when a teammate revives us.
+  if (_downed) {
+    updateDownedVisuals();
+    // Poll server state: if downed flag cleared, respawn us in place.
+    if (netcode.isConnected() && !netcode.isLocalPlayerDowned()) {
+      _downed = false;
+      player.hp = 50;
+      const ov = _getDownedOverlay();
+      if (ov) ov.style.display = 'none';
+      // Re-lock cursor when they next click the canvas.
+    }
+    return;
+  }
+  updateReviveInteraction(dt);
+
   if (state === 'roundIntro') {
     roundIntroTimer -= dt;
     if (roundIntroTimer <= 0) state = 'playing';
@@ -1204,7 +1251,7 @@ function _update(dt) {
     return;
   }
   if (state === 'dead' || state !== 'playing') return;
-  
+
   updateMovement(dt);
   
   player.fireTimer = Math.max(0, player.fireTimer - dt);
@@ -1434,14 +1481,20 @@ function _update(dt) {
         z.atkTimer = 1;
         if (player.hp <= 0) {
           player.hp = 0;
-          state = 'dead';
-          sfxPlayerDeath();
-          controls.unlock();
-          setTimeout(showDeath, 1000);
-          // Tell the server we're dead. If all connected players are
-          // now dead, the server resets the session for a fresh start.
+          // In MP, hitting 0 HP enters the revivable "downed" state
+          // instead of the permanent death screen. A teammate can walk
+          // up and hold E to revive. If everyone is downed at once,
+          // the server resets the session.
           if (netcode.isConnected()) {
-            try { netcode.callReportPlayerAlive(false); } catch (e) {}
+            _downed = true;
+            sfxPlayerDeath();
+            controls.unlock();
+            try { netcode.callReportPlayerDowned(); } catch (e) {}
+          } else {
+            state = 'dead';
+            sfxPlayerDeath();
+            controls.unlock();
+            setTimeout(showDeath, 1000);
           }
           break;
         }
@@ -1477,6 +1530,75 @@ function _update(dt) {
     if (_mpActive) {
       try { netcode.callAdvanceRound(); } catch (e) { console.warn('[mp] advanceRound failed', e); }
     }
+  }
+}
+
+// Show the DOWNED overlay + zero the revive HUD while we are downed.
+function updateDownedVisuals() {
+  const ov = _getDownedOverlay();
+  if (ov && ov.style.display !== 'block') ov.style.display = 'block';
+  const hud = _getReviveHud();
+  if (hud && hud.style.display !== 'none') hud.style.display = 'none';
+}
+
+// Each frame when we're NOT downed, check if any remote player near us
+// is downed and the player is holding E. Fill the progress bar and
+// call revive_player when it reaches 1.
+function updateReviveInteraction(dt) {
+  if (!netcode.isConnected()) {
+    _reviveProgress = 0;
+    _reviveTargetHex = null;
+    const hud = _getReviveHud();
+    if (hud && hud.style.display !== 'none') hud.style.display = 'none';
+    return;
+  }
+
+  // Find the nearest downed remote player within REVIVE_RANGE.
+  let nearest = null, nearestHex = null, nearestD = Infinity;
+  for (const [hex, rp] of netcode.getRemotePlayers()) {
+    if (!rp.downed) continue;
+    const dx = rp.wx - camera.position.x;
+    const dz = rp.wz - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < nearestD) { nearestD = d; nearest = rp; nearestHex = hex; }
+  }
+
+  const hud = _getReviveHud();
+  if (!nearest || nearestD > REVIVE_RANGE) {
+    _reviveProgress = 0;
+    _reviveTargetHex = null;
+    if (hud && hud.style.display !== 'none') hud.style.display = 'none';
+    return;
+  }
+
+  // New target → reset progress.
+  if (_reviveTargetHex !== nearestHex) {
+    _reviveTargetHex = nearestHex;
+    _reviveProgress = 0;
+  }
+
+  // Show prompt.
+  if (hud) {
+    hud.style.display = 'block';
+    const nameEl = _getReviveTargetName();
+    if (nameEl) nameEl.textContent = nearest.name || 'Survivor';
+  }
+
+  // Fill while E is held; decay while released.
+  if (keys['e']) {
+    _reviveProgress = Math.min(1, _reviveProgress + dt / REVIVE_TIME_SEC);
+  } else {
+    _reviveProgress = Math.max(0, _reviveProgress - dt * 2);
+  }
+  const bar = _getReviveBar();
+  if (bar) bar.style.width = `${Math.round(_reviveProgress * 100)}%`;
+
+  if (_reviveProgress >= 1) {
+    _reviveProgress = 0;
+    try { netcode.callRevivePlayer(nearest.identity); }
+    catch (e) { console.warn('[mp] revivePlayer failed', e); }
+    // Hide immediately — subscription update will clear nearest.downed
+    if (hud) hud.style.display = 'none';
   }
 }
 
