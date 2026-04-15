@@ -636,56 +636,69 @@ function _makePortalMesh(color, pos, label) {
 }
 
 function _createEmergencyExitDoor(portalPos) {
-  // Emergency exit door structure with escape tape
+  // Emergency exit door structure with escape tape - mounted on wall
   const doorGroup = new THREE.Group();
   
-  // Door frame (metal emergency exit style)
+  // Wall section behind the door
+  const wallGeom = new THREE.BoxGeometry(6, 6, 0.5);
+  const wallMat = new THREE.MeshBasicMaterial({ color: 0x444444 });
+  const wall = new THREE.Mesh(wallGeom, wallMat);
+  wall.position.set(portalPos.x, portalPos.y + 2.5, portalPos.z + 3);
+  
+  // Door frame (metal emergency exit style) - mounted on wall
   const frameGeom = new THREE.BoxGeometry(4, 5, 0.3);
   const frameMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
   const doorFrame = new THREE.Mesh(frameGeom, frameMat);
-  doorFrame.position.set(portalPos.x, portalPos.y + 2.5, portalPos.z - 2);
+  doorFrame.position.set(portalPos.x, portalPos.y + 2.5, portalPos.z + 2.8);
   
-  // Door panels (slightly open)
+  // Door panels (slightly open to show portal behind)
   const panelGeom = new THREE.BoxGeometry(1.8, 4.5, 0.2);
   const panelMat = new THREE.MeshBasicMaterial({ color: 0x2a4a2a });
   
   const leftPanel = new THREE.Mesh(panelGeom, panelMat);
-  leftPanel.position.set(portalPos.x - 0.8, portalPos.y + 2.25, portalPos.z - 1.9);
-  leftPanel.rotation.y = -0.3; // Slightly open
+  leftPanel.position.set(portalPos.x - 1.2, portalPos.y + 2.25, portalPos.z + 2.6);
+  leftPanel.rotation.y = -0.8; // More open to reveal portal
   
   const rightPanel = new THREE.Mesh(panelGeom, panelMat);
-  rightPanel.position.set(portalPos.x + 0.8, portalPos.y + 2.25, portalPos.z - 1.9);
-  rightPanel.rotation.y = 0.3; // Slightly open
+  rightPanel.position.set(portalPos.x + 1.2, portalPos.y + 2.25, portalPos.z + 2.6);
+  rightPanel.rotation.y = 0.8; // More open to reveal portal
   
-  // Emergency exit sign
+  // Emergency exit sign above door
   const signGeom = new THREE.BoxGeometry(3, 0.8, 0.1);
   const signMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
   const exitSign = new THREE.Mesh(signGeom, signMat);
-  exitSign.position.set(portalPos.x, portalPos.y + 4.5, portalPos.z - 2.2);
+  exitSign.position.set(portalPos.x, portalPos.y + 4.5, portalPos.z + 2.9);
   
-  // Escape tape (yellow and black stripes)
-  for (let i = 0; i < 8; i++) {
-    const tapeGeom = new THREE.BoxGeometry(0.3, 0.2, 0.05);
+  // Escape tape (yellow and black stripes) around door frame
+  for (let i = 0; i < 12; i++) {
+    const tapeGeom = new THREE.BoxGeometry(0.4, 0.3, 0.05);
     const tapeMat = new THREE.MeshBasicMaterial({ 
       color: i % 2 === 0 ? 0xffff00 : 0x000000 
     });
     const tape = new THREE.Mesh(tapeGeom, tapeMat);
     
-    // Wrap tape around door frame
-    const angle = (i / 8) * Math.PI * 2;
-    tape.position.set(
-      portalPos.x + Math.cos(angle) * 2.2,
-      portalPos.y + 2.5 + Math.sin(angle * 2) * 0.5,
-      portalPos.z - 2 + Math.sin(angle) * 0.3
-    );
-    tape.rotation.y = angle;
+    // Place tape around door perimeter
+    if (i < 3) {
+      // Top edge
+      tape.position.set(portalPos.x - 1.5 + i * 1, portalPos.y + 4.8, portalPos.z + 2.85);
+    } else if (i < 6) {
+      // Right edge  
+      tape.position.set(portalPos.x + 1.8, portalPos.y + 3.5 - (i-3) * 1, portalPos.z + 2.85);
+    } else if (i < 9) {
+      // Bottom edge
+      tape.position.set(portalPos.x + 1.5 - (i-6) * 1, portalPos.y + 0.2, portalPos.z + 2.85);
+    } else {
+      // Left edge
+      tape.position.set(portalPos.x - 1.8, portalPos.y + 0.5 + (i-9) * 1, portalPos.z + 2.85);
+    }
     doorGroup.add(tape);
   }
   
   // Add emergency lighting
   const emergencyLight = new THREE.PointLight(0x00ff00, 1, 10);
-  emergencyLight.position.set(portalPos.x, portalPos.y + 4, portalPos.z - 2);
+  emergencyLight.position.set(portalPos.x, portalPos.y + 4, portalPos.z + 2.5);
   
+  doorGroup.add(wall);
   doorGroup.add(doorFrame);
   doorGroup.add(leftPanel);
   doorGroup.add(rightPanel);
@@ -701,12 +714,13 @@ function initVibeJamPortals() {
   if (_portalInited) return;
   _portalInited = true;
   // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
-  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
+  const doorPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
+  const portalPos = { x: doorPos.x, y: doorPos.y, z: doorPos.z + 2 }; // Behind the door
   
   // Create emergency exit door structure
-  _createEmergencyExitDoor(exitPos);
+  _createEmergencyExitDoor(doorPos);
   
-  const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM PORTAL');
+  const ep = _makePortalMesh(0x00ff44, portalPos, 'VIBE JAM PORTAL');
   _exitPortalGroup = ep;
   scene.add(ep.group); scene.add(ep.light);
   // Start (return) portal — only if player arrived via another jam game
