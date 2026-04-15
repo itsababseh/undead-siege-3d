@@ -6,7 +6,7 @@ import {
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
-  sfxPlayerDeath,
+  sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playMetalCreak,
   setAudioDeps
@@ -42,8 +42,8 @@ import {
   setEffectsDeps
 } from './effects/index.js';
 import {
-  gunGroup, gunModels, muzzleMesh,
-  buildM1911, buildMP40, buildTrenchGun, buildRayGun,
+  gunGroup, gunModels, muzzleMesh, knifeModel,
+  buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
   updateGunModel, setGunDeps, initGunModels
 } from './models/guns.js';
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
@@ -584,7 +584,7 @@ function spawnZombie() {
 
 
 // ===== INPUT =====
-const gameKeys = ['w','a','s','d','r','e','q','1','2','3','4'];
+const gameKeys = ['w','a','s','d','r','e','q','f','1','2','3','4'];
 let _quickSwapWeapon = 0;
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
@@ -865,6 +865,84 @@ function switchWeapon(idx) {
   sfxWeaponSwitch();
 }
 
+// ===== KNIFE =====
+const KNIFE_RANGE = 2.5;
+const KNIFE_COOLDOWN = 0.5;
+let knifeCooldown = 0;
+let knifeAnimTimer = 0;
+
+function getKnifeDamage() {
+  if (player._instaKill) return 999999;
+  return Math.ceil(50 + round * 20);
+}
+
+function tryKnife() {
+  if (state !== 'playing' && state !== 'roundIntro') return;
+  if (knifeCooldown > 0) return;
+  knifeCooldown = KNIFE_COOLDOWN;
+  knifeAnimTimer = 0.3;
+
+  // Show knife model briefly, hide current gun
+  knifeModel.visible = true;
+  gunModels.forEach(m => { m.visible = false; });
+
+  // Find closest zombie in front of player within range
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  let bestZ = null, bestD = Infinity;
+  for (const z of zombies) {
+    const dx = z.wx - camera.position.x;
+    const dz = z.wz - camera.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > KNIFE_RANGE) continue;
+    // Check zombie is in front of player (dot product)
+    const dot = (dx * dir.x + dz * dir.z) / (dist || 1);
+    if (dot < 0.3) continue;
+    if (dist < bestD) { bestD = dist; bestZ = z; }
+  }
+
+  if (bestZ) {
+    sfxKnife();
+    const dmg = getKnifeDamage();
+    bestZ.hp -= dmg;
+    bestZ.flash = 1;
+    points += player._doublePoints ? 20 : 10;
+    if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
+    spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 5);
+    showHitmarker(false);
+    spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, dmg, false);
+    triggerScreenShake(0.2, 8);
+
+    if (bestZ.hp <= 0) {
+      const idx = zombies.indexOf(bestZ);
+      if (idx >= 0) {
+        totalKills++;
+        const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
+        const pts = player._doublePoints ? basePts * 2 : basePts;
+        points += pts;
+        sfxKill();
+        showHitmarker(true);
+        spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, dmg, true);
+        spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+        const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
+        addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
+        startZombieDeathAnim(bestZ);
+        spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
+        spawnPowerUp(bestZ.wx, bestZ.wz);
+        triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
+        removeZombieMesh(bestZ);
+        zombies.splice(idx, 1);
+        if (bestZ.isBoss) {
+          sfxBossKill();
+          triggerScreenShake(2.5, 5);
+        }
+      }
+    }
+  } else {
+    sfxKnifeMiss();
+  }
+}
+
 // ===== BUYING =====
 function tryBuy() {
   const px = camera.position.x, pz = camera.position.z;
@@ -983,6 +1061,21 @@ function update(dt) {
     if (player.reloadTimer <= 0) finishReload();
   }
   
+  // Knife cooldown & animation
+  if (knifeCooldown > 0) knifeCooldown -= dt;
+  if (knifeAnimTimer > 0) {
+    knifeAnimTimer -= dt;
+    // Knife swing animation
+    const swing = knifeAnimTimer / 0.3;
+    knifeModel.rotation.x = -0.3 - (1 - swing) * 1.2;
+    knifeModel.position.z = -0.25 - (1 - swing) * 0.15;
+    if (knifeAnimTimer <= 0) {
+      // Hide knife, restore current gun
+      knifeModel.visible = false;
+      gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
+    }
+  }
+
   const w = weapons[player.curWeapon];
   const isFiring = mouseDown || mobileFiring;
   if (isFiring && state === 'playing') {
@@ -998,6 +1091,7 @@ function update(dt) {
   if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
   if (keyPressed('r')) doReload();
   if (keyPressed('e')) tryBuy();
+  if (keyPressed('f')) tryKnife();
   
   if (zSpawned < zToSpawn) {
     spawnTimer -= dt;

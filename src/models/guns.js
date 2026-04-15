@@ -199,6 +199,61 @@ function buildRayGun() {
   return g;
 }
 
+// --- Combat Knife ---
+function buildKnife() {
+  const g = new THREE.Group();
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.15, metalness: 0.95 });
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0xaaaabb, roughness: 0.1, metalness: 1.0 });
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, metalness: 0.1 });
+  const guardMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.8 });
+
+  // Blade
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.16, 0.035), bladeMat);
+  blade.position.set(0, 0.11, 0);
+  g.add(blade);
+
+  // Sharp edge (thinner overlay)
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.16, 0.038), edgeMat);
+  edge.position.set(-0.006, 0.11, 0);
+  g.add(edge);
+
+  // Blade tip (angled)
+  const tipGeo = new THREE.ConeGeometry(0.018, 0.04, 4);
+  const tip = new THREE.Mesh(tipGeo, bladeMat);
+  tip.position.set(0, 0.21, 0);
+  g.add(tip);
+
+  // Crossguard
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.05), guardMat);
+  guard.position.set(0, 0.025, 0);
+  g.add(guard);
+
+  // Handle
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.09, 0.032), handleMat);
+  handle.position.set(0, -0.025, 0);
+  g.add(handle);
+
+  // Handle grip lines
+  for (let i = 0; i < 4; i++) {
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.004, 0.034), guardMat);
+    grip.position.set(0, -0.005 + i * 0.018, 0);
+    g.add(grip);
+  }
+
+  // Pommel
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 6), guardMat);
+  pommel.position.set(0, -0.078, 0);
+  g.add(pommel);
+
+  // Position knife in hand (held forward, blade up)
+  g.rotation.set(-0.3, 0, 0.1);
+  g.position.set(0.12, -0.05, -0.25);
+
+  return g;
+}
+
+const knifeModel = buildKnife();
+
 // Build all gun models
 gunModels.push(buildM1911());
 gunModels.push(buildMP40());
@@ -210,6 +265,10 @@ gunModels.forEach((m, i) => {
   m.visible = (i === 0);
   gunGroup.add(m);
 });
+
+// Add knife to gunGroup (hidden by default)
+knifeModel.visible = false;
+gunGroup.add(knifeModel);
 
 // Muzzle flash mesh
 const muzzleGeo = new THREE.SphereGeometry(0.06, 6, 6);
@@ -269,7 +328,7 @@ function updateGunModel(dt, gunKick) {
 
 
 export {
-  gunGroup, gunModels, muzzleMesh,
-  buildM1911, buildMP40, buildTrenchGun, buildRayGun,
+  gunGroup, gunModels, muzzleMesh, knifeModel,
+  buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
   updateGunModel
 };
