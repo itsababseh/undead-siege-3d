@@ -515,8 +515,20 @@ function initGame() {
   nextRound();
 }
 
+function resetKnifeState() {
+  knifeAnimTimer = 0;
+  knifeCooldown = 0;
+  knifeModel.visible = false;
+  knifeModel.position.set(0, 0, 0);
+  knifeModel.rotation.set(0, 0, 0);
+  gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
+}
+
 function nextRound() {
   round++;
+  // Instantly clean up any in-progress knife animation so there's no
+  // ghost shank lingering into the new round
+  resetKnifeState();
   zToSpawn = Math.floor(6 + round * 3 + doorsOpenedCount * 2);
   zSpawned = 0;
   resetRoundPowerUps();
@@ -1468,6 +1480,8 @@ function _update(dt) {
   updateGenerators(dt);
   
   if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length === 0) {
+    // Clean up knife immediately so no ghost shank on round transition
+    resetKnifeState();
     const bonus = round * 100;
     points += bonus;
     sfxRoundEnd();
