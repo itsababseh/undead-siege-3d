@@ -172,13 +172,29 @@ export function createHostSync(ctx) {
 
     netcode.setOnGameStateUpdate((row) => {
       if (!row) return;
-      if (typeof row.round === 'number' && row.round > getRound()) {
-        setRound(row.round);
+      if (typeof row.round !== 'number') return;
+      const prev = getRound();
+      if (row.round === prev) return;
+
+      setRound(row.round);
+
+      if (row.round > prev) {
+        // Normal advance — host already did this locally; non-host
+        // needs the round-intro UI + SFX fired.
         if (!netcode.isHost()) {
           setState('roundIntro');
           setRoundIntroTimer(3);
           sfxRound();
           showCenterMsg(`ROUND ${row.round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
+        }
+      } else {
+        // Server rolled round backward → session reset (last player
+        // left, or all players died). The zombie deletes come in via
+        // onZombieDelete; here we just acknowledge the fresh round so
+        // any new arrivals start from 1.
+        if (!netcode.isHost()) {
+          setState('roundIntro');
+          setRoundIntroTimer(3);
         }
       }
     });

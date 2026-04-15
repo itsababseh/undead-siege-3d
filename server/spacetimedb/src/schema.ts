@@ -15,7 +15,10 @@
 
 import { schema, table, t } from 'spacetimedb/server';
 
-// Player: one row per connected client. (Unchanged from M1.)
+// Player: one row per connected client.
+// `alive` is flipped false when the local HP hits 0 (reported via the
+// report_player_alive reducer) and back to true on new-game start.
+// Used for the "all players dead → reset session" lifecycle rule.
 export const Player = table(
   { name: 'player', public: true },
   {
@@ -27,6 +30,7 @@ export const Player = table(
     hp: t.i32(),
     points: t.i32(),
     online: t.bool(),
+    alive: t.bool(),
     lastSeen: t.timestamp(),
   }
 );

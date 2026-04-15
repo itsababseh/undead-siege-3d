@@ -33,6 +33,7 @@ export const Player = __t.object("Player", {
   hp: __t.i32(),
   points: __t.i32(),
   online: __t.bool(),
+  alive: __t.bool(),
   lastSeen: __t.timestamp(),
 });
 export type Player = __Infer<typeof Player>;

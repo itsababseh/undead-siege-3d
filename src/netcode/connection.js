@@ -433,3 +433,9 @@ export function callConsumePowerUp(puId) {
   try { _conn.reducers.consumePowerup({ puId }); }
   catch (e) { console.warn('[netcode] consumePowerup failed', e); }
 }
+
+export function callReportPlayerAlive(alive) {
+  if (!_conn) return;
+  try { _conn.reducers.reportPlayerAlive({ alive }); }
+  catch (e) { console.warn('[netcode] reportPlayerAlive failed', e); }
+}

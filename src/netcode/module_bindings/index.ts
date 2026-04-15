@@ -41,6 +41,7 @@ import DamageZombieReducer from "./damage_zombie_reducer";
 import HostHeartbeatReducer from "./host_heartbeat_reducer";
 import OpenDoorReducer from "./open_door_reducer";
 import RemoveZombieReducer from "./remove_zombie_reducer";
+import ReportPlayerAliveReducer from "./report_player_alive_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
 import SetRoundReducer from "./set_round_reducer";
 import SpawnPowerupReducer from "./spawn_powerup_reducer";
@@ -127,6 +128,7 @@ const reducersSchema = __reducers(
   __reducerSchema("host_heartbeat", HostHeartbeatReducer),
   __reducerSchema("open_door", OpenDoorReducer),
   __reducerSchema("remove_zombie", RemoveZombieReducer),
+  __reducerSchema("report_player_alive", ReportPlayerAliveReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
   __reducerSchema("set_round", SetRoundReducer),
   __reducerSchema("spawn_powerup", SpawnPowerupReducer),

@@ -39,6 +39,7 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     ctx.db.player.identity.update({
       ...existing,
       online: true,
+      alive: true,
       lastSeen: ctx.timestamp,
     });
     return;
@@ -53,9 +54,46 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     hp: 100,
     points: 500,
     online: true,
+    alive: true,
     lastSeen: ctx.timestamp,
   });
 });
+
+// Wipe all ephemeral session state and reset round progression.
+// Called when the last player disconnects OR all players are dead.
+// Doors stay as-is — leaving them open is usually what you want when
+// someone joins mid-session, and restoring map collision on client
+// would need a "close door" path which we don't have yet.
+function resetSession(ctx: any) {
+  for (const z of ctx.db.zombie.iter()) {
+    ctx.db.zombie.hostZid.delete(z.hostZid);
+  }
+  for (const p of ctx.db.powerUp.iter()) {
+    ctx.db.powerUp.puId.delete(p.puId);
+  }
+  const gs = ctx.db.gameState.gameId.find(GAME_ID);
+  if (gs) {
+    ctx.db.gameState.gameId.update({
+      ...gs,
+      hostIdentity: undefined,
+      round: 1,
+    });
+  }
+}
+
+// True if there's at least one player row in table (used after the
+// current row has already been deleted).
+function anyPlayersLeft(ctx: any): boolean {
+  for (const _p of ctx.db.player.iter()) return true;
+  return false;
+}
+
+// True if any player row is still alive. Used to decide whether an
+// all-dead check should reset the session.
+function anyAlivePlayers(ctx: any): boolean {
+  for (const p of ctx.db.player.iter()) if (p.alive) return true;
+  return false;
+}
 
 export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
   const row = ctx.db.player.identity.find(ctx.sender);
@@ -72,6 +110,12 @@ export const onDisconnect = spacetimedb.clientDisconnected((ctx) => {
     for (const p of ctx.db.powerUp.iter()) {
       ctx.db.powerUp.puId.delete(p.puId);
     }
+  }
+
+  // If that was the last connected player, tear the session down so
+  // whoever arrives next gets a fresh run from round 1.
+  if (!anyPlayersLeft(ctx)) {
+    resetSession(ctx);
   }
 });
 
@@ -125,6 +169,23 @@ export const set_player_name = spacetimedb.reducer(
     const row = ctx.db.player.identity.find(ctx.sender);
     if (!row) throw new SenderError('no player row');
     ctx.db.player.identity.update({ ...row, name: trimmed });
+  }
+);
+
+// Client reports its own alive/dead state.
+//   - alive=false: local HP hit 0, player is on the death screen
+//   - alive=true:  player started a new game (from menu or after respawn)
+// When alive=false and no players remain alive, we reset the session so
+// the next round starts clean for anyone who then picks "play again".
+export const report_player_alive = spacetimedb.reducer(
+  { alive: t.bool() },
+  (ctx, { alive }) => {
+    const row = ctx.db.player.identity.find(ctx.sender);
+    if (!row) return;
+    ctx.db.player.identity.update({ ...row, alive });
+    if (!alive && !anyAlivePlayers(ctx)) {
+      resetSession(ctx);
+    }
   }
 );
 

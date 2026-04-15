@@ -504,7 +504,14 @@ function initGame() {
   
   round = 0; points = 500; totalKills = 0;
   zToSpawn = 0; zSpawned = 0; maxAlive = 0; spawnTimer = 0;
-  
+
+  // Tell the server we're starting/restarting a game. Flips our
+  // Player.alive flag back to true so the all-dead-reset check
+  // doesn't fire on us.
+  if (netcode.isConnected()) {
+    try { netcode.callReportPlayerAlive(true); } catch (e) {}
+  }
+
   nextRound();
 }
 
@@ -1431,6 +1438,11 @@ function _update(dt) {
           sfxPlayerDeath();
           controls.unlock();
           setTimeout(showDeath, 1000);
+          // Tell the server we're dead. If all connected players are
+          // now dead, the server resets the session for a fresh start.
+          if (netcode.isConnected()) {
+            try { netcode.callReportPlayerAlive(false); } catch (e) {}
+          }
           break;
         }
       }
