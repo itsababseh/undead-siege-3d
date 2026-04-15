@@ -54,7 +54,15 @@ async function main() {
   }
   // </script> inside the bundle would break the outer </script> — escape it
   const safeBundle = bundle.replace(/<\/script>/gi, '<\\/script>');
-  html = html.replace(scriptTag, `<script type="module">\n${safeBundle}\n</script>`);
+  // IMPORTANT: pass the replacement as a FUNCTION, not a string.
+  // String.prototype.replace treats `$&`, `$'`, `` $` ``, `$1`-`$99` in the
+  // replacement string as references to the match. The minified bundle
+  // routinely contains sequences like `$&` (esbuild-mangled identifiers
+  // followed by `&`) which would expand to the matched `<script src=...>`
+  // tag — injecting a literal script tag into the middle of the JS code
+  // and producing a `SyntaxError: Unexpected token '<'`. Using a function
+  // bypasses all of that.
+  html = html.replace(scriptTag, () => `<script type="module">\n${safeBundle}\n</script>`);
 
   await writeFile(resolve(DIST, 'index.html'), html, 'utf8');
   console.log(`[build] wrote dist/index.html (${(html.length / 1024).toFixed(1)} KB total)`);
