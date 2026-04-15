@@ -20,6 +20,14 @@ import {
 import * as netcode from './netcode/connection.js';
 import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './netcode/remotePlayers.js';
 import { makeHostZid, createHostSync } from './netcode/hostSync.js';
+import {
+  initReviveMp, isLocallyDowned, onLocalHpZero,
+  tickDowned, tickRevive,
+} from './netcode/reviveMp.js';
+import { initBuying, tryBuy, openDoorLocal } from './gameplay/buying.js';
+import {
+  initShooting, tryShoot, doReload, finishReload, switchWeapon,
+} from './gameplay/shooting.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
   initMenuBackground, stopMenuBackground, restartMenuBackground,
@@ -232,23 +240,9 @@ scene.add(muzzleLight);
 // ===== GAME STATE =====
 let state = 'menu';
 let paused = false;
-// MP-only: local player is in the "downed, waiting for revive" state.
-// Set when our HP hits 0 in a connected session; cleared when the
-// server clears our Player.downed (another player completed a revive).
-let _downed = false;
-// MP-only: when standing next to a downed teammate and holding E, this
-// fills from 0→1 over REVIVE_TIME_SEC seconds. On completion we call
-// the revive_player reducer and reset.
-let _reviveProgress = 0;
-let _reviveTargetHex = null;
-const REVIVE_TIME_SEC = 3.0;
-const REVIVE_RANGE = 3.0;
-
-// DOM references are lazy because the elements are in index.html.
-function _getDownedOverlay() { return document.getElementById('downedOverlay'); }
-function _getReviveHud() { return document.getElementById('reviveHud'); }
-function _getReviveBar() { return document.getElementById('reviveBar'); }
-function _getReviveTargetName() { return document.getElementById('reviveTargetName'); }
+// MP revive + downed state lives in src/netcode/reviveMp.js. main.js
+// just calls onLocalHpZero / tickDowned / tickRevive from its update
+// loop and doesn't track the downed flag itself.
 let round = 0, points = 500, totalKills = 0;
 const gameState = { get points() { return points; }, set points(v) { points = v; },
                     get round() { return round; }, set round(v) { round = v; },
@@ -290,6 +284,56 @@ const weaponMags = {};
 setAudioDeps(camera, player, weapons);
 setZombieDeps(scene, camera);
 initRemotePlayers(scene, camera);
+initReviveMp({
+  camera,
+  controls,
+  keys,
+  sfxPlayerDeath,
+  setPlayerHp: (hp) => { player.hp = hp; },
+});
+initBuying({
+  camera,
+  TILE,
+  wallBuys, perkMachines, perks, weapons, player,
+  weaponMags,
+  doors,
+  map, MAP_W, doorMeshes, scene,
+  PERK_DURATION,
+  addFloatText,
+  sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
+  getPoints: () => points,
+  setPoints: (v) => { points = v; },
+  getRound: () => round,
+  getZToSpawn: () => zToSpawn,
+  setZToSpawn: (v) => { zToSpawn = v; },
+  getMaxAlive: () => maxAlive,
+  setMaxAlive: (v) => { maxAlive = v; },
+  getDoorsOpenedCount: () => doorsOpenedCount,
+  setDoorsOpenedCount: (v) => { doorsOpenedCount = v; },
+  tryActivateGenerator,
+  tryCatalyst,
+  tryMysteryBox,
+  collectMysteryBoxWeapon,
+  tryPackAPunch,
+});
+initShooting({
+  player, weapons, zombies, camera, muzzleLight, TILE,
+  mapAt,
+  sfxShoot, sfxEmpty, sfxHit, sfxKill, sfxBossKill, sfxReload, sfxWeaponSwitch,
+  setGunKick: (v) => { gunKick = v; },
+  spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles,
+  spawnDmgNumber, spawnBloodSplatter, spawnPowerUp,
+  showHitmarker, addFloatText,
+  startZombieDeathAnim, removeZombieMesh,
+  triggerScreenShake,
+  weaponMags,
+  getPoints: () => points,
+  setPoints: (v) => { points = v; },
+  getTotalKills: () => totalKills,
+  setTotalKills: (v) => { totalKills = v; },
+  getState: () => state,
+  setQuickSwapWeapon: (v) => { _quickSwapWeapon = v; },
+});
 // Register netcode subscription callbacks. Done in a microtask so that
 // any forward-referenced helpers (openDoorLocal etc.) are guaranteed to
 // be initialized by the time the callback body runs.
@@ -851,189 +895,8 @@ if (isMobile) {
 const raycaster = new THREE.Raycaster();
 let gunKick = 0, dmgFlash = 0;
 
-function tryShoot() {
-  if (player.reloading || player.fireTimer > 0) return;
-  const w = weapons[player.curWeapon];
-  if (player.mag <= 0) { sfxEmpty(); doReload(); return; }
-  
-  player.mag--;
-  player.fireTimer = w.rate * player.fireRateMult;
-  sfxShoot();
-  gunKick = 1;
-  spawnMuzzleSparks();
-  const shakeAmt = player.curWeapon === 2 ? 0.6 : (w.isRayGun ? 0.4 : 0.2);
-  triggerScreenShake(shakeAmt, 10);
-  
-  muzzleLight.intensity = 3;
-  muzzleLight.color.set(w.isRayGun ? 0x00ff44 : 0xffcc44);
-  muzzleLight.position.copy(camera.position);
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  muzzleLight.position.add(dir.multiplyScalar(1));
-  
-  const pellets = w.pellets || 1;
-  for (let p = 0; p < pellets; p++) {
-    const spreadX = (Math.random() - 0.5) * w.spread * 2;
-    const spreadY = (Math.random() - 0.5) * w.spread * 2;
-    
-    const shootDir = new THREE.Vector3();
-    camera.getWorldDirection(shootDir);
-    shootDir.x += spreadX; shootDir.y += spreadY;
-    shootDir.normalize();
-    
-    let bestZ = null, bestD = Infinity;
-    for (const z of zombies) {
-      const zScale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
-      const zHeight = 2.2 * zScale;
-      const hitRadius = z.isBoss ? 1.4 : z.isElite ? 1.0 : 0.8;
-      const ox = camera.position.x - z.wx;
-      const oz = camera.position.z - z.wz;
-      const dxS = shootDir.x, dyS = shootDir.y, dzS = shootDir.z;
-      const dxdz2 = dxS * dxS + dzS * dzS;
-      if (dxdz2 < 0.0001) continue;
-      const tClosest = -(ox * dxS + oz * dzS) / dxdz2;
-      if (tClosest < 0.3) continue;
-      const hDistSq = (ox + tClosest * dxS) ** 2 + (oz + tClosest * dzS) ** 2;
-      if (hDistSq > hitRadius * hitRadius) continue;
-      const yAtClosest = camera.position.y + tClosest * dyS;
-      if (yAtClosest < -0.3 || yAtClosest > zHeight + 0.3) continue;
-      let blocked = false;
-      const step = TILE * 0.25;
-      for (let t = step; t < tClosest; t += step) {
-        const cx = camera.position.x + dxS * t;
-        const cz = camera.position.z + dzS * t;
-        if (mapAt(cx, cz) !== 0) { blocked = true; break; }
-      }
-      if (!blocked && tClosest < bestD) { bestD = tClosest; bestZ = z; }
-    }
-    
-    if (bestZ) {
-      const mpActive = netcode.isConnected();
-
-      // Visual + audio feedback fires immediately in all modes.
-      sfxHit();
-      bestZ.flash = 1;
-      points += player._doublePoints ? 20 : 10;
-      if (w.isRayGun) {
-        spawnEnergyParticles(bestZ.wx, 1.2, bestZ.wz, 6);
-      } else {
-        spawnBloodParticles(bestZ.wx, 1.2, bestZ.wz, 3);
-      }
-      showHitmarker(false);
-      spawnDmgNumber(bestZ.wx, 1.8 + Math.random() * 0.4, bestZ.wz, w.dmg, false);
-
-      if (mpActive) {
-        // Server-authoritative HP: send the damage through the reducer.
-        // The subscription onUpdate/onDelete handlers on this client will
-        // see the hp drop (or the row being deleted) and reflect it locally.
-        // Insta-kill is applied as a giant damage value — matches the SP feel.
-        const dmg = player._instaKill ? 999999 : w.dmg;
-        try { netcode.callDamageZombie(bestZ.hostZid, dmg); }
-        catch (e) { console.warn('[mp] damageZombie failed', e); }
-      } else {
-        // Single-player: mutate local HP as before.
-        bestZ.hp -= w.dmg;
-        if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
-
-        if (bestZ.hp <= 0) {
-          const idx = zombies.indexOf(bestZ);
-          if (idx >= 0) {
-            totalKills++;
-            const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
-            const pts = player._doublePoints ? basePts * 2 : basePts;
-            points += pts;
-            sfxKill();
-            showHitmarker(true);
-            spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
-            if (w.isRayGun) { spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 15); }
-            else { spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8); }
-            const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
-            addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
-            startZombieDeathAnim(bestZ);
-            spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
-            spawnPowerUp(bestZ.wx, bestZ.wz);
-            triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
-            removeZombieMesh(bestZ);
-            zombies.splice(idx, 1);
-            if (bestZ.isBoss) {
-              sfxBossKill();
-              triggerScreenShake(2.5, 5);
-            }
-          }
-        }
-
-        // Ray Gun splash damage — hurts all nearby zombies
-        if (w.splashRadius) {
-          const splashDmg = Math.floor(w.dmg * 0.5);
-          const sx = bestZ.wx, sz = bestZ.wz;
-          for (let si = zombies.length - 1; si >= 0; si--) {
-            const sz2 = zombies[si];
-            if (sz2 === bestZ) continue;
-            const sd = Math.hypot(sz2.wx - sx, sz2.wz - sz);
-            if (sd > w.splashRadius) continue;
-            const falloff = 1 - (sd / w.splashRadius);
-            const dmgAmt = Math.floor(splashDmg * falloff);
-            if (dmgAmt <= 0) continue;
-            sz2.hp -= dmgAmt;
-            sz2.flash = 0.5;
-            spawnEnergyParticles(sz2.wx, 1, sz2.wz, 3);
-            spawnDmgNumber(sz2.wx, 1.6 + Math.random() * 0.3, sz2.wz, dmgAmt, false);
-            if (player._instaKill && sz2.hp > 0) sz2.hp = 0;
-            if (sz2.hp <= 0) {
-              totalKills++;
-              const sPts = player._doublePoints ? 120 : 60;
-              points += sPts;
-              sfxKill();
-              addFloatText(`+${sPts}`, '#0f0', 1);
-              startZombieDeathAnim(sz2);
-              spawnPowerUp(sz2.wx, sz2.wz);
-              removeZombieMesh(sz2);
-              zombies.splice(si, 1);
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  if (player.mag <= 0) doReload();
-}
-
-function doReload() {
-  if (player.reloading) return;
-  const w = weapons[player.curWeapon];
-  if (player.mag >= w.mag) return;
-  if (player.ammo[player.curWeapon] <= 0 && player.ammo[player.curWeapon] !== 999) return;
-  player.reloading = true;
-  player.reloadTotal = w.reload * player.reloadMult;
-  player.reloadTimer = player.reloadTotal;
-  sfxReload();
-}
-
-function finishReload() {
-  const w = weapons[player.curWeapon];
-  const need = w.mag - player.mag;
-  if (player.ammo[player.curWeapon] === 999) { player.mag = w.mag; }
-  else {
-    const take = Math.min(need, player.ammo[player.curWeapon]);
-    player.mag += take;
-    player.ammo[player.curWeapon] -= take;
-  }
-  player.reloading = false;
-}
-
-function switchWeapon(idx) {
-  if (idx === player.curWeapon || !player.owned[idx]) return;
-  if (state !== 'playing' && state !== 'roundIntro') return;
-  weaponMags[player.curWeapon] = player.mag;
-  _quickSwapWeapon = player.curWeapon;
-  player.curWeapon = idx;
-  player.mag = (weaponMags[idx] !== undefined) ? weaponMags[idx] : weapons[idx].mag;
-  player.reloading = false;
-  player.reloadTimer = 0;
-  sfxWeaponSwitch();
-}
-
+// Shooting (tryShoot + doReload + finishReload + switchWeapon) lives in
+// src/gameplay/shooting.js and is wired via initShooting(ctx).
 // ===== KNIFE =====
 const KNIFE_RANGE = 2.5;
 const KNIFE_COOLDOWN = 0.6;
@@ -1113,114 +976,8 @@ function tryKnife() {
   }
 }
 
-// ===== BUYING =====
-function tryBuy() {
-  const px = camera.position.x, pz = camera.position.z;
-  
-  for (const wb of wallBuys) {
-    const bx = (wb.tx + 0.5) * TILE, bz = (wb.tz + 0.5) * TILE;
-    const d = Math.hypot(bx - px, bz - pz);
-    if (d < TILE * 2) {
-      if (wb.minRound && round < wb.minRound) {
-        addFloatText(`${weapons[wb.wi].name} unlocks Round ${wb.minRound}`, '#888');
-        return;
-      }
-      if (!player.owned[wb.wi] && points >= wb.cost) {
-        points -= wb.cost;
-        weaponMags[player.curWeapon] = player.mag;
-        player.owned[wb.wi] = true;
-        player.curWeapon = wb.wi;
-        player.mag = weapons[wb.wi].mag;
-        player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
-        player.reloading = false;
-        player.reloadTimer = 0;
-        sfxBuyWeapon(weapons[wb.wi].isRayGun);
-        if (weapons[wb.wi].isRayGun) { addFloatText(`⚡ RAY GUN ⚡`, '#0f0', 2.5); }
-        else { addFloatText(`${weapons[wb.wi].name}!`, '#6f6', 1.5); }
-      } else if (player.owned[wb.wi] && points >= Math.floor(wb.cost/2)) {
-        points -= Math.floor(wb.cost/2);
-        player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
-        sfxBuyWeapon(false);
-        addFloatText('Ammo!', '#6f6', 1);
-      }
-      return;
-    }
-  }
-  
-  for (const pm of perkMachines) {
-    const perk = perks[pm.perkIdx];
-    const bx = (pm.tx + 0.5) * TILE, bz = (pm.tz + 0.5) * TILE;
-    const d = Math.hypot(bx - px, bz - pz);
-    if (d < TILE * 2) {
-      if (player.perksOwned[perk.id] > 0) { addFloatText(`Already have ${perk.name} (${Math.ceil(player.perksOwned[perk.id])}s left)`, '#888'); }
-      else if (round < perk.minRound) { addFloatText(`${perk.name} unlocks round ${perk.minRound}`, '#888'); }
-      else if (points >= perk.cost) {
-        points -= perk.cost;
-        player.perksOwned[perk.id] = PERK_DURATION;
-        perk.apply();
-        sfxBuyPerk();
-        addFloatText(`${perk.name} ACTIVE! (${PERK_DURATION}s)`, perk.color, 2.5);
-      } else { addFloatText(`Need $${perk.cost} for ${perk.name}`, '#f88'); }
-      return;
-    }
-  }
-  
-  if (tryActivateGenerator()) return;
-  if (tryCatalyst()) return;
-  if (tryMysteryBox()) return;
-  if (collectMysteryBoxWeapon()) return;
-  if (tryPackAPunch()) return;
-  tryBuyDoor();
-}
-
-function tryBuyDoor() {
-  const px = camera.position.x, pz = camera.position.z;
-  for (const door of doors) {
-    if (door.opened) continue;
-    for (const [tx, tz] of door.tiles) {
-      const bx = (tx + 0.5) * TILE, bz = (tz + 0.5) * TILE;
-      const d = Math.hypot(bx - px, bz - pz);
-      if (d < TILE * 2.5) {
-        if (points >= door.cost) {
-          points -= door.cost;
-          sfxDoorOpen();
-          // In MP let the reducer be the source of truth — the onDoorUpdate
-          // callback will run openDoorLocal for everyone (including us).
-          if (netcode.isConnected()) {
-            // Server expects numeric doorId (i32). We use the array index
-            // as the canonical id — local door.id is a string label like
-            // 'west'/'east' which the reducer would silently reject.
-            const numericId = doors.indexOf(door);
-            try { netcode.callOpenDoor(numericId); }
-            catch (e) { console.warn('[mp] openDoor failed', e); openDoorLocal(door); }
-            // Apply visuals immediately so the buyer doesn't feel lag; the
-            // onDoorUpdate callback for others is idempotent on `opened`.
-            openDoorLocal(door);
-          } else {
-            openDoorLocal(door);
-          }
-        } else { addFloatText(`Need $${door.cost} for ${door.label}`, '#f88'); }
-        return;
-      }
-    }
-  }
-}
-
-// Shared "door opens" visual + map side-effects. Called locally in SP,
-// or from the netcode subscription callback in MP (so non-buyers also see
-// the door open and their zombie spawn quotas go up).
-function openDoorLocal(door) {
-  if (door.opened) return;
-  door.opened = true;
-  doorsOpenedCount++;
-  for (const [dtx, dtz] of door.tiles) { map[dtz * MAP_W + dtx] = 0; }
-  doorMeshes.filter(dm => door.tiles.some(([dx,dz]) => dm.x === dx && dm.z === dz))
-    .forEach(dm => { scene.remove(dm.mesh); });
-  zToSpawn += 4;
-  maxAlive = Math.min(maxAlive + 3, 30);
-  addFloatText(`${door.label} OPENED!`, '#4f4', 2.5);
-  addFloatText('More zombies incoming!', '#f84', 2);
-}
+// Buying (wall buys, perk machines, doors, delegated interactions) lives
+// in src/gameplay/buying.js. Wired up below via initBuying(ctx).
 
 
 // ===== UPDATE LOOP =====
@@ -1239,22 +996,13 @@ function update(dt) {
 function _update(dt) {
   if (paused) return;
 
-  // MP: while locally downed, keep rendering and show the overlay,
-  // but skip all game logic (movement, shooting, buying, etc.).
-  // The server will clear our downed flag when a teammate revives us.
-  if (_downed) {
-    updateDownedVisuals();
-    // Poll server state: if downed flag cleared, respawn us in place.
-    if (netcode.isConnected() && !netcode.isLocalPlayerDowned()) {
-      _downed = false;
-      player.hp = 50;
-      const ov = _getDownedOverlay();
-      if (ov) ov.style.display = 'none';
-      // Re-lock cursor when they next click the canvas.
-    }
+  // MP: while locally downed, short-circuit everything except the
+  // overlay + server poll. The revive module owns that logic.
+  if (isLocallyDowned()) {
+    tickDowned();
     return;
   }
-  updateReviveInteraction(dt);
+  tickRevive(dt);
 
   if (state === 'roundIntro') {
     roundIntroTimer -= dt;
@@ -1493,16 +1241,10 @@ function _update(dt) {
         z.atkTimer = 1;
         if (player.hp <= 0) {
           player.hp = 0;
-          // In MP, hitting 0 HP enters the revivable "downed" state
-          // instead of the permanent death screen. A teammate can walk
-          // up and hold E to revive. If everyone is downed at once,
-          // the server resets the session.
-          if (netcode.isConnected()) {
-            _downed = true;
-            sfxPlayerDeath();
-            controls.unlock();
-            try { netcode.callReportPlayerDowned(); } catch (e) {}
-          } else {
+          // onLocalHpZero handles the MP-downed path and returns true
+          // when it took over. If we're in SP it returns false and we
+          // fall through to the old permanent-death flow.
+          if (!onLocalHpZero()) {
             state = 'dead';
             sfxPlayerDeath();
             controls.unlock();
@@ -1544,75 +1286,6 @@ function _update(dt) {
     if (_mpActive) {
       try { netcode.callAdvanceRound(); } catch (e) { console.warn('[mp] advanceRound failed', e); }
     }
-  }
-}
-
-// Show the DOWNED overlay + zero the revive HUD while we are downed.
-function updateDownedVisuals() {
-  const ov = _getDownedOverlay();
-  if (ov && ov.style.display !== 'block') ov.style.display = 'block';
-  const hud = _getReviveHud();
-  if (hud && hud.style.display !== 'none') hud.style.display = 'none';
-}
-
-// Each frame when we're NOT downed, check if any remote player near us
-// is downed and the player is holding E. Fill the progress bar and
-// call revive_player when it reaches 1.
-function updateReviveInteraction(dt) {
-  if (!netcode.isConnected()) {
-    _reviveProgress = 0;
-    _reviveTargetHex = null;
-    const hud = _getReviveHud();
-    if (hud && hud.style.display !== 'none') hud.style.display = 'none';
-    return;
-  }
-
-  // Find the nearest downed remote player within REVIVE_RANGE.
-  let nearest = null, nearestHex = null, nearestD = Infinity;
-  for (const [hex, rp] of netcode.getRemotePlayers()) {
-    if (!rp.downed) continue;
-    const dx = rp.wx - camera.position.x;
-    const dz = rp.wz - camera.position.z;
-    const d = Math.hypot(dx, dz);
-    if (d < nearestD) { nearestD = d; nearest = rp; nearestHex = hex; }
-  }
-
-  const hud = _getReviveHud();
-  if (!nearest || nearestD > REVIVE_RANGE) {
-    _reviveProgress = 0;
-    _reviveTargetHex = null;
-    if (hud && hud.style.display !== 'none') hud.style.display = 'none';
-    return;
-  }
-
-  // New target → reset progress.
-  if (_reviveTargetHex !== nearestHex) {
-    _reviveTargetHex = nearestHex;
-    _reviveProgress = 0;
-  }
-
-  // Show prompt.
-  if (hud) {
-    hud.style.display = 'block';
-    const nameEl = _getReviveTargetName();
-    if (nameEl) nameEl.textContent = nearest.name || 'Survivor';
-  }
-
-  // Fill while E is held; decay while released.
-  if (keys['e']) {
-    _reviveProgress = Math.min(1, _reviveProgress + dt / REVIVE_TIME_SEC);
-  } else {
-    _reviveProgress = Math.max(0, _reviveProgress - dt * 2);
-  }
-  const bar = _getReviveBar();
-  if (bar) bar.style.width = `${Math.round(_reviveProgress * 100)}%`;
-
-  if (_reviveProgress >= 1) {
-    _reviveProgress = 0;
-    try { netcode.callRevivePlayer(nearest.identity); }
-    catch (e) { console.warn('[mp] revivePlayer failed', e); }
-    // Hide immediately — subscription update will clear nearest.downed
-    if (hud) hud.style.display = 'none';
   }
 }
 
