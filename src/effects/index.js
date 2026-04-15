@@ -136,11 +136,11 @@ const dyingZombies = [];
 function startZombieDeathAnim(z) {
   const data = zombieMeshes.get(z);
   if (!data) return;
-  const { group, mesh, planeMat, tex, frameCanvas, hpSprite, hpCanvas, hpTex, eyeLight, spriteH } = data;
-  
-  // Hide HP bar and dim eye light immediately
+  const { group, mesh, planeMat, tex, frameCanvas, hpSprite, hpCanvas, hpTex, spriteH } = data;
+
+  // Mark the zombie as dying so the shared eye-light pool skips it
+  z._dying = true;
   if (hpSprite) hpSprite.visible = false;
-  if (eyeLight) eyeLight.intensity = 0;
   
   dyingZombies.push({
     mesh: group,        // the Group (contains plane + lights)

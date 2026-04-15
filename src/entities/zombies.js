@@ -9,6 +9,60 @@ import { PI2 } from '../core/state.js';
 let _scene, _camera;
 export function setZombieDeps(scene, camera) {
   _scene = scene; _camera = camera;
+  initEyeLightPool();
+}
+
+// ===== SHARED EYE LIGHT POOL =====
+// A fixed pool of point lights shared between all zombies.
+// Adding/removing lights in Three.js bumps the shader cache key and forces
+// a synchronous recompile of every affected material — a textbook cause of
+// random massive frame spikes. Keeping a constant count avoids this entirely.
+const EYE_LIGHT_POOL_SIZE = 8;
+const eyeLightPool = [];
+let eyeLightPoolInited = false;
+
+function initEyeLightPool() {
+  if (eyeLightPoolInited || !_scene) return;
+  for (let i = 0; i < EYE_LIGHT_POOL_SIZE; i++) {
+    const light = new THREE.PointLight(0xff1e0a, 0, 4);
+    light.position.set(0, -1000, 0); // parked off-screen until assigned
+    _scene.add(light);
+    eyeLightPool.push(light);
+  }
+  eyeLightPoolInited = true;
+}
+
+// Call once per frame from the main loop with the live zombies array.
+// Assigns the N nearest zombies to the pool lights; the rest get no glow.
+function updateZombieEyeLightPool(zombies) {
+  if (!eyeLightPoolInited || !_camera) return;
+  const cx = _camera.position.x, cz = _camera.position.z;
+
+  // Score visible zombies by squared distance to camera
+  const scored = [];
+  for (const z of zombies) {
+    if (!z || z.hp <= 0) continue;
+    const data = zombieMeshes.get(z);
+    if (!data) continue;
+    const dx = z.wx - cx, dz = z.wz - cz;
+    scored.push({ z, data, d2: dx * dx + dz * dz });
+  }
+  scored.sort((a, b) => a.d2 - b.d2);
+
+  const flickerBase = performance.now() / 200;
+  const n = Math.min(EYE_LIGHT_POOL_SIZE, scored.length);
+  for (let i = 0; i < n; i++) {
+    const { z, data } = scored[i];
+    const light = eyeLightPool[i];
+    const g = data.group;
+    light.position.set(g.position.x, g.position.y + (data.spriteH || 2.2) * 0.75, g.position.z);
+    if (light.color.getHex() !== (z._eyeColor | 0)) light.color.setHex(z._eyeColor);
+    // keep the original flicker feel, but only if the zombie isn't mid-death
+    light.intensity = z._dying ? 0 : (0.4 + Math.sin(flickerBase + (z._spriteVariant || 0) * 3) * 0.25);
+  }
+  for (let i = n; i < EYE_LIGHT_POOL_SIZE; i++) {
+    eyeLightPool[i].intensity = 0;
+  }
 }
 
 // ===== ZOMBIE SPRITE SYSTEM =====
@@ -1153,11 +1207,10 @@ function createZombieMesh(z) {
   const mesh = new THREE.Mesh(planeGeo, planeMat);
   group.add(mesh);
 
-  // Eye glow point light
-  const eyeColor = z.isBoss ? 0xffff00 : z.isElite ? 0xff6600 : 0xff1e0a;
-  const eyeLight = new THREE.PointLight(eyeColor, 0.6, 4);
-  eyeLight.position.set(0, spriteH * 0.75, 0);
-  group.add(eyeLight);
+  // Eye glow colour — actual light is drawn from a shared pool (see updateZombieEyeLightPool)
+  // to keep the scene's point-light count CONSTANT and avoid Three.js shader recompiles
+  // (which caused random massive frame spikes when zombie count changed).
+  z._eyeColor = z.isBoss ? 0xffff00 : z.isElite ? 0xff6600 : 0xff1e0a;
 
   // HP bar (polished, wider canvas for detail)
   const hpCanvas = document.createElement('canvas');
@@ -1176,7 +1229,7 @@ function createZombieMesh(z) {
 
   zombieMeshes.set(z, {
     group, mesh, planeMat, tex, frameCanvas,
-    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet, spriteH,
+    hpSprite, hpCanvas, hpTex, spriteSheet, spriteH,
   });
   return group;
 }
@@ -1185,7 +1238,7 @@ function updateZombieMesh(z, dt) {
   const data = zombieMeshes.get(z);
   if (!data) return;
   const { group, mesh, planeMat, tex, frameCanvas,
-    hpSprite, hpCanvas, hpTex, eyeLight, spriteSheet, spriteH } = data;
+    hpSprite, hpCanvas, hpTex, spriteSheet } = data;
 
   // Position — firmly on the floor (y=0), smooth interpolation
   let yOff = 0;
@@ -1235,8 +1288,7 @@ function updateZombieMesh(z, dt) {
     planeMat.color.setRGB(1, 1, 1);
   }
 
-  // Eye light flicker
-  eyeLight.intensity = 0.4 + Math.sin(performance.now() / 200 + z._spriteVariant * 3) * 0.25;
+  // Eye light flicker is now driven by the shared pool in updateZombieEyeLightPool
 
   // HP bar (polished with rounded edges, glow, gradient layers)
   if (z.hp < z.maxHp) {
@@ -1356,5 +1408,6 @@ function removeZombieMesh(z) {
 export {
   ZOMBIE_SPRITE_SIZE, ZOMBIE_FRAMES, ZOMBIE_VARIANTS,
   zombieSpriteSheets, initZombieSprites, createZombieSpriteSheet, drawZombieFrame,
-  zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh
+  zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh,
+  updateZombieEyeLightPool
 };

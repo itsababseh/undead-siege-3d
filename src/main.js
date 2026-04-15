@@ -15,7 +15,7 @@ import {
   ZOMBIE_SPRITE_SIZE, ZOMBIE_FRAMES, ZOMBIE_VARIANTS,
   zombieSpriteSheets, initZombieSprites, createZombieSpriteSheet, drawZombieFrame,
   zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh,
-  setZombieDeps
+  updateZombieEyeLightPool, setZombieDeps
 } from './entities/zombies.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
@@ -1103,7 +1103,9 @@ function update(dt) {
     
     updateZombieMesh(z, dt);
   }
-  
+
+  updateZombieEyeLightPool(zombies);
+
   updateParticles(dt);
   
   for (let i = floatTexts.length - 1; i >= 0; i--) {
