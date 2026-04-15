@@ -3,6 +3,12 @@
 
 import * as THREE from 'three';
 
+// ── Dependency injection ──
+let _scene, _camera, _player, _weapons;
+export function setEffectsDeps(scene, camera, player, weapons) {
+  _scene = scene; _camera = camera; _player = player; _weapons = weapons;
+}
+
 // ===== FLOATING DAMAGE NUMBERS =====
 let hitmarkerTimer = 0;
 function showHitmarker(isKill) {
@@ -21,7 +27,7 @@ function updateHitmarker(dt) {
 function spawnDmgNumber(worldX, worldY, worldZ, dmg, isKill) {
   // Project 3D position to screen coordinates
   const vec = new THREE.Vector3(worldX, worldY, worldZ);
-  vec.project(camera);
+  vec.project(_camera);
   const hw = window.innerWidth / 2;
   const hh = window.innerHeight / 2;
   const sx = vec.x * hw + hw;
@@ -53,14 +59,14 @@ function triggerScreenShake(intensity, decay) {
 
 function updateScreenShake(dt) {
   // Always undo last frame's offset first — prevents cumulative drift
-  camera.position.x -= _prevShakeX;
-  camera.position.y -= _prevShakeY;
+  _camera.position.x -= _prevShakeX;
+  _camera.position.y -= _prevShakeY;
 
   if (shakeIntensity > 0.001) {
     _prevShakeX = (Math.random() - 0.5) * shakeIntensity * 0.015;
     _prevShakeY = (Math.random() - 0.5) * shakeIntensity * 0.015;
-    camera.position.x += _prevShakeX;
-    camera.position.y += _prevShakeY;
+    _camera.position.x += _prevShakeX;
+    _camera.position.y += _prevShakeY;
     shakeIntensity *= Math.pow(0.05, dt); // exponential decay
   } else {
     shakeIntensity = 0;
@@ -74,26 +80,26 @@ const muzzleSparks = [];
 const sparkGeo = new THREE.SphereGeometry(0.02, 3, 3);
 
 function spawnMuzzleSparks() {
-  if (!camera) return;
+  if (!_camera) return;
   const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-  const origin = camera.position.clone().add(dir.clone().multiplyScalar(1.2));
+  _camera.getWorldDirection(dir);
+  const origin = _camera.position.clone().add(dir.clone().multiplyScalar(1.2));
   // Offset slightly to gun position
   const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
   origin.add(right.multiplyScalar(0.15));
   origin.y -= 0.1;
   
-  const w = weapons[player.curWeapon];
+  const w = _weapons[_player.curWeapon];
   const sparkColor = w.isRayGun ? 0x00ff44 : 0xffaa22;
-  const sparkCount = w.isRayGun ? 6 : (player.curWeapon === 2 ? 10 : 4); // more for shotgun
+  const sparkCount = w.isRayGun ? 6 : (_player.curWeapon === 2 ? 10 : 4); // more for shotgun
   
   for (let i = 0; i < sparkCount; i++) {
     const mat = new THREE.MeshBasicMaterial({ color: sparkColor, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(sparkGeo, mat);
     mesh.position.copy(origin);
-    scene.add(mesh);
+    _scene.add(mesh);
     
-    const spread = player.curWeapon === 2 ? 3 : 1.5;
+    const spread = _player.curWeapon === 2 ? 3 : 1.5;
     muzzleSparks.push({
       mesh,
       vx: dir.x * 8 + (Math.random() - 0.5) * spread,
@@ -109,7 +115,7 @@ function updateMuzzleSparks(dt) {
     const s = muzzleSparks[i];
     s.life -= dt;
     if (s.life <= 0) {
-      scene.remove(s.mesh);
+      _scene.remove(s.mesh);
       s.mesh.material.dispose();
       muzzleSparks.splice(i, 1);
       continue;
@@ -159,7 +165,7 @@ function updateDyingZombies(dt) {
     const t = dz.timer / dz.duration;
     
     if (t >= 1) {
-      scene.remove(dz.mesh);
+      _scene.remove(dz.mesh);
       // Dispose all children properly
       dz.mesh.traverse(child => {
         if (child.geometry) child.geometry.dispose();
@@ -250,13 +256,13 @@ function spawnBloodSplatter(x, y, z) {
       // Random rotation
       splat.rotateZ(Math.random() * Math.PI * 2);
       
-      scene.add(splat);
+      _scene.add(splat);
       bloodDecals.push({ mesh: splat, life: 15 + Math.random() * 10 }); // 15-25 seconds
       
       // Limit decal count
       while (bloodDecals.length > MAX_BLOOD_DECALS) {
         const old = bloodDecals.shift();
-        scene.remove(old.mesh);
+        _scene.remove(old.mesh);
         old.mesh.material.map.dispose();
         old.mesh.material.dispose();
         old.mesh.geometry.dispose();
@@ -272,7 +278,7 @@ function updateBloodDecals(dt) {
     const d = bloodDecals[i];
     d.life -= dt;
     if (d.life <= 0) {
-      scene.remove(d.mesh);
+      _scene.remove(d.mesh);
       d.mesh.material.map.dispose();
       d.mesh.material.dispose();
       d.mesh.geometry.dispose();
@@ -345,8 +351,8 @@ function updateDamageVignette(dt) {
 // --- Low Health Heartbeat Overlay ---
 let heartbeatPhase = 0;
 
-function updateLowHealthEffect(dt) {
-  if (player.hp > 0 && player.hp < player.maxHp * 0.25 && state === 'playing') {
+function updateLowHealthEffect(dt, state) {
+  if (_player.hp > 0 && _player.hp < _player.maxHp * 0.25 && state === 'playing') {
     heartbeatPhase += dt * 3; // heartbeat speed
     const pulse = Math.abs(Math.sin(heartbeatPhase));
     const vig = document.getElementById('dmgOverlay');
@@ -372,8 +378,8 @@ window.addEventListener('resize', resizeHitDirCanvas);
 
 function triggerHitIndicator(zombieX, zombieZ) {
   // Calculate angle from player to zombie in world space
-  const px = camera.position.x;
-  const pz = camera.position.z;
+  const px = _camera.position.x;
+  const pz = _camera.position.z;
   const dx = zombieX - px;
   const dz = zombieZ - pz;
   // World angle to the zombie (atan2 gives angle from +Z axis)
@@ -489,7 +495,7 @@ function spawnBloodParticles(x, y, z, count = 5) {
     const mat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
     const mesh = new THREE.Mesh(particleGeo, mat);
     mesh.position.set(x, y, z);
-    scene.add(mesh);
+    _scene.add(mesh);
     particles.push({
       mesh,
       vx: (Math.random()-0.5)*3,
@@ -506,7 +512,7 @@ function spawnEnergyParticles(x, y, z, count = 8) {
     const mesh = new THREE.Mesh(particleGeo, mat);
     mesh.position.set(x, y, z);
     mesh.scale.setScalar(1.5);
-    scene.add(mesh);
+    _scene.add(mesh);
     particles.push({
       mesh,
       vx: (Math.random()-0.5)*5,
@@ -522,7 +528,7 @@ function updateParticles(dt) {
     const p = particles[i];
     p.life -= dt;
     if (p.life <= 0) {
-      scene.remove(p.mesh);
+      _scene.remove(p.mesh);
       p.mesh.material.dispose();
       particles.splice(i, 1);
       continue;
@@ -568,5 +574,7 @@ export {
   // Zombie death
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
   // Particles
-  updateParticles, particles
+  updateParticles, particles,
+  // Float text
+  addFloatText, floatTexts
 };

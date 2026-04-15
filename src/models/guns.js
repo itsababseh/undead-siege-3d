@@ -3,6 +3,14 @@
 
 import * as THREE from 'three';
 
+const PI = Math.PI;
+
+// ── Dependency injection ──
+let _scene, _camera, _player, _weapons;
+export function setGunDeps(scene, camera, player, weapons) {
+  _scene = scene; _camera = camera; _player = player; _weapons = weapons;
+}
+
 // ===== GUN MODELS (weapon-specific 3D) =====
 const gunGroup = new THREE.Group();
 const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.85 });
@@ -210,33 +218,36 @@ const muzzleMesh = new THREE.Mesh(muzzleGeo, muzzleMat);
 muzzleMesh.position.set(0, 0.01, -0.42);
 gunGroup.add(muzzleMesh);
 
-camera.add(gunGroup);
-gunGroup.position.set(0.25, -0.2, -0.5);
-scene.add(camera);
+// Attach gun group to camera (called after scene/camera are ready)
+export function initGunModels() {
+  _camera.add(gunGroup);
+  gunGroup.position.set(0.25, -0.2, -0.5);
+  _scene.add(_camera);
+}
 
 let _prevWeapon = -1;
-function updateGunModel(dt) {
+function updateGunModel(dt, gunKick) {
   // Show correct gun model
-  if (_prevWeapon !== player.curWeapon) {
-    gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
-    _prevWeapon = player.curWeapon;
+  if (_prevWeapon !== _player.curWeapon) {
+    gunModels.forEach((m, i) => { m.visible = (i === _player.curWeapon); });
+    _prevWeapon = _player.curWeapon;
   }
 
   // Bob
-  const bobX = Math.sin(player.bobPhase) * 0.01;
-  const bobY = Math.abs(Math.cos(player.bobPhase)) * 0.008;
+  const bobX = Math.sin(_player.bobPhase) * 0.01;
+  const bobY = Math.abs(Math.cos(_player.bobPhase)) * 0.008;
   
   // Kick
   const kick = gunKick * 0.08;
   
   // Reload animation
-  const reloadOff = player.reloading ? Math.sin(player.reloadTimer * 4) * 0.05 : 0;
+  const reloadOff = _player.reloading ? Math.sin(_player.reloadTimer * 4) * 0.05 : 0;
   
   gunGroup.position.set(0.25 + bobX, -0.2 + bobY - kick + reloadOff, -0.5 + kick * 0.5);
   gunGroup.rotation.x = kick * 0.3;
   
   // Muzzle flash
-  const w = weapons[player.curWeapon];
+  const w = _weapons[_player.curWeapon];
   if (gunKick > 0.5) {
     muzzleMat.color.set(w.isRayGun ? 0x00ff44 : 0xffcc44);
     muzzleMat.opacity = gunKick;

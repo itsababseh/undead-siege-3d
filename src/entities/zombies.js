@@ -4,6 +4,12 @@
 
 import * as THREE from 'three';
 
+// ── Dependency injection ──
+let _scene, _camera;
+export function setZombieDeps(scene, camera) {
+  _scene = scene; _camera = camera;
+}
+
 // ===== ZOMBIE SPRITE SYSTEM =====
 // Billboard sprites with canvas-drawn zombie art (DOOM-style)
 // Each zombie type has unique hand-drawn appearance with walk animation frames
@@ -1165,7 +1171,7 @@ function createZombieMesh(z) {
   hpSprite.visible = false;
   group.add(hpSprite);
 
-  scene.add(group);
+  _scene.add(group);
 
   zombieMeshes.set(z, {
     group, mesh, planeMat, tex, frameCanvas,
@@ -1197,8 +1203,8 @@ function updateZombieMesh(z, dt) {
   group.position.set(z._renderX, yOff, z._renderZ);
 
   // Billboard: smooth Y-axis rotation to face camera
-  const dx = camera.position.x - group.position.x;
-  const dz = camera.position.z - group.position.z;
+  const dx = _camera.position.x - group.position.x;
+  const dz = _camera.position.z - group.position.z;
   const targetRotY = Math.atan2(dx, dz);
   if (!z._renderRotY) z._renderRotY = targetRotY;
   // Shortest angle lerp
@@ -1328,7 +1334,7 @@ function updateZombieMesh(z, dt) {
 function removeZombieMesh(z) {
   const data = zombieMeshes.get(z);
   if (data) {
-    scene.remove(data.group);
+    _scene.remove(data.group);
     // Dispose geometry, materials, textures to prevent memory leaks
     data.group.traverse(child => {
       if (child.geometry) child.geometry.dispose();

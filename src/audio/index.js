@@ -2,6 +2,13 @@
 // Extracted from main.js for modularity
 
 // ===== AUDIO SYSTEM (Sound Design Overhaul) =====
+
+// ── Dependency injection ──
+let _camera, _player, _weapons;
+export function setAudioDeps(camera, player, weapons) {
+  _camera = camera; _player = player; _weapons = weapons;
+}
+
 let actx, masterGain, muted = false, bgMusicStarted = false;
 const bgGains = [];
 const bgNodes = [];
@@ -188,9 +195,9 @@ function sfxRayGun() {
 
 function sfxShoot() {
   // Route to weapon-specific sound
-  const w = weapons[player.curWeapon];
+  const w = _weapons[_player.curWeapon];
   if (w.isRayGun) { sfxRayGun(); return; }
-  switch(player.curWeapon) {
+  switch(_player.curWeapon) {
     case 0: sfxShootM1911(); break;
     case 1: sfxShootMP40(); break;
     case 2: sfxShootTrenchGun(); break;
@@ -203,7 +210,7 @@ function sfxReload() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    const w = weapons[player.curWeapon];
+    const w = _weapons[_player.curWeapon];
     if (w.isRayGun) {
       // Energy cell swap: hum → click → charge
       const o1 = actx.createOscillator(), g1 = actx.createGain();
@@ -219,7 +226,7 @@ function sfxReload() {
       g2.gain.setValueAtTime(0, t); g2.gain.setValueAtTime(0.05, t + 0.4);
       g2.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
       o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 1.3);
-    } else if (player.curWeapon === 2) {
+    } else if (_player.curWeapon === 2) {
       // Shotgun: pump-action chk-chk
       beep(300, 'square', 0.03, 0.08);
       setTimeout(() => beep(450, 'square', 0.03, 0.08), 100);
@@ -228,7 +235,7 @@ function sfxReload() {
       setTimeout(() => beep(1200, 'square', 0.015, 0.04), 400);
       setTimeout(() => beep(1300, 'square', 0.015, 0.04), 600);
       setTimeout(() => beep(1100, 'square', 0.015, 0.04), 800);
-    } else if (player.curWeapon === 1) {
+    } else if (_player.curWeapon === 1) {
       // MP40: magazine swap
       beep(500, 'square', 0.02, 0.06);
       setTimeout(() => beep(350, 'sawtooth', 0.04, 0.05), 150);
@@ -504,7 +511,7 @@ function playMetalCreak() {
   } catch(e) {}
 }
 
-function updateAmbientSounds(dt) {
+function updateAmbientSounds(dt, zombies, state, paused) {
   if (!actx || !masterGain || state === 'menu' || state === 'dead' || paused) return;
   
   // Random ambient events
@@ -519,11 +526,11 @@ function updateAmbientSounds(dt) {
   
   // Zombie groans (proximity-based - nearby zombies groan more)
   zombieGroanTimer -= dt;
-  if (zombieGroanTimer <= 0 && zombies.length > 0) {
+  if (zombieGroanTimer <= 0 && zombies && zombies.length > 0) {
     // Find closest zombie
     let closestDist = Infinity;
     for (const z of zombies) {
-      const d = Math.hypot(z.wx - camera.position.x, z.wz - camera.position.z);
+      const d = Math.hypot(z.wx - _camera.position.x, z.wz - _camera.position.z);
       if (d < closestDist) closestDist = d;
     }
     // Closer zombies = more frequent groans

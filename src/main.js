@@ -8,12 +8,14 @@ import {
   sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath,
   startBackgroundMusic, updateAmbientSounds,
-  playAmbientWind, playDistantScream, playMetalCreak
+  playAmbientWind, playDistantScream, playMetalCreak,
+  setAudioDeps
 } from './audio/index.js';
 import {
   ZOMBIE_SPRITE_SIZE, ZOMBIE_FRAMES, ZOMBIE_VARIANTS,
   zombieSpriteSheets, initZombieSprites, createZombieSpriteSheet, drawZombieFrame,
-  zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh
+  zombieMeshes, createZombieMesh, removeZombieMesh, updateZombieMesh,
+  setZombieDeps
 } from './entities/zombies.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
@@ -34,13 +36,22 @@ import {
   spawnMuzzleSparks, updateMuzzleSparks, muzzleSparks,
   updateBloodDecals, bloodDecals,
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
-  updateParticles, particles
+  updateParticles, particles,
+  addFloatText, floatTexts,
+  setEffectsDeps
 } from './effects/index.js';
 import {
   gunGroup, gunModels, muzzleMesh,
   buildM1911, buildMP40, buildTrenchGun, buildRayGun,
-  updateGunModel
+  updateGunModel, setGunDeps, initGunModels
 } from './models/guns.js';
+import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
+         _triggerExitPortal, cleanupVibeJamPortals, setPortalDeps } from './world/portal.js';
+import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';
+import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
+import { triggerRadioTransmission, updateRadioTransmission, closeRadio, easterEgg,
+         buildGenerators, tryActivateGenerator, tryCatalyst, updateGenerators,
+         updatePersistentStats, getPlayerRank, setStoryDeps } from './world/story.js';
 
 
 
@@ -94,140 +105,7 @@ function mapAt(wx, wz) {
 // Wall colors (Three.js hex): 1=grey, 2=brown, 3=green, 4=door-west(red), 5=door-east(red)
 const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
-// ===== VIBE JAM PORTAL SYSTEM =====
-const _vjPortalParams = new URLSearchParams(window.location.search);
-const _arrivedViaPortal = _vjPortalParams.get('portal') === 'true' || _vjPortalParams.get('portal') === '1';
-const _portalReferer = _vjPortalParams.get('ref') || '';
-let _exitPortalGroup = null;
-let _startPortalGroup = null;
-let _startPortalActiveAt = 0;
-let _portalInited = false;
-
-function _makePortalMesh(color, pos, label) {
-  const group = new THREE.Group();
-  group.position.set(pos.x, pos.y, pos.z);
-  // Glowing torus ring
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(2.5, 0.35, 16, 64),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, transparent: true, opacity: 0.85 })
-  );
-  group.add(ring);
-  // Inner swirling disc
-  const disc = new THREE.Mesh(
-    new THREE.CircleGeometry(2.2, 32),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
-  );
-  group.add(disc);
-  // Particle ring
-  const pCount = 300;
-  const geom = new THREE.BufferGeometry();
-  const positions = new Float32Array(pCount * 3);
-  const pColors = new Float32Array(pCount * 3);
-  const pr = ((color >> 16) & 0xff) / 255, pg = ((color >> 8) & 0xff) / 255, pb = (color & 0xff) / 255;
-  for (let i = 0; i < pCount * 3; i += 3) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 2.5 + (Math.random() - 0.5) * 0.8;
-    positions[i] = Math.cos(angle) * radius;
-    positions[i + 1] = Math.sin(angle) * radius;
-    positions[i + 2] = (Math.random() - 0.5) * 0.6;
-    const jitter = 0.8 + Math.random() * 0.2;
-    pColors[i] = pr * jitter; pColors[i + 1] = pg * jitter; pColors[i + 2] = pb * jitter;
-  }
-  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geom.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
-  group.add(new THREE.Points(geom, new THREE.PointsMaterial({ size: 0.08, vertexColors: true, transparent: true, opacity: 0.6 })));
-  // Label above portal
-  if (label) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
-    ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center';
-    ctx.fillText(label, 256, 42);
-    const labelMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(5, 0.8),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, side: THREE.DoubleSide })
-    );
-    labelMesh.position.y = 3.5;
-    group.add(labelMesh);
-  }
-  const light = new THREE.PointLight(color, 2, 12);
-  light.position.copy(group.position);
-  return { group, light, particles: geom };
-}
-
-function initVibeJamPortals() {
-  if (_portalInited) return;
-  _portalInited = true;
-  // Exit portal — in the top-right open area (tile col 17, row 3) — always accessible
-  const exitPos = { x: 17 * TILE + TILE / 2, y: 1.6, z: 3 * TILE + TILE / 2 };
-  const ep = _makePortalMesh(0x00ff44, exitPos, 'VIBE JAM PORTAL');
-  _exitPortalGroup = ep;
-  scene.add(ep.group); scene.add(ep.light);
-  // Start (return) portal — only if player arrived via another jam game
-  if (_arrivedViaPortal && _portalReferer) {
-    const startPos = { x: 12 * TILE, y: 1.6, z: 13 * TILE };
-    const sp = _makePortalMesh(0xff4444, startPos, 'RETURN PORTAL');
-    _startPortalGroup = sp;
-    scene.add(sp.group); scene.add(sp.light);
-    _startPortalActiveAt = Date.now() + 5000;
-  }
-}
-
-function animateVibeJamPortals(dt) {
-  if (!_portalInited) return;
-  const t = Date.now() * 0.001;
-  if (_exitPortalGroup) {
-    _exitPortalGroup.group.rotation.z += dt * 0.5;
-    const pp = _exitPortalGroup.particles.attributes.position.array;
-    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i);
-    _exitPortalGroup.particles.attributes.position.needsUpdate = true;
-    _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
-    // Check proximity
-    if (state === 'playing' || state === 'roundIntro') {
-      const dx = camera.position.x - _exitPortalGroup.group.position.x;
-      const dz = camera.position.z - _exitPortalGroup.group.position.z;
-      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();
-    }
-  }
-  if (_startPortalGroup) {
-    _startPortalGroup.group.rotation.z -= dt * 0.5;
-    const pp = _startPortalGroup.particles.attributes.position.array;
-    for (let i = 0; i < pp.length; i += 3) pp[i + 1] += 0.03 * Math.sin(t + i * 0.7);
-    _startPortalGroup.particles.attributes.position.needsUpdate = true;
-    _startPortalGroup.light.intensity = 2 + Math.sin(t * 2.5) * 0.8;
-    if (Date.now() >= _startPortalActiveAt && (state === 'playing' || state === 'roundIntro')) {
-      const dx = camera.position.x - _startPortalGroup.group.position.x;
-      const dz = camera.position.z - _startPortalGroup.group.position.z;
-      if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerReturnPortal();
-    }
-  }
-}
-
-function _triggerExitPortal() {
-  const params = new URLSearchParams();
-  params.set('portal', 'true');
-  params.set('ref', window.location.hostname);
-  params.set('username', 'Survivor');
-  params.set('color', 'red');
-  window.location.href = 'https://vibej.am/portal/2026?' + params.toString();
-}
-
-function _triggerReturnPortal() {
-  let url = _portalReferer;
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-  const params = new URLSearchParams(window.location.search);
-  params.delete('ref');
-  const s = params.toString();
-  window.location.href = url + (s ? '?' + s : '');
-}
-
-function cleanupVibeJamPortals() {
-  if (_exitPortalGroup) { scene.remove(_exitPortalGroup.group); scene.remove(_exitPortalGroup.light); _exitPortalGroup = null; }
-  if (_startPortalGroup) { scene.remove(_startPortalGroup.group); scene.remove(_startPortalGroup.light); _startPortalGroup = null; }
-  _portalInited = false;
-}
-
+// (extracted to src/world/)
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111118);
@@ -386,181 +264,17 @@ scene.add(playerLight);
 const muzzleLight = new THREE.PointLight(0xffcc44, 0, 12);
 scene.add(muzzleLight);
 
-// ===== TEXTURES (procedural) =====
-function createTexture(width, height, drawFn) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width; canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  drawFn(ctx, width, height);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.magFilter = THREE.NearestFilter;
-  return tex;
-}
-
-const wallTexGrey = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#777';
-  ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 6; i++) {
-    const y = i * 22;
-    ctx.fillStyle = '#666';
-    ctx.fillRect(0, y, w, 2);
-    if (i % 2 === 0) { ctx.fillRect(w/2 - 1, y, 2, 22); }
-    else { ctx.fillRect(0, y, 2, 22); ctx.fillRect(w - 2, y, 2, 22); }
-  }
-  // Grime
-  for(let i = 0; i < 30; i++) {
-    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.15})`;
-    ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*20+2, Math.random()*20+2);
-  }
-});
-
-const wallTexBrown = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#7A5030';
-  ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 8; i++) {
-    for (let j = 0; j < 4; j++) {
-      const x = i * 16 + (j % 2) * 8;
-      const y = j * 32;
-      ctx.fillStyle = `rgb(${100+Math.random()*25},${65+Math.random()*20},${35+Math.random()*15})`;
-      ctx.fillRect(x, y, 15, 30);
-      ctx.strokeStyle = '#4A3218';
-      ctx.strokeRect(x, y, 15, 30);
-    }
-  }
-});
-
-const wallTexGreen = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#4A7A40';
-  ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 40; i++) {
-    ctx.fillStyle = `rgba(${Math.random()>0.5?10:60},${55+Math.random()*45},${Math.random()*25},0.3)`;
-    ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*15+3, Math.random()*15+3);
-  }
-  // Cracks
-  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-  ctx.lineWidth = 1;
-  for(let i = 0; i < 5; i++) {
-    ctx.beginPath();
-    let cx = Math.random()*w, cy = Math.random()*h;
-    ctx.moveTo(cx, cy);
-    for(let j = 0; j < 4; j++) { cx += Math.random()*30-15; cy += Math.random()*30; ctx.lineTo(cx,cy); }
-    ctx.stroke();
-  }
-});
-
-const wallTexDoor = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#6B2A15';
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#7B3520';
-  ctx.fillRect(8, 8, w-16, h-16);
-  // Metal bands
-  ctx.fillStyle = '#444';
-  ctx.fillRect(0, 20, w, 6); ctx.fillRect(0, h-26, w, 6); ctx.fillRect(0, h/2-3, w, 6);
-  // Rivets
-  ctx.fillStyle = '#666';
-  for(let y of [23, h/2, h-23]) {
-    for(let x = 10; x < w; x += 20) {
-      ctx.beginPath(); ctx.arc(x, y, 3, 0, PI2); ctx.fill();
-    }
-  }
-});
-
-const floorTex = createTexture(256, 256, (ctx, w, h) => {
-  ctx.fillStyle = '#3a3a35';
-  ctx.fillRect(0, 0, w, h);
-  // Tile pattern
-  const ts = 32;
-  for(let x = 0; x < w; x += ts) {
-    for(let y = 0; y < h; y += ts) {
-      const v = 45 + Math.random()*15;
-      ctx.fillStyle = `rgb(${v},${v},${v-3})`;
-      ctx.fillRect(x+1, y+1, ts-2, ts-2);
-    }
-  }
-  // Blood stains
-  ctx.fillStyle = 'rgba(60,10,10,0.3)';
-  for(let i = 0; i < 3; i++) {
-    ctx.beginPath();
-    ctx.arc(Math.random()*w, Math.random()*h, Math.random()*20+10, 0, PI2);
-    ctx.fill();
-  }
-});
-floorTex.repeat.set(MAP_W, MAP_H);
-
-const ceilTex = createTexture(128, 128, (ctx, w, h) => {
-  ctx.fillStyle = '#2a2a25';
-  ctx.fillRect(0, 0, w, h);
-  for(let i = 0; i < 20; i++) {
-    ctx.fillStyle = `rgba(${20+Math.random()*20},${18+Math.random()*18},${15+Math.random()*15},0.4)`;
-    ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*30+5, Math.random()*30+5);
-  }
-});
-ceilTex.repeat.set(MAP_W, MAP_H);
-
-const wallTextures = [wallTexGrey, wallTexBrown, wallTexGreen, wallTexDoor, wallTexDoor];
-
-// ===== BUILD 3D MAP =====
-const wallMeshes = [];
-const doorMeshes = []; // track door meshes for removal
-
-function buildMap() {
-  // Remove old walls
-  wallMeshes.forEach(m => scene.remove(m));
-  wallMeshes.length = 0;
-  doorMeshes.length = 0;
-
-  // Floor
-  const floorGeo = new THREE.PlaneGeometry(MAP_W * TILE, MAP_H * TILE);
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9, metalness: 0.1 });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.rotation.x = -PI / 2;
-  floor.position.set(MAP_W * TILE / 2, 0, MAP_H * TILE / 2);
-  floor.receiveShadow = true;
-  scene.add(floor);
-  wallMeshes.push(floor);
-
-  // Ceiling
-  const ceilGeo = new THREE.PlaneGeometry(MAP_W * TILE, MAP_H * TILE);
-  const ceilMat = new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 1, metalness: 0 });
-  const ceil = new THREE.Mesh(ceilGeo, ceilMat);
-  ceil.rotation.x = PI / 2;
-  ceil.position.set(MAP_W * TILE / 2, 3.2, MAP_H * TILE / 2);
-  scene.add(ceil);
-  wallMeshes.push(ceil);
-
-  // Walls
-  const wallH = 3.2;
-  for (let z = 0; z < MAP_H; z++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const cell = map[z * MAP_W + x];
-      if (cell === 0) continue;
-      const ci = Math.min(cell - 1, wallTextures.length - 1);
-      const mat = new THREE.MeshStandardMaterial({ map: wallTextures[ci], roughness: 0.85, metalness: 0.05 });
-      const geo = new THREE.BoxGeometry(TILE, wallH, TILE);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * TILE + TILE / 2, wallH / 2, z * TILE + TILE / 2);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      scene.add(mesh);
-      wallMeshes.push(mesh);
-      if (cell === 4 || cell === 5) {
-        doorMeshes.push({ mesh, x, z, cell });
-      }
-    }
-  }
-}
-buildMap();
-updateLoadBar(25, 'Loading weapons cache...');
-
-// Audio system extracted to src/audio/index.js
-
-// Leaderboard extracted to src/ui/menu.js
-
+// (extracted to src/world/)
+// (extracted to src/world/)
 // ===== GAME STATE =====
 let state = 'menu'; // menu, roundIntro, playing, dead
 let paused = false;
 let round = 0, points = 500, totalKills = 0;
+// Shared mutable game state for cross-module access
+const gameState = { get points() { return points; }, set points(v) { points = v; },
+                    get round() { return round; }, set round(v) { round = v; },
+                    get totalKills() { return totalKills; }, set totalKills(v) { totalKills = v; },
+                    player: null };
 let zToSpawn = 0, zSpawned = 0, maxAlive = 0, spawnTimer = 0;
 let roundIntroTimer = 0;
 let doorsOpenedCount = 0;
@@ -579,6 +293,7 @@ const player = {
   perksOwned: {},
   bobPhase: 0,
 };
+gameState.player = player;
 
 // ===== WEAPONS =====
 const weapons = [
@@ -589,6 +304,16 @@ const weapons = [
 ];
 // Store original weapon stats for PaP reset
 const origWeaponStats = weapons.map(w => ({ name: w.name, dmg: w.dmg, mag: w.mag, maxAmmo: w.maxAmmo }));
+
+// ===== DEPENDENCY INJECTION — wire up all extracted modules =====
+setAudioDeps(camera, player, weapons);
+setZombieDeps(scene, camera);
+setEffectsDeps(scene, camera, player, weapons);
+setGunDeps(scene, camera, player, weapons);
+initGunModels();  // attach gun group to camera
+setPortalDeps(scene, camera, TILE);
+setMapDeps(scene, TILE, MAP_W, MAP_H, map);
+setStoryDeps(scene, camera, TILE, gameState, addFloatText);
 
 const wallBuys = [
   { tx: 12, tz: 4, wi: 1, cost: 1000 },
@@ -1167,364 +892,7 @@ buildMysteryBox();
 buildPackAPunch();
 updateLoadBar(65, 'Tuning radio frequencies...');
 
-// ===== STORY / PROGRESSION SYSTEM =====
-
-// --- Radio Transmissions (narrative between rounds) ---
-const radioTransmissions = [
-  { round: 1, speaker: 'COMMAND', text: 'Operative, this is Command. You\'ve been deployed to Facility 935. The dead are rising. Hold your position at all costs.', color: '#4af' },
-  { round: 2, speaker: 'COMMAND', text: 'We\'re detecting increased anomalous activity. The breach originated from the west wing laboratory. Do NOT investigate... yet.', color: '#4af' },
-  { round: 3, speaker: 'DR. RICHTER', text: '*static* ...the serum... it wasn\'t supposed to... they were already dead when we started the trials...', color: '#f84' },
-  { round: 5, speaker: 'COMMAND', text: 'Good work surviving this long. Intel suggests the horde is being controlled. Find the source. We\'re detecting energy signatures from three generators.', color: '#4af' },
-  { round: 7, speaker: 'DR. RICHTER', text: '*crackle* The Element 115... it binds them. Three generators power the containment field. If you could overload them... but the sequence matters...', color: '#f84' },
-  { round: 10, speaker: 'COMMAND', text: 'Operative, radiation levels are spiking. Whatever Richter was working on, it\'s accelerating. Find those generators. That\'s an order.', color: '#4af' },
-  { round: 12, speaker: '???', text: '*distorted voice* ...you think you can stop this? We are already free. The 115 chose US. It will choose you too...', color: '#f44' },
-  { round: 15, speaker: 'DR. RICHTER', text: 'The generators! Red, Blue, Yellow — activate them in the correct order. I encoded the sequence in the facility... look at the walls... the symbols...', color: '#f84' },
-  { round: 18, speaker: 'COMMAND', text: 'Operative, your extraction window is closing. Complete the objective or we\'ll be forced to enact Protocol Omega. You don\'t want that.', color: '#4af' },
-  { round: 20, speaker: '???', text: '*laughing* Protocol Omega... they\'ll burn everything. You, us, the truth. But Element 115 cannot be destroyed. WE cannot be destroyed.', color: '#f44' },
-  { round: 25, speaker: 'DR. RICHTER', text: 'If you\'ve activated all three generators... go to the central chamber. The machine there... it can reverse the breach. But it needs a catalyst. YOUR life force. Are you prepared to sacrifice?', color: '#f84' },
-];
-
-let radioActive = false;
-let radioTimer = 0;
-let radioCharIdx = 0;
-let radioCurrentMsg = null;
-let radioBlipTimer = 0;
-
-function triggerRadioTransmission(roundNum) {
-  const msg = radioTransmissions.find(r => r.round === roundNum);
-  if (!msg) return;
-  radioCurrentMsg = msg;
-  radioActive = true;
-  radioCharIdx = 0;
-  radioTimer = 0;
-  radioBlipTimer = 0;
-  
-  // Show radio UI
-  const el = document.getElementById('radioOverlay');
-  el.style.display = 'block';
-  el.style.opacity = '1';
-  document.getElementById('radioSpeaker').textContent = msg.speaker;
-  document.getElementById('radioSpeaker').style.color = msg.color;
-  document.getElementById('radioText').textContent = '';
-  
-  // Static burst
-  if (actx && masterGain) {
-    try {
-      const bufLen = actx.sampleRate * 0.15;
-      const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.3));
-      const noise = actx.createBufferSource(); noise.buffer = buf;
-      const g = actx.createGain(); g.gain.value = 0.06;
-      const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2000; f.Q.value = 1;
-      noise.connect(f); f.connect(g); g.connect(masterGain); noise.start();
-    } catch(e) {}
-  }
-}
-
-function updateRadioTransmission(dt) {
-  if (!radioActive || !radioCurrentMsg) return;
-  
-  radioTimer += dt;
-  const msg = radioCurrentMsg;
-  
-  // Typewriter effect
-  const charsPerSec = 35;
-  const targetChars = Math.floor(radioTimer * charsPerSec);
-  if (targetChars > radioCharIdx && radioCharIdx < msg.text.length) {
-    radioCharIdx = Math.min(targetChars, msg.text.length);
-    document.getElementById('radioText').textContent = msg.text.substring(0, radioCharIdx);
-    
-    // Radio blip sound
-    radioBlipTimer += dt;
-    if (radioBlipTimer > 0.04) {
-      radioBlipTimer = 0;
-      if (actx && masterGain) {
-        try {
-          const o = actx.createOscillator(), g = actx.createGain();
-          o.type = 'square';
-          o.frequency.value = 600 + Math.random() * 200;
-          g.gain.setValueAtTime(0.015, actx.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.03);
-          o.connect(g); g.connect(masterGain);
-          o.start(); o.stop(actx.currentTime + 0.03);
-        } catch(e) {}
-      }
-    }
-  }
-  
-  // Auto-close after text finishes + 4 seconds
-  if (radioCharIdx >= msg.text.length) {
-    radioTimer += 0; // keep counting
-    const sinceComplete = radioTimer - (msg.text.length / charsPerSec);
-    if (sinceComplete > 4) {
-      closeRadio();
-    }
-    // Fade out in last second
-    if (sinceComplete > 3) {
-      document.getElementById('radioOverlay').style.opacity = String(1 - (sinceComplete - 3));
-    }
-  }
-}
-
-function closeRadio() {
-  radioActive = false;
-  radioCurrentMsg = null;
-  document.getElementById('radioOverlay').style.display = 'none';
-}
-
-// --- Easter Egg Quest ---
-const easterEgg = {
-  generators: [
-    { id: 'red', tx: 3, tz: 3, color: '#ff2222', activated: false, doorReq: 'west', label: 'RED GENERATOR' },
-    { id: 'blue', tx: 22, tz: 16, color: '#2244ff', activated: false, doorReq: 'east', label: 'BLUE GENERATOR' },
-    { id: 'yellow', tx: 15, tz: 21, color: '#ffdd00', activated: false, doorReq: null, label: 'YELLOW GENERATOR' },
-  ],
-  correctOrder: ['red', 'yellow', 'blue'], // The secret sequence
-  activatedOrder: [],
-  allActivated: false,
-  catalystReady: false,
-  catalystUsed: false,
-  questComplete: false,
-  catalystTx: 12, catalystTz: 12, // central chamber
-};
-
-const generatorMeshes = [];
-
-function buildGenerators() {
-  // Clean old
-  generatorMeshes.forEach(gm => { scene.remove(gm.body); scene.remove(gm.light); scene.remove(gm.ring); });
-  generatorMeshes.length = 0;
-  
-  easterEgg.generators.forEach(gen => {
-    const gx = gen.tx * TILE + TILE / 2;
-    const gz = gen.tz * TILE + TILE / 2;
-    const color = new THREE.Color(gen.color);
-    
-    // Generator body (cylinder)
-    const bodyGeo = new THREE.CylinderGeometry(0.5, 0.6, 1.8, 8);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333340, roughness: 0.5, metalness: 0.6 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.set(gx, 0.9, gz);
-    body.castShadow = true;
-    scene.add(body);
-    
-    // Energy ring (torus)
-    const ringGeo = new THREE.TorusGeometry(0.7, 0.05, 8, 16);
-    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.set(gx, 1.2, gz);
-    ring.rotation.x = Math.PI / 2;
-    scene.add(ring);
-    
-    // Light
-    const light = new THREE.PointLight(color.getHex(), 0.5, 10);
-    light.position.set(gx, 2, gz);
-    scene.add(light);
-    
-    generatorMeshes.push({ body, ring, light, gen });
-  });
-}
-
-function tryActivateGenerator() {
-  if (easterEgg.allActivated) return false;
-  
-  const px = camera.position.x, pz = camera.position.z;
-  for (const gen of easterEgg.generators) {
-    if (gen.activated) continue;
-    
-    // Check door requirement
-    if (gen.doorReq) {
-      const door = doors.find(d => d.id === gen.doorReq);
-      if (!door || !door.opened) continue;
-    }
-    
-    const gx = gen.tx * TILE + TILE / 2;
-    const gz = gen.tz * TILE + TILE / 2;
-    const d = Math.hypot(gx - px, gz - pz);
-    if (d > TILE * 2) continue;
-    
-    // Activate!
-    gen.activated = true;
-    easterEgg.activatedOrder.push(gen.id);
-    
-    // Check if correct order
-    const idx = easterEgg.activatedOrder.length - 1;
-    const isCorrect = easterEgg.activatedOrder[idx] === easterEgg.correctOrder[idx];
-    
-    if (isCorrect) {
-      addFloatText(`⚡ ${gen.label} ACTIVATED ⚡`, gen.color, 3);
-      triggerScreenShake(0.8, 6);
-      beep(400, 'sine', 0.15, 0.12);
-      setTimeout(() => beep(600, 'sine', 0.15, 0.12), 120);
-      setTimeout(() => beep(800, 'sine', 0.2, 0.1), 240);
-      points += 500;
-    } else {
-      // Wrong order — reset all generators
-      addFloatText('⚠ WRONG SEQUENCE ⚠', '#f44', 3);
-      addFloatText('Generators reset...', '#888', 2.5);
-      triggerScreenShake(1.5, 4);
-      beep(200, 'sawtooth', 0.3, 0.15);
-      easterEgg.generators.forEach(g => g.activated = false);
-      easterEgg.activatedOrder = [];
-    }
-    
-    // Check if all activated correctly
-    if (easterEgg.activatedOrder.length === 3 && 
-        easterEgg.activatedOrder.every((id, i) => id === easterEgg.correctOrder[i])) {
-      easterEgg.allActivated = true;
-      easterEgg.catalystReady = true;
-      addFloatText('🔓 ALL GENERATORS ACTIVE!', '#0f0', 4);
-      addFloatText('Go to the Central Chamber...', '#fc0', 3.5);
-      triggerScreenShake(2, 4);
-      // Dramatic sound
-      setTimeout(() => {
-        beep(200, 'sine', 0.3, 0.15);
-        setTimeout(() => beep(300, 'sine', 0.3, 0.15), 200);
-        setTimeout(() => beep(400, 'sine', 0.3, 0.15), 400);
-        setTimeout(() => beep(600, 'sine', 0.5, 0.12), 600);
-      }, 500);
-    }
-    
-    return true;
-  }
-  return false;
-}
-
-function tryCatalyst() {
-  if (!easterEgg.catalystReady || easterEgg.catalystUsed) return false;
-  
-  const cx = easterEgg.catalystTx * TILE + TILE / 2;
-  const cz = easterEgg.catalystTz * TILE + TILE / 2;
-  const d = Math.hypot(cx - camera.position.x, cz - camera.position.z);
-  if (d > TILE * 2) return false;
-  
-  // Easter egg complete!
-  easterEgg.catalystUsed = true;
-  easterEgg.questComplete = true;
-  
-  // Massive reward
-  points += 10000;
-  player.maxHp = 250;
-  player.hp = 250;
-  
-  // Visual spectacle
-  triggerScreenShake(3, 3);
-  const flash = document.getElementById('roundFlash');
-  flash.style.display = 'block';
-  flash.style.opacity = '0.8';
-  flash.style.background = 'rgba(100,200,255,0.5)';
-  setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => { flash.style.display = 'none'; flash.style.background = 'rgba(255,255,255,0.3)'; }, 800); }, 500);
-  
-  // Epic sound
-  beep(200, 'sine', 0.5, 0.15);
-  setTimeout(() => beep(400, 'sine', 0.5, 0.15), 300);
-  setTimeout(() => beep(600, 'sine', 0.5, 0.15), 600);
-  setTimeout(() => beep(800, 'sine', 0.5, 0.15), 900);
-  setTimeout(() => beep(1200, 'sine', 1.0, 0.12), 1200);
-  
-  addFloatText('🏆 EASTER EGG COMPLETE! 🏆', '#0ff', 5);
-  addFloatText('+10,000 POINTS · 250 MAX HP', '#fc0', 4);
-  addFloatText('The breach is sealed...', '#4af', 3.5);
-  addFloatText('But the dead still walk.', '#f84', 3);
-  
-  // Save to persistent unlocks
-  saveUnlock('easterEggComplete', true);
-  saveUnlock('highestEERound', round);
-  
-  return true;
-}
-
-function updateGenerators(dt) {
-  const t = performance.now() / 1000;
-  generatorMeshes.forEach(gm => {
-    const activated = gm.gen.activated;
-    gm.ring.material.opacity = activated ? 0.6 + Math.sin(t * 3) * 0.2 : 0.15 + Math.sin(t * 1.5) * 0.1;
-    gm.ring.rotation.z += dt * (activated ? 3 : 0.5);
-    gm.light.intensity = activated ? 2 + Math.sin(t * 4) * 0.5 : 0.3 + Math.sin(t * 1.5) * 0.15;
-  });
-  
-  // Catalyst location glow (when ready)
-  // This is handled via existing scene — just show float text hint periodically
-}
-
-// --- Persistent Unlock System ---
-const UNLOCK_KEY = 'undeadSiege3dUnlocks';
-
-function getUnlocks() {
-  try {
-    const d = localStorage.getItem(UNLOCK_KEY);
-    if (d) return JSON.parse(d);
-  } catch(e) {}
-  return {};
-}
-
-function saveUnlock(key, value) {
-  try {
-    const unlocks = getUnlocks();
-    unlocks[key] = value;
-    localStorage.setItem(UNLOCK_KEY, JSON.stringify(unlocks));
-  } catch(e) {}
-}
-
-function getUnlock(key, defaultVal) {
-  const unlocks = getUnlocks();
-  return unlocks[key] !== undefined ? unlocks[key] : defaultVal;
-}
-
-// Track persistent stats
-function updatePersistentStats() {
-  const unlocks = getUnlocks();
-  const prevHighRound = unlocks.highestRound || 0;
-  const prevTotalKills = unlocks.totalKillsAllTime || 0;
-  const prevGamesPlayed = unlocks.gamesPlayed || 0;
-  
-  if (round > prevHighRound) saveUnlock('highestRound', round);
-  saveUnlock('totalKillsAllTime', prevTotalKills + totalKills);
-  saveUnlock('gamesPlayed', prevGamesPlayed + 1);
-  saveUnlock('lastPlayed', new Date().toISOString());
-}
-
-// --- Unlock Tiers (displayed on menu) ---
-function getPlayerRank() {
-  const unlocks = getUnlocks();
-  const totalKills = unlocks.totalKillsAllTime || 0;
-  const highRound = unlocks.highestRound || 0;
-  const eeComplete = unlocks.easterEggComplete || false;
-  
-  if (eeComplete && highRound >= 30) return { rank: '☠️ PRESTIGE', color: '#f0f', desc: 'Easter Egg Master' };
-  if (highRound >= 25) return { rank: '⭐ VETERAN', color: '#fc0', desc: `Round ${highRound} survivor` };
-  if (highRound >= 15) return { rank: '🎖️ SERGEANT', color: '#4af', desc: `${totalKills} total kills` };
-  if (highRound >= 8) return { rank: '🔫 CORPORAL', color: '#4e4', desc: 'Showing promise' };
-  if (totalKills >= 50) return { rank: '🪖 PRIVATE', color: '#aaa', desc: 'Battle-tested' };
-  return { rank: '🆕 RECRUIT', color: '#666', desc: 'Fresh meat' };
-}
-
-function showMenuRank() {
-  const rank = getPlayerRank();
-  const unlocks = getUnlocks();
-  let html = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px;margin-bottom:4px">${rank.rank}</div>`;
-  html += `<div style="color:#aaa;font-size:10px">${rank.desc}</div>`;
-  if (unlocks.highestRound) {
-    html += `<div style="color:#999;font-size:9px;margin-top:4px">Best: R${unlocks.highestRound} · ${unlocks.totalKillsAllTime || 0} lifetime kills</div>`;
-  }
-  if (unlocks.easterEggComplete) {
-    html += `<div style="color:#0ff;font-size:9px;margin-top:2px">🏆 Easter Egg Completed</div>`;
-  }
-  // Insert rank display before high scores
-  const scoresEl = document.getElementById('menuScores');
-  const rankDiv = document.getElementById('menuRank') || document.createElement('div');
-  rankDiv.id = 'menuRank';
-  rankDiv.innerHTML = html;
-  rankDiv.style.cssText = 'text-align:center;margin-bottom:10px;letter-spacing:1px;line-height:1.6';
-  if (!rankDiv.parentNode) scoresEl.parentNode.insertBefore(rankDiv, scoresEl);
-}
-
-
-buildGenerators();
-updateLoadBar(80, 'Charging Ray Gun...');
-showMenuRank();
-
+// (extracted to src/world/)
 // ===== ZOMBIES =====
 const zombies = [];
 
@@ -1611,8 +979,9 @@ function initGame() {
   roundTransitionPhase = 'none';
   document.getElementById('roundFlash').style.display = 'none';
   
-  // Reset map and doors
-  map = [...mapData];
+  // Reset map and doors (mutate in-place to keep shared reference)
+  map.length = 0;
+  map.push(...mapData);
   doors.forEach(d => { d.opened = false; });
   doorsOpenedCount = 0;
   
@@ -2375,7 +1744,7 @@ function update(dt) {
   }
   
   // Ambient sounds (zombie groans, wind, distant screams)
-  updateAmbientSounds(dt);
+  updateAmbientSounds(dt, zombies, state, paused);
   
   // Mystery box + power-ups
   updateMysteryBox(dt);
@@ -2898,7 +2267,7 @@ function gameLoop(time) {
   // This is a safety net in case anything else touches camera.rotation
   controls._applyRotation();
   updateCenterMsg(dt);
-  updateGunModel(dt);
+  updateGunModel(dt, gunKick);
   updateLights(dt);
   updateHitmarker(dt);
   updateScreenShake(dt);
@@ -2907,9 +2276,9 @@ function gameLoop(time) {
   updateBloodDecals(dt);
   updateRoundTransition(dt);
   updateDamageVignette(dt);
-  updateLowHealthEffect(dt);
+  updateLowHealthEffect(dt, state);
   updateHitIndicators(dt);
-  animateVibeJamPortals(dt);
+  animateVibeJamPortals(dt, state);
   // Skip HUD updates once death screen is shown (prevents DOM thrashing)
   if (!_deathShown) {
     updateHUD();
