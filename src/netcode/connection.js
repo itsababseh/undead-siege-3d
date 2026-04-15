@@ -39,6 +39,16 @@ let _zombieSyncTimer = 0;
 let _hostHeartbeatTimer = 0;
 let _pendingTransform = null;
 
+// Dead-reckoning state — skip reducer calls when nothing changed since
+// the last send. Big CPU saving on the Maincloud side for idle players
+// (standing at the buy menu = zero transform calls instead of 20/sec).
+let _lastSentTransform = null; // { wx, wz, ry }
+const _lastSyncedZombiePos = new Map(); // hostZidStr -> { wx, wz, flashLevel }
+// Position delta that counts as "movement worth syncing" (world units).
+const POS_EPS = 0.05;
+const ROT_EPS = 0.02;
+const FLASH_EPS = 0.1;
+
 const _listeners = new Set();
 
 // Subscribed table snapshots (kept in sync via onInsert/onUpdate/onDelete)
@@ -284,6 +294,8 @@ export function disconnect() {
   _powerUps.clear();
   _gameState = null;
   _connecting = false;
+  _lastSentTransform = null;
+  _lastSyncedZombiePos.clear();
   setStatus('disconnected');
 }
 
@@ -296,13 +308,23 @@ export function setLocalTransform(wx, wz, ry) {
 export function update(dt) {
   if (!isConnected() || !_conn) return;
 
-  // 1. Local transform push (~20 Hz)
+  // 1. Local transform push (~20 Hz) — but skip the call entirely if the
+  // player is standing still (within POS_EPS / ROT_EPS of the last sent).
+  // Players who are at the buy menu, aiming, reloading, or in the round
+  // transition go from 20 reducer calls/sec to 0.
   _transformTimer += dt;
   if (_transformTimer >= 1 / TRANSFORM_HZ && _pendingTransform) {
     _transformTimer = 0;
     const { wx, wz, ry } = _pendingTransform;
-    try { _conn.reducers.updatePlayerTransform({ wx, wz, ry }); }
-    catch (e) { console.warn('[netcode] updatePlayerTransform failed', e); }
+    const moved = _lastSentTransform === null
+      || Math.abs(wx - _lastSentTransform.wx) > POS_EPS
+      || Math.abs(wz - _lastSentTransform.wz) > POS_EPS
+      || Math.abs(ry - _lastSentTransform.ry) > ROT_EPS;
+    if (moved) {
+      try { _conn.reducers.updatePlayerTransform({ wx, wz, ry }); }
+      catch (e) { console.warn('[netcode] updatePlayerTransform failed', e); }
+      _lastSentTransform = { wx, wz, ry };
+    }
   }
 
   // 2. Host heartbeat + opportunistic re-claim (every 2s)
@@ -315,15 +337,47 @@ export function update(dt) {
     } catch (e) { console.warn('[netcode] host heartbeat/claim failed', e); }
   }
 
-  // 3. Zombie sync (host only, ~15 Hz)
+  // 3. Zombie sync (host only). Only send zombies that actually moved
+  // (or whose flash level meaningfully changed) since the last sync.
+  // Skip the reducer call entirely if no zombie moved. During round
+  // transitions / between waves this drops sync_zombie_positions to 0
+  // calls/sec from the 20/sec idle baseline.
   _zombieSyncTimer += dt;
   if (_zombieSyncTimer >= 1 / ZOMBIE_SYNC_HZ) {
     _zombieSyncTimer = 0;
     if (isHost() && _hostZombiesProvider) {
       try {
-        const updates = _hostZombiesProvider();
-        if (updates && updates.length > 0) {
-          _conn.reducers.syncZombiePositions({ updates });
+        const raw = _hostZombiesProvider();
+        if (raw && raw.length > 0) {
+          const filtered = [];
+          const seen = new Set();
+          for (const u of raw) {
+            const key = u.hostZid.toString();
+            seen.add(key);
+            const prev = _lastSyncedZombiePos.get(key);
+            if (
+              !prev ||
+              Math.abs(u.wx - prev.wx) > POS_EPS ||
+              Math.abs(u.wz - prev.wz) > POS_EPS ||
+              Math.abs((u.flashLevel || 0) - (prev.flashLevel || 0)) > FLASH_EPS
+            ) {
+              filtered.push(u);
+              _lastSyncedZombiePos.set(key, {
+                wx: u.wx, wz: u.wz, flashLevel: u.flashLevel || 0,
+              });
+            }
+          }
+          // Evict rows we no longer have (zombie died / despawned).
+          for (const key of _lastSyncedZombiePos.keys()) {
+            if (!seen.has(key)) _lastSyncedZombiePos.delete(key);
+          }
+          if (filtered.length > 0) {
+            _conn.reducers.syncZombiePositions({ updates: filtered });
+          }
+        } else if (_lastSyncedZombiePos.size > 0) {
+          // No zombies at all — clear our dead-reckoning cache so a
+          // fresh wave starts clean.
+          _lastSyncedZombiePos.clear();
         }
       } catch (e) { console.warn('[netcode] syncZombiePositions failed', e); }
     }
