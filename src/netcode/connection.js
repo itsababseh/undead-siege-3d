@@ -8,12 +8,16 @@
 import { DbConnection } from './module_bindings/index.ts';
 
 // ── Config ────────────────────────────────────────────────────────────────
+// Connect target priority:
+//   1. ?stdb=... URL param (handy for dev: ?stdb=ws://127.0.0.1:3000)
+//   2. localStorage.stdbUri (sticky override)
+//   3. Maincloud (default — works out of the box once the site is online)
 function resolveUri() {
   const params = new URLSearchParams(window.location.search);
   return (
     params.get('stdb') ||
     localStorage.getItem('stdbUri') ||
-    'ws://127.0.0.1:3000'
+    'wss://maincloud.spacetimedb.com'
   );
 }
 const MODULE_NAME = 'undead-siege';
