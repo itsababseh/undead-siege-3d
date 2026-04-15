@@ -2,11 +2,13 @@
 // Extracted from main.js
 
 import * as THREE from 'three';
+import { zombieMeshes } from '../entities/zombies.js';
+import { wallMeshes } from '../world/map.js';
 
 // ── Dependency injection ──
-let _scene, _camera, _player, _weapons;
-export function setEffectsDeps(scene, camera, player, weapons) {
-  _scene = scene; _camera = camera; _player = player; _weapons = weapons;
+let _scene, _camera, _player, _weapons, _controls;
+export function setEffectsDeps(scene, camera, player, weapons, controls) {
+  _scene = scene; _camera = camera; _player = player; _weapons = weapons; _controls = controls;
 }
 
 // ===== FLOATING DAMAGE NUMBERS =====
@@ -386,7 +388,7 @@ function triggerHitIndicator(zombieX, zombieZ) {
   const worldAngle = Math.atan2(dx, dz);
   // Relative angle = world angle minus camera yaw
   // controls._yaw is the camera's yaw (rotation around Y axis)
-  const relAngle = worldAngle - controls._yaw;
+  const relAngle = worldAngle - _controls._yaw;
   
   // Check if we should merge with existing indicator at similar angle
   for (let i = 0; i < hitIndicators.length; i++) {

@@ -363,7 +363,4 @@ function showMenuRank() {
 }
 
 
-buildGenerators();
-updateLoadBar(80, 'Charging Ray Gun...');
-showMenuRank();
 

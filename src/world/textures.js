@@ -1,5 +1,6 @@
 // Procedural texture generation
 import * as THREE from 'three';
+import { PI2, MAP_W, MAP_H } from '../core/state.js';
 
 export function createTexture(width, height, drawFn) {
   const canvas = document.createElement('canvas');
