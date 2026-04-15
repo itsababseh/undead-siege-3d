@@ -127,19 +127,31 @@ export function createHostSync(ctx) {
         createZombieMesh(nz);
         return;
       }
-      // For remote (non-host) zombies, don't snap z.wx/z.wz to the
-      // server value — store the target and let the main loop lerp
-      // toward it each frame. Snapping causes the "jitters every
-      // 50ms" look because the mesh sits still between syncs.
-      // Host's own zombies have _remote=false (they came from
-      // spawnZombie, not this callback) so they bypass this path.
+      // Position handling depends on who owns this zombie:
+      //
+      //   - _remote === true  → server-driven (non-host case). Store the
+      //                         new server position as _targetWx/_targetWz
+      //                         and let the main loop lerp z.wx/z.wz
+      //                         toward it smoothly.
+      //
+      //   - _remote === false → host's own locally-simulated zombie.
+      //                         DO NOT snap z.wx/z.wz to the echoed row.
+      //                         The row we just received is our own sync
+      //                         coming back after a network round trip,
+      //                         so it's stale relative to our live AI
+      //                         state. Writing it here would fight the
+      //                         AI every frame and cause visible jitter
+      //                         on the host's screen. Host is authoritative
+      //                         for its own zombies — the server table is
+      //                         write-through only.
       if (z._remote) {
         z._targetWx = row.wx;
         z._targetWz = row.wz;
-      } else {
-        z.wx = row.wx;
-        z.wz = row.wz;
       }
+      // HP/flash still come from the server for both cases — non-hosts can
+      // damage any zombie via damage_zombie, and the host needs to see
+      // those HP drops so its local AI and HP bar reflect them. Deletion
+      // (HP ≤ 0) is handled separately in onZombieDelete.
       z.hp = row.hp;
       z.maxHp = row.maxHp;
       z.flash = Math.max(z.flash, row.flashLevel || 0);
