@@ -307,12 +307,8 @@ initReviveMp({
 });
 initChat();
 // NOTE: initBuying + initShooting are wired up AFTER the declarations of
-// `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. (see wireGameplayModules
-// call further down). Calling them here would trip a temporal dead zone
-// on those `const`s and silently leave the ctx with undefined refs —
-// which is how the refactor originally broke shooting (ctx.zombies was
-// bound before the const initializer ran).
-
+// `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. Calling them here
+// would trip a temporal dead zone on those `const`s.
 // Register netcode subscription callbacks. Done in a microtask so that
 // any forward-referenced helpers (openDoorLocal etc.) are guaranteed to
 // be initialized by the time the callback body runs.
@@ -427,49 +423,9 @@ const doors = [
 ];
 setStoryDoors(doors);
 
-// ===== SPAWN POINTS =====
-const spawnPts = [
-  {x:11,z:1.5,door:null},{x:18,z:1.5,door:null},{x:11,z:9,door:null},{x:18,z:9,door:null},
-  {x:15,z:5,door:null},{x:13,z:7,door:null},{x:1.5,z:11,door:null},{x:1.5,z:20,door:null},
-  {x:8,z:22,door:null},{x:15,z:22,door:null},{x:19,z:20,door:null},{x:5,z:15,door:null},
-  {x:10,z:18,door:null},{x:17,z:15,door:null},
-  {x:3,z:2.5,door:'west'},{x:7,z:2.5,door:'west'},{x:3,z:5,door:'west'},
-  {x:5,z:8,door:'west'},{x:7,z:5,door:'west'},{x:2,z:7,door:'west'},
-  {x:21,z:11,door:'east'},{x:22,z:13,door:'east'},{x:21,z:15,door:'east'},
-  {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:21,z:17.5,door:'east'},
-];
-
-// Build mystery box & PaP
-buildMysteryBox();
-buildPackAPunch();
-updateLoadBar(65, 'Tuning radio frequencies...');
-
-// ===== HUD & MINIMAP DEPENDENCY INJECTION =====
-setHudDeps({
-  camera, TILE, weapons, player, isMobile,
-  getPoints: () => points,
-  getRound: () => round,
-  getTotalKills: () => totalKills,
-  getZombies: () => zombies,
-  perks, perkMachines, doors, wallBuys,
-  mysteryBox, packAPunch, easterEgg,
-  powerUps, POWERUP_TYPES,
-});
-
-setMinimapDeps({
-  camera, TILE, MAP_W, MAP_H, map, player,
-  doors, perkMachines, perks,
-  mysteryBox, packAPunch, easterEgg,
-  getZombies: () => zombies,
-  powerUps, POWERUP_TYPES,
-});
-
-// Wire the extracted gameplay modules AFTER all their const-scoped
-// dependencies have been declared (zombies, doors, wallBuys, perks,
-// PERK_DURATION, weaponMags, etc). Doing this at the top of the file
-// would hit a TDZ on those consts and leave the modules' ctx holding
-// undefined references — that's how shooting silently stopped hitting
-// anything after the first pass of the refactor.
+// ===== DEPENDENCY INJECTION (buying & shooting) =====
+// These calls must come AFTER the const declarations for zombies, wallBuys,
+// perks, perkMachines, PERK_DURATION, and doors that they reference.
 initBuying({
   camera,
   TILE,
@@ -513,6 +469,45 @@ initShooting({
   getState: () => state,
   setQuickSwapWeapon: (v) => { _quickSwapWeapon = v; },
 });
+
+// ===== SPAWN POINTS =====
+const spawnPts = [
+  {x:11,z:1.5,door:null},{x:18,z:1.5,door:null},{x:11,z:9,door:null},{x:18,z:9,door:null},
+  {x:15,z:5,door:null},{x:13,z:7,door:null},{x:1.5,z:11,door:null},{x:1.5,z:20,door:null},
+  {x:8,z:22,door:null},{x:15,z:22,door:null},{x:19,z:20,door:null},{x:5,z:15,door:null},
+  {x:10,z:18,door:null},{x:17,z:15,door:null},
+  {x:3,z:2.5,door:'west'},{x:7,z:2.5,door:'west'},{x:3,z:5,door:'west'},
+  {x:5,z:8,door:'west'},{x:7,z:5,door:'west'},{x:2,z:7,door:'west'},
+  {x:21,z:11,door:'east'},{x:22,z:13,door:'east'},{x:21,z:15,door:'east'},
+  {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:21,z:17.5,door:'east'},
+];
+
+// Build mystery box & PaP
+buildMysteryBox();
+buildPackAPunch();
+updateLoadBar(65, 'Tuning radio frequencies...');
+
+// ===== HUD & MINIMAP DEPENDENCY INJECTION =====
+setHudDeps({
+  camera, TILE, weapons, player, isMobile,
+  getPoints: () => points,
+  getRound: () => round,
+  getTotalKills: () => totalKills,
+  getZombies: () => zombies,
+  perks, perkMachines, doors, wallBuys,
+  mysteryBox, packAPunch, easterEgg,
+  powerUps, POWERUP_TYPES,
+});
+
+setMinimapDeps({
+  camera, TILE, MAP_W, MAP_H, map, player,
+  doors, perkMachines, perks,
+  mysteryBox, packAPunch, easterEgg,
+  getZombies: () => zombies,
+  powerUps, POWERUP_TYPES,
+});
+
+
 
 
 // ===== GAME INIT =====
