@@ -114,15 +114,9 @@ Welcome to Undead Siege. The undead are waiting.
 
 ---
 
-## 🏆 Vibe Jam 2026 Entry
-
-Built for the [Vibe Jam 2026](https://vibej.am/2026/) game jam competition. 100% AI-generated code. No external assets. Instant play, no logins required.
-
----
-
 <div align="center">
 
-Built with **[AutoGPT](https://agpt.co)** · Made for [Vibe Jam 2026](https://vibej.am/2026/)
+Built with **[AutoGPT](https://agpt.co)**
 
 <a href="https://agpt.co"><img src="https://avatars.githubusercontent.com/u/130738209?s=50&v=4" width="30" alt="AutoGPT" /></a>
 
