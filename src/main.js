@@ -1958,6 +1958,7 @@ function _onMatchEnded() {
   const endedKills = totalKills;
   const endedPoints = points;
 
+  state = 'dead';
   paused = false;
   hidePause();
   zombies.forEach(z => removeZombieMesh(z));
@@ -1969,9 +1970,11 @@ function _onMatchEnded() {
   if (downedOv) downedOv.style.display = 'none';
   const specOv = document.getElementById('spectatorOverlay');
   if (specOv) specOv.style.display = 'none';
+  // Clear the death veil so it doesn't darken the summary overlay
+  document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
   const blocker = document.getElementById('blocker');
   if (blocker) {
-    blocker.classList.remove('hidden');
+    blocker.classList.add('hidden');
     blocker.style.opacity = '';
   }
 
@@ -1991,7 +1994,7 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
     overlay = document.createElement('div');
     overlay.id = 'mpRunSummaryOverlay';
     overlay.style.cssText = `
-      position:fixed;inset:0;z-index:60;background:rgba(0,0,0,0.88);
+      position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.92);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
       font-family:monospace;color:#fff;text-align:center;padding:20px;
     `;
@@ -2013,8 +2016,8 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
       }).join('');
 
     overlay.innerHTML = `
-      <h1 style="color:#c00;font-size:clamp(32px,6vw,56px);text-shadow:0 0 40px #c00;letter-spacing:6px;margin:0 0 6px">RUN ENDED</h1>
-      <div style="color:#aaa;font-size:13px;letter-spacing:3px;margin-bottom:18px">SQUAD WIPED</div>
+      <h1 style="color:#c00;font-size:clamp(32px,6vw,56px);text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3);letter-spacing:6px;margin:0 0 6px">SQUAD WIPED</h1>
+      <div style="color:#aaa;font-size:13px;letter-spacing:3px;margin-bottom:18px">SURVIVED ${endedRound} ROUND${endedRound!==1?'S':''}</div>
       <div style="display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-bottom:18px">
         <div><div style="color:#fc0;font-size:28px;font-weight:bold">${endedRound}</div><div style="font-size:10px;color:#aaa;letter-spacing:2px">ROUND</div></div>
         <div><div style="color:#fc0;font-size:28px;font-weight:bold">${endedKills}</div><div style="font-size:10px;color:#aaa;letter-spacing:2px">KILLS</div></div>
@@ -2024,8 +2027,15 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
         <div style="color:#4af;font-size:11px;letter-spacing:2px;margin-bottom:8px">🌐 GLOBAL LEADERBOARD</div>
         <div id="mpRunSummaryLb" style="font:12px monospace;line-height:1.8;color:#aaa;text-align:left;padding:0 20px">${globalHtml}</div>
       </div>
-      <button id="mpRunSummaryContinue" style="margin-top:22px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 14px 'Courier New';cursor:pointer;letter-spacing:3px">CONTINUE</button>
+      <button id="mpRunSummaryPlayAgain" style="margin-top:22px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;transition:all 0.3s">PLAY AGAIN</button>
+      <br>
+      <button id="mpRunSummaryContinue" style="margin-top:10px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;transition:all 0.3s">BACK TO LOBBY</button>
     `;
+    const playBtn = document.getElementById('mpRunSummaryPlayAgain');
+    if (playBtn) playBtn.addEventListener('click', () => {
+      dismissMpRunSummary();
+      if (typeof window._startGame === 'function') window._startGame();
+    });
     const btn = document.getElementById('mpRunSummaryContinue');
     if (btn) btn.addEventListener('click', dismissMpRunSummary);
   };
