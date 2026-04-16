@@ -1273,14 +1273,32 @@ function _update(dt) {
     z.flash = Math.max(0, z.flash - dt * 5);
 
     // Non-host zombies (server-driven) smoothly track their target wx/wz
-    // toward the last-received server position. Without this they only
-    // move when a subscription update arrives (~20 Hz), producing visible
-    // step/stutter motion. Lerp factor 10 gives ~100ms catch-up — fast
-    // enough to feel responsive, slow enough to smooth the steps.
+    // toward the last-received server position. Lerp factor 15 gives
+    // snappy catch-up (~65ms). Also extrapolate using the delta between
+    // consecutive server updates so zombies keep moving between ticks
+    // instead of freezing until the next subscription event arrives.
     if (z._remote && z._targetWx !== undefined) {
-      const lerp = Math.min(1, dt * 10);
-      z.wx += (z._targetWx - z.wx) * lerp;
-      z.wz += (z._targetWz - z.wz) * lerp;
+      const gap = z._targetWx - z.wx;
+      const gapZ = z._targetWz - z.wz;
+      const gapD = Math.hypot(gap, gapZ);
+      // If the gap is large (teleport / respawn), snap immediately
+      if (gapD > TILE * 3) {
+        z.wx = z._targetWx;
+        z.wz = z._targetWz;
+      } else {
+        const lerp = Math.min(1, dt * 15);
+        z.wx += gap * lerp;
+        z.wz += gapZ * lerp;
+        // Extrapolate: nudge toward the player at the zombie's speed
+        // when the gap is nearly closed, to keep motion smooth between
+        // server ticks. Only move if the tile is walkable.
+        if (gapD < 0.5 && localD > 1.5) {
+          const ex = (localDx / localD) * z.spd * dt * 0.5;
+          const ez = (localDz / localD) * z.spd * dt * 0.5;
+          if (mapAt(z.wx + ex, z.wz) === 0) z.wx += ex;
+          if (mapAt(z.wx, z.wz + ez) === 0) z.wz += ez;
+        }
+      }
     }
 
     // Local distance — used by the attack check and some FX. Always the
@@ -1327,6 +1345,10 @@ function _update(dt) {
       d = localD;
     }
 
+    // Track alive time for ALL zombies (host, SP, and remote)
+    if (!z._aliveTimer) z._aliveTimer = 0;
+    z._aliveTimer += dt;
+
     if (_isHostOrSP && d > 1.5) {
       let curSpd = z.spd;
       if (z._hasLimp) {
@@ -1336,7 +1358,7 @@ function _update(dt) {
       }
       let mx = (dx / d) * curSpd * dt;
       let mz = (dz / d) * curSpd * dt;
-      
+
       for (const oz of zombies) {
         if (oz === z) continue;
         const sx = z.wx - oz.wx, sz = z.wz - oz.wz;
@@ -1346,7 +1368,7 @@ function _update(dt) {
           mz += (sz / sd) * 0.03 * dt * 60;
         }
       }
-      
+
       const nx = z.wx + mx, nz = z.wz + mz;
       let movedX = false, movedZ = false;
       if (mapAt(nx, z.wz) === 0) { z.wx = nx; movedX = true; }
@@ -1359,10 +1381,8 @@ function _update(dt) {
         if (mapAt(z.wx, z.wz + perpZ) === 0) { z.wz += perpZ; movedZ = true; }
         else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
       }
-      
+
       if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
-      if (!z._aliveTimer) z._aliveTimer = 0;
-      z._aliveTimer += dt;
       z.stuckCheck.timer += dt;
       if (z.stuckCheck.timer >= 2) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
@@ -1393,10 +1413,39 @@ function _update(dt) {
       }
     }
 
-    // Max lifetime failsafe — if a zombie has been alive for 45+ seconds
-    // and is still far from all players, despawn it to prevent round-
-    // ending hangs caused by permanently stuck zombies.
-    if (_isHostOrSP && z._aliveTimer && z._aliveTimer > 45 && d > 8) {
+    // Stuck detection for remote (server-driven) zombies — they have no
+    // local AI so they can freeze if server updates stop arriving.
+    if (z._remote) {
+      if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
+      z.stuckCheck.timer += dt;
+      if (z.stuckCheck.timer >= 2) {
+        const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
+        if (stuckDist < TILE * 0.2) {
+          z.stuckCheck.totalStuck += z.stuckCheck.timer;
+        } else { z.stuckCheck.totalStuck = 0; }
+        z.stuckCheck.x = z.wx;
+        z.stuckCheck.z = z.wz;
+        z.stuckCheck.timer = 0;
+        // Remote zombie stuck for 10+ seconds — despawn locally
+        if (z.stuckCheck.totalStuck >= 10) {
+          z.hp = 0;
+          removeZombieMesh(z);
+          zombies.splice(i, 1);
+          continue;
+        }
+      }
+    }
+
+    // Max lifetime failsafe — despawn zombies that have been alive too
+    // long. Applies to ALL zombies (host, SP, remote) to prevent round
+    // hangs. Far zombies (>8 units) at 30s, any zombie at 60s.
+    if (z._aliveTimer > 30 && localD > 8) {
+      z.hp = 0;
+      removeZombieMesh(z);
+      zombies.splice(i, 1);
+      continue;
+    }
+    if (z._aliveTimer > 60) {
       z.hp = 0;
       removeZombieMesh(z);
       zombies.splice(i, 1);

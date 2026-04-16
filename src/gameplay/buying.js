@@ -64,12 +64,7 @@ export function tryBuy() {
     const bx = (pm.tx + 0.5) * TILE, bz = (pm.tz + 0.5) * TILE;
     const d = Math.hypot(bx - px, bz - pz);
     if (d < TILE * 2) {
-      if (player.perksOwned[perk.id] > 0) {
-        addFloatText(
-          `Already have ${perk.name} (${Math.ceil(player.perksOwned[perk.id])}s left)`,
-          '#888'
-        );
-      } else if (getRound() < perk.minRound) {
+      if (getRound() < perk.minRound) {
         addFloatText(`${perk.name} unlocks round ${perk.minRound}`, '#888');
       } else if (getPoints() >= perk.cost) {
         setPoints(getPoints() - perk.cost);
@@ -86,8 +81,11 @@ export function tryBuy() {
 
   if (tryActivateGenerator()) return;
   if (tryCatalyst()) return;
-  if (tryMysteryBox()) return;
+  // Collection must be checked BEFORE tryMysteryBox — otherwise
+  // tryMysteryBox can consume the E press (e.g. "not enough points")
+  // even while a weapon is waiting to be collected.
   if (collectMysteryBoxWeapon()) return;
+  if (tryMysteryBox()) return;
   if (tryPackAPunch()) return;
   tryBuyDoor();
 }
