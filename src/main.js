@@ -1155,17 +1155,36 @@ function _update(dt) {
   if (state === 'roundIntro') {
     roundIntroTimer -= dt;
     if (roundIntroTimer <= 0) state = 'playing';
-    if (!_iAmDowned) updateMovement(dt);
-    return;
   }
-  if (state === 'dead' || state !== 'playing') return;
+  if (state !== 'playing' && state !== 'roundIntro') return;
+
+  // Buying, weapon switching, reloading, and movement work during both
+  // playing and roundIntro so players can purchase between rounds.
+  if (!_iAmDowned) {
+    updateMovement(dt);
+
+    if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
+    if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
+    if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
+    if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
+    if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
+    if (keyPressed('r')) doReload();
+    if (keyPressed('e')) tryBuy();
+    if (keyPressed('f')) tryKnife();
+
+    if (player.reloading) {
+      player.reloadTimer -= dt;
+      if (player.reloadTimer <= 0) finishReload();
+    }
+  }
+
+  // Combat and active-round systems only run during 'playing'
+  if (state === 'roundIntro') return;
 
   // Player-action block — skipped when downed. The host still runs the
   // zombie sim + wave advance below, so zombies and other players
   // continue to act even though the host can't move/shoot.
   if (!_iAmDowned) {
-    updateMovement(dt);
-
     player.fireTimer = Math.max(0, player.fireTimer - dt);
     gunKick = Math.max(0, gunKick - dt * 6);
     dmgFlash = Math.max(0, dmgFlash - dt * 4);
@@ -1189,11 +1208,6 @@ function _update(dt) {
           beep(200, 'sine', 0.15, 0.08);
         }
       }
-    }
-
-    if (player.reloading) {
-      player.reloadTimer -= dt;
-      if (player.reloadTimer <= 0) finishReload();
     }
 
     // Knife cooldown & animation
@@ -1220,15 +1234,6 @@ function _update(dt) {
       else { if (!player._lastFiring) tryShoot(); }
     }
     player._lastFiring = isFiring;
-
-    if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
-    if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
-    if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
-    if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
-    if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
-    if (keyPressed('r')) doReload();
-    if (keyPressed('e')) tryBuy();
-    if (keyPressed('f')) tryKnife();
   }
   
   // Multiplayer authority check. In MP, only the host runs the zombie

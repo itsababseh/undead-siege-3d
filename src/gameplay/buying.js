@@ -50,6 +50,10 @@ export function tryBuy() {
         player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
         sfxBuyWeapon(false);
         addFloatText('Ammo!', '#6f6', 1);
+      } else if (!player.owned[wb.wi]) {
+        addFloatText(`Need $${wb.cost} for ${weapons[wb.wi].name}`, '#f88');
+      } else {
+        addFloatText(`Need $${Math.floor(wb.cost / 2)} for ammo`, '#f88');
       }
       return;
     }
