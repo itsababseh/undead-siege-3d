@@ -6,8 +6,6 @@
 
 <div align="center">
 
-### 🎮 [PLAY NOW](https://itsababseh.github.io/undead-siege-3d/)
-
 [![Play Undead Siege 3D](https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000)](https://itsababseh.github.io/undead-siege-3d/)
 
 </div>
