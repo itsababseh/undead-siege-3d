@@ -1382,19 +1382,16 @@ function _update(dt) {
         else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
       }
 
+      // Stuck detection — nudge zombie toward player when it hasn't
+      // moved. Never auto-kill; just keep teleporting it closer.
       if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
       z.stuckCheck.timer += dt;
       if (z.stuckCheck.timer >= 2) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
         if (stuckDist < TILE * 0.3) {
           z.stuckCheck.totalStuck += z.stuckCheck.timer;
-          if (z.stuckCheck.totalStuck >= 6) {
-            z.hp = 0;
-            removeZombieMesh(z);
-            zombies.splice(i, 1);
-            continue;
-          }
-          const nudgeStr = TILE * 1.5;
+          // Aggressive nudge toward player to break free
+          const nudgeStr = TILE * (z.stuckCheck.totalStuck > 8 ? 3 : 1.5);
           const nudgeX = (dx / d) * nudgeStr;
           const nudgeZ = (dz / d) * nudgeStr;
           if (mapAt(z.wx + nudgeX, z.wz + nudgeZ) === 0) { z.wx += nudgeX; z.wz += nudgeZ; }
@@ -1411,45 +1408,6 @@ function _update(dt) {
         z.stuckCheck.z = z.wz;
         z.stuckCheck.timer = 0;
       }
-    }
-
-    // Stuck detection for remote (server-driven) zombies — they have no
-    // local AI so they can freeze if server updates stop arriving.
-    if (z._remote) {
-      if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
-      z.stuckCheck.timer += dt;
-      if (z.stuckCheck.timer >= 2) {
-        const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
-        if (stuckDist < TILE * 0.2) {
-          z.stuckCheck.totalStuck += z.stuckCheck.timer;
-        } else { z.stuckCheck.totalStuck = 0; }
-        z.stuckCheck.x = z.wx;
-        z.stuckCheck.z = z.wz;
-        z.stuckCheck.timer = 0;
-        // Remote zombie stuck for 10+ seconds — despawn locally
-        if (z.stuckCheck.totalStuck >= 10) {
-          z.hp = 0;
-          removeZombieMesh(z);
-          zombies.splice(i, 1);
-          continue;
-        }
-      }
-    }
-
-    // Max lifetime failsafe — despawn zombies that have been alive too
-    // long. Applies to ALL zombies (host, SP, remote) to prevent round
-    // hangs. Far zombies (>8 units) at 30s, any zombie at 60s.
-    if (z._aliveTimer > 30 && localD > 8) {
-      z.hp = 0;
-      removeZombieMesh(z);
-      zombies.splice(i, 1);
-      continue;
-    }
-    if (z._aliveTimer > 60) {
-      z.hp = 0;
-      removeZombieMesh(z);
-      zombies.splice(i, 1);
-      continue;
     }
     
     // Attack check always uses LOCAL distance — each client applies
