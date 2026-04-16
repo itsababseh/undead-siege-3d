@@ -1356,12 +1356,14 @@ function _update(dt) {
       }
       
       if (!z.stuckCheck) z.stuckCheck = { x: z.wx, z: z.wz, timer: 0, totalStuck: 0 };
+      if (!z._aliveTimer) z._aliveTimer = 0;
+      z._aliveTimer += dt;
       z.stuckCheck.timer += dt;
-      if (z.stuckCheck.timer >= 4) {
+      if (z.stuckCheck.timer >= 2) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
         if (stuckDist < TILE * 0.3) {
           z.stuckCheck.totalStuck += z.stuckCheck.timer;
-          if (z.stuckCheck.totalStuck >= 12) {
+          if (z.stuckCheck.totalStuck >= 6) {
             z.hp = 0;
             removeZombieMesh(z);
             zombies.splice(i, 1);
@@ -1384,6 +1386,16 @@ function _update(dt) {
         z.stuckCheck.z = z.wz;
         z.stuckCheck.timer = 0;
       }
+    }
+
+    // Max lifetime failsafe — if a zombie has been alive for 45+ seconds
+    // and is still far from all players, despawn it to prevent round-
+    // ending hangs caused by permanently stuck zombies.
+    if (_isHostOrSP && z._aliveTimer && z._aliveTimer > 45 && d > 8) {
+      z.hp = 0;
+      removeZombieMesh(z);
+      zombies.splice(i, 1);
+      continue;
     }
     
     // Attack check always uses LOCAL distance — each client applies
@@ -1579,6 +1591,8 @@ function showDeath() {
       </div>
       <button onclick="window._startGame()" style="margin-top:16px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;position:relative;overflow:hidden;transition:all 0.3s">FIGHT AGAIN</button>
       <br>
+      <button onclick="window._deathMultiplayer()" style="margin-top:10px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">⚔️ MULTIPLAYER</button>
+      <br>
       <button onclick="window._vibeJamPortal()" style="margin-top:10px;background:none;border:2px solid #0f4;color:#0f4;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🌀 VIBE JAM PORTAL</button>
       <div style="margin-top:8px;padding:6px 12px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;display:inline-block"><span style="color:#fc0;font-size:10px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: Transports you to a random Vibe Jam 2026 game!</span></div>
     `;
@@ -1687,6 +1701,15 @@ window._startGame = function() {
   document.getElementById('minimap').style.display = 'block';
   document.getElementById('weaponSwitcher').style.display = 'flex';
   document.getElementById('perkIcons').style.display = 'flex';
+
+  // Blur any focused input (name field, join code, chat) so
+  // isTextInputFocused() doesn't block WASD movement. This is critical
+  // for MP where the lobby name/code input may still have focus.
+  if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+    document.activeElement.blur();
+  }
+  // Clear any latched keys from pre-game typing
+  for (const kk of Object.keys(keys)) keys[kk] = false;
 
   initAudio();
   startBackgroundMusic();
@@ -2299,6 +2322,31 @@ function tickSpectator() {
 }
 
 window._vibeJamPortal = function() { _triggerExitPortal(); };
+
+// Death screen multiplayer button — resets the game state, returns to main
+// menu, and auto-clicks the multiplayer flow.
+window._deathMultiplayer = function() {
+  _deathShown = false;
+  state = 'menu';
+  const blocker = document.getElementById('blocker');
+  if (blocker) { blocker.style.opacity = ''; blocker.style.transition = ''; }
+  document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
+  // Show HUD elements cleanup
+  document.getElementById('pointsBox').style.display = 'block';
+  document.getElementById('ammoBox').style.display = 'block';
+  document.getElementById('roundBox').style.display = 'block';
+  document.getElementById('hpBarWrap').style.display = 'block';
+  document.getElementById('killsLabel').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
+  document.getElementById('weaponSwitcher').style.display = 'flex';
+  document.getElementById('perkIcons').style.display = 'flex';
+  showMainMenuPanel();
+  restartMenuBackground();
+  // Auto-trigger the multiplayer connect flow
+  setTimeout(() => {
+    if (_multiBtnEl) _multiBtnEl.click();
+  }, 100);
+};
 
 if (_arrivedViaPortal) {
   const _portalAutoStart = setInterval(() => {
