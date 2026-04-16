@@ -2,6 +2,9 @@
 
 A 3D first-person zombie survival game built with Three.js. Inspired by Call of Duty Zombies.
 
+<img width="1280" height="633" alt="image" src="https://github.com/user-attachments/assets/59c37f07-25ee-47b7-97e4-c9102db291cb" />
+
+
 ## 🎮 [PLAY NOW](https://itsababseh.github.io/undead-siege-3d/)
 
 ## Features
