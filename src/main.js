@@ -148,8 +148,8 @@ const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2d2d3d);
-scene.fog = new THREE.FogExp2(0x2d2d3d, 0.003);
+scene.background = new THREE.Color(0x40404e);
+scene.fog = new THREE.FogExp2(0x40404e, 0.0015);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -160,7 +160,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 2.5;
+renderer.toneMappingExposure = 3.2;
 document.body.appendChild(renderer.domElement);
 
 // ===== POST-PROCESSING =====
@@ -226,9 +226,9 @@ window.addEventListener('focus', () => suppressMouse(200));
 window.addEventListener('blur', () => suppressMouse(200));
 
 // ===== LIGHTING =====
-const ambientLight = new THREE.AmbientLight(0x8899aa, 3.5);
+const ambientLight = new THREE.AmbientLight(0xaabbcc, 5.5);
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xccddee, 2.0);
+const dirLight = new THREE.DirectionalLight(0xddeeff, 3.0);
 dirLight.position.set(50, 30, 50);
 scene.add(dirLight);
 
@@ -254,7 +254,7 @@ addLight(6, 18, 0xffaa77, 2.5, 25);
 addLight(18, 18, 0xffbb88, 2.5, 25);
 addLight(12, 12, 0xffeedd, 3, 30);
 
-const playerLight = new THREE.PointLight(0xffeedd, 3.0, 32);
+const playerLight = new THREE.PointLight(0xffeedd, 4.5, 45);
 playerLight.position.copy(camera.position);
 scene.add(playerLight);
 
@@ -1238,9 +1238,6 @@ function _update(dt) {
   // continue to act even though the host can't move/shoot.
   if (!_iAmDowned) {
     player.fireTimer = Math.max(0, player.fireTimer - dt);
-    gunKick = Math.max(0, gunKick - dt * 6);
-    dmgFlash = Math.max(0, dmgFlash - dt * 4);
-    muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
     playerLight.position.copy(camera.position);
 
     if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
@@ -1894,6 +1891,12 @@ function gameLoop(time) {
   controls._applyRotation();
   updateCenterMsg(dt);
   updateRoundBanner(dt);
+  // Always decay visual-only values (gun recoil, damage flash, muzzle light)
+  // so they don't get stuck mid-animation when the update loop returns early
+  // during roundIntro or other non-playing states.
+  gunKick = Math.max(0, gunKick - dt * 6);
+  dmgFlash = Math.max(0, dmgFlash - dt * 4);
+  muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
   updateGunModel(dt, gunKick);
   updatePaPCamo();
   updateLights(dt);
