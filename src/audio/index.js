@@ -254,57 +254,136 @@ function sfxShoot() {
 }
 
 // ===== WEAPON-SPECIFIC RELOAD SOUNDS =====
+// ── Shared helpers for mechanical reload SFX ──
+// Pre-allocated noise buffer for metallic transients (reused across calls)
+let _reloadNoiseBuf = null;
+function _getReloadNoise(dur) {
+  const len = Math.floor(actx.sampleRate * dur);
+  if (!_reloadNoiseBuf || _reloadNoiseBuf.length < len || _reloadNoiseBuf.sampleRate !== actx.sampleRate) {
+    const bufLen = Math.floor(actx.sampleRate * 0.15); // max 150ms
+    _reloadNoiseBuf = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const d = _reloadNoiseBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return _reloadNoiseBuf;
+}
+
+// Metallic click/clack transient — the core of mechanical reload sounds
+function _metalClick(startT, freq, bw, dur, vol) {
+  const src = actx.createBufferSource();
+  src.buffer = _getReloadNoise(dur);
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = bw;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(vol, startT);
+  g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+  src.connect(bp); bp.connect(g); g.connect(masterGain);
+  src.start(startT); src.stop(startT + dur);
+}
+
+// Low thud for mag drops, slide impacts
+function _mechThud(startT, freq, dur, vol) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, startT);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.4, startT + dur);
+  g.gain.setValueAtTime(vol, startT);
+  g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+  o.connect(g); g.connect(masterGain); o.start(startT); o.stop(startT + dur);
+}
+
 function sfxReload() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
     const w = _weapons[_player.curWeapon];
     if (w.isRayGun) {
-      // Energy cell swap: hum → click → charge
+      // ── Ray Gun: energy cell swap ──
+      // 1) Cell disengage hum
       const o1 = actx.createOscillator(), g1 = actx.createGain();
-      o1.type = 'sine'; o1.frequency.value = 220;
-      g1.gain.setValueAtTime(0.06, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.3);
-      // Click
-      beep(1800, 'square', 0.02, 0.05);
-      // Charge whine
+      o1.type = 'sawtooth'; o1.frequency.setValueAtTime(180, t);
+      o1.frequency.exponentialRampToValueAtTime(90, t + 0.25);
+      g1.gain.setValueAtTime(0.06, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+      o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.28);
+      // 2) Cell click out
+      _metalClick(t + 0.15, 2200, 6, 0.025, 0.07);
+      // 3) New cell slide in
+      _mechThud(t + 0.55, 140, 0.06, 0.05);
+      _metalClick(t + 0.58, 1600, 4, 0.03, 0.06);
+      // 4) Latch click
+      _metalClick(t + 0.75, 3000, 8, 0.02, 0.08);
+      // 5) Charge whine (rising sine + harmonic)
       const o2 = actx.createOscillator(), g2 = actx.createGain();
-      o2.type = 'sine'; o2.frequency.setValueAtTime(300, t + 0.4);
-      o2.frequency.exponentialRampToValueAtTime(1200, t + 1.2);
-      g2.gain.setValueAtTime(0, t); g2.gain.setValueAtTime(0.05, t + 0.4);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
-      o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 1.3);
+      o2.type = 'sine';
+      o2.frequency.setValueAtTime(280, t + 0.9);
+      o2.frequency.exponentialRampToValueAtTime(1400, t + 1.8);
+      g2.gain.setValueAtTime(0, t); g2.gain.linearRampToValueAtTime(0.05, t + 1.0);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 1.9);
+      o2.connect(g2); g2.connect(masterGain); o2.start(t + 0.9); o2.stop(t + 1.9);
+      // Harmonic overtone
+      const o3 = actx.createOscillator(), g3 = actx.createGain();
+      o3.type = 'sine';
+      o3.frequency.setValueAtTime(560, t + 1.0);
+      o3.frequency.exponentialRampToValueAtTime(2800, t + 1.8);
+      g3.gain.setValueAtTime(0, t); g3.gain.linearRampToValueAtTime(0.02, t + 1.1);
+      g3.gain.exponentialRampToValueAtTime(0.001, t + 1.85);
+      o3.connect(g3); g3.connect(masterGain); o3.start(t + 1.0); o3.stop(t + 1.85);
+
     } else if (_player.curWeapon === 2) {
-      // Shotgun: pump-action chk-chk
-      beep(300, 'square', 0.03, 0.08);
-      setTimeout(() => beep(450, 'square', 0.03, 0.08), 100);
-      setTimeout(() => beep(200, 'sawtooth', 0.05, 0.06), 200);
-      // Shell loading clicks
-      setTimeout(() => beep(1200, 'square', 0.015, 0.04), 400);
-      setTimeout(() => beep(1300, 'square', 0.015, 0.04), 600);
-      setTimeout(() => beep(1100, 'square', 0.015, 0.04), 800);
+      // ── Trench Gun: pump-action reload ──
+      // 1) Pump back (metallic scrape + thud)
+      _metalClick(t, 800, 2, 0.06, 0.09);
+      _mechThud(t + 0.02, 200, 0.05, 0.06);
+      // 2) Pump forward (higher pitch snap)
+      _metalClick(t + 0.12, 1100, 3, 0.05, 0.09);
+      _mechThud(t + 0.14, 250, 0.04, 0.05);
+      // 3) Shell loading clicks (staggered, varied pitch)
+      const shellBase = 0.35;
+      for (let s = 0; s < 4; s++) {
+        const st = t + shellBase + s * 0.18;
+        _metalClick(st, 1400 + Math.random() * 400, 5, 0.02, 0.06);
+        _mechThud(st + 0.01, 160 + Math.random() * 60, 0.03, 0.03);
+      }
+      // 4) Final pump-lock
+      _metalClick(t + 1.15, 1000, 3, 0.05, 0.08);
+      _metalClick(t + 1.22, 1500, 5, 0.03, 0.07);
+      _mechThud(t + 1.24, 180, 0.04, 0.05);
+
     } else if (_player.curWeapon === 1) {
-      // MP40: magazine swap
-      beep(500, 'square', 0.02, 0.06);
-      setTimeout(() => beep(350, 'sawtooth', 0.04, 0.05), 150);
-      // Mag click in
-      setTimeout(() => beep(900, 'square', 0.02, 0.07), 400);
-      // Bolt rack
-      setTimeout(() => {
-        beep(600, 'square', 0.03, 0.06);
-        setTimeout(() => beep(400, 'square', 0.03, 0.06), 80);
-      }, 600);
+      // ── MP40: magazine swap + bolt ──
+      // 1) Mag release click
+      _metalClick(t, 1800, 6, 0.02, 0.07);
+      // 2) Mag slide out + drop thud
+      _metalClick(t + 0.08, 600, 2, 0.06, 0.05);
+      _mechThud(t + 0.15, 120, 0.08, 0.06);
+      // 3) New mag slide in (scrape)
+      _metalClick(t + 0.45, 700, 2, 0.07, 0.06);
+      // 4) Mag seat click
+      _metalClick(t + 0.62, 2200, 7, 0.02, 0.08);
+      _mechThud(t + 0.63, 160, 0.04, 0.04);
+      // 5) Bolt pull back
+      _metalClick(t + 0.85, 900, 3, 0.05, 0.07);
+      _mechThud(t + 0.87, 200, 0.04, 0.05);
+      // 6) Bolt release forward
+      _metalClick(t + 1.0, 1200, 4, 0.04, 0.08);
+      _mechThud(t + 1.02, 250, 0.03, 0.06);
+
     } else {
-      // M1911: mag drop, insert, slide rack
-      beep(400, 'square', 0.03, 0.06);
-      setTimeout(() => beep(250, 'sawtooth', 0.03, 0.04), 100);
-      // Mag insert click
-      setTimeout(() => beep(800, 'square', 0.02, 0.07), 350);
-      // Slide rack
-      setTimeout(() => {
-        beep(600, 'square', 0.03, 0.06);
-        setTimeout(() => beep(700, 'square', 0.02, 0.06), 60);
-      }, 500);
+      // ── M1911: mag drop, insert, slide rack ──
+      // 1) Mag release button
+      _metalClick(t, 2000, 6, 0.015, 0.06);
+      // 2) Mag slide out + drop
+      _metalClick(t + 0.06, 500, 2, 0.05, 0.05);
+      _mechThud(t + 0.12, 100, 0.09, 0.06);
+      // 3) New mag insert (slide + click)
+      _metalClick(t + 0.4, 650, 2, 0.06, 0.05);
+      _metalClick(t + 0.52, 2400, 8, 0.015, 0.08);
+      _mechThud(t + 0.53, 180, 0.03, 0.04);
+      // 4) Slide pull back
+      _metalClick(t + 0.72, 1000, 3, 0.05, 0.07);
+      _mechThud(t + 0.74, 220, 0.04, 0.05);
+      // 5) Slide release (snappy forward)
+      _metalClick(t + 0.85, 1400, 5, 0.03, 0.09);
+      _mechThud(t + 0.86, 280, 0.03, 0.06);
     }
   } catch(e) {}
 }
