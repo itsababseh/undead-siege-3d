@@ -14,12 +14,14 @@ const FilmHorrorShader = {
   uniforms: {
     tDiffuse:       { value: null },
     time:           { value: 0.0 },
-    grainIntensity: { value: 0.06 },
-    vignetteOffset: { value: 0.85 },
-    vignetteDarkness: { value: 0.4 },
-    saturation:     { value: 0.92 },
-    // Teal/blue shadow tint — very subtle horror color grading
-    tintColor:      { value: new THREE.Vector3(0.92, 0.97, 1.04) },
+    grainIntensity: { value: 0.03 },
+    vignetteOffset: { value: 0.80 },
+    vignetteDarkness: { value: 0.15 },
+    saturation:     { value: 0.95 },
+    // Teal/blue shadow tint — barely perceptible
+    tintColor:      { value: new THREE.Vector3(0.96, 0.98, 1.02) },
+    // Brightness lift to compensate for bloom energy redistribution
+    brightnessLift: { value: 1.06 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -36,6 +38,7 @@ const FilmHorrorShader = {
     uniform float vignetteDarkness;
     uniform float saturation;
     uniform vec3  tintColor;
+    uniform float brightnessLift;
     varying vec2  vUv;
 
     // Fast pseudo-random hash (screen-space + time)
@@ -51,23 +54,26 @@ const FilmHorrorShader = {
       float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
       color = mix(vec3(luma), color, saturation);
 
+      // ── Brightness lift (compensate for bloom energy redistribution) ──
+      color *= brightnessLift;
+
       // ── Color grading: teal/blue shadow tint ──
-      // Apply tint more strongly in dark regions, leave highlights alone
-      float shadowMask = 1.0 - smoothstep(0.0, 0.5, luma);
-      color *= mix(vec3(1.0), tintColor, shadowMask * 0.35);
+      // Very subtle — only touches the darkest areas lightly
+      float shadowMask = 1.0 - smoothstep(0.0, 0.3, luma);
+      color *= mix(vec3(1.0), tintColor, shadowMask * 0.15);
 
       // ── Vignette ──
-      vec2 uv = vUv;
-      vec2 center = uv - 0.5;
+      // Only darkens the very corners — center 80%+ of screen untouched
+      vec2 center = vUv - 0.5;
       float dist = length(center);
-      float vig = smoothstep(vignetteOffset, vignetteOffset - 0.55, dist);
-      color *= mix(1.0 - vignetteDarkness * 0.12, 1.0, vig);
+      float vig = smoothstep(vignetteOffset, vignetteOffset - 0.65, dist);
+      color *= mix(1.0 - vignetteDarkness * 0.08, 1.0, vig);
 
       // ── Film grain ──
       float grain = rand(vUv * vec2(1024.0, 768.0) + vec2(time * 100.0, time * 57.3));
       grain = (grain - 0.5) * grainIntensity;
-      // Luminance-aware: less grain in bright areas, more in shadows
-      float grainMask = 1.0 - luma * 0.6;
+      // Luminance-aware: less grain in bright areas
+      float grainMask = 1.0 - luma * 0.7;
       color += grain * grainMask;
 
       gl_FragColor = vec4(clamp(color, 0.0, 1.0), texel.a);
