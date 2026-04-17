@@ -462,17 +462,34 @@ function updateDamageVignette(dt) {
 }
 
 function _applyVignetteOverlay() {
-  // Combine damage vignette and low-health heartbeat into a single shadow
-  // so neither overwrites the other. Use whichever is currently stronger.
+  // Combine damage vignette, progressive low-HP tint, and the critical
+  // heartbeat pulse into a single inset shadow. Take the max of each
+  // layer so they don't overwrite each other.
   const dmg = vignetteIntensity;
-  let pulse = 0;
-  if (_player && _player.hp > 0 && _player.hp < _player.maxHp * 0.15) {
-    pulse = 0.18 + Math.abs(Math.sin(heartbeatPhase)) * 0.15;
+
+  // Progressive tint: ramps smoothly from 0 at 60% HP to 0.28 at 0% HP.
+  // Subtle at half HP, clearly visible near death. Separate from the
+  // critical heartbeat so players get feedback BEFORE they're dying.
+  let progTint = 0;
+  if (_player && _player.hp > 0 && state_isPlaying) {
+    const pct = _player.hp / _player.maxHp;
+    if (pct < 0.60) {
+      // Quadratic curve — barely any effect at 50%, strong at 10%
+      const k = (0.60 - pct) / 0.60; // 0..1
+      progTint = k * k * 0.28;
+    }
   }
-  // Take max of damage vs heartbeat so both reds can coexist cleanly
-  const alpha = Math.max(dmg * 0.35, pulse);
-  const spread = Math.max(dmg * 15, pulse > 0 ? 12 : 0);
-  const blur = Math.max(40 + dmg * 60, pulse > 0 ? 55 : 0);
+
+  // Critical heartbeat (<15% HP) — faster pulse on top of the progressive tint
+  let pulse = 0;
+  if (_player && _player.hp > 0 && _player.hp < _player.maxHp * 0.15 && state_isPlaying) {
+    pulse = 0.22 + Math.abs(Math.sin(heartbeatPhase)) * 0.14;
+  }
+
+  const alpha = Math.max(dmg * 0.35, pulse, progTint);
+  const hasLowHp = progTint > 0.005 || pulse > 0;
+  const spread = Math.max(dmg * 15, hasLowHp ? 12 + progTint * 20 : 0);
+  const blur = Math.max(40 + dmg * 60, hasLowHp ? 55 + progTint * 40 : 0);
   const vig = document.getElementById('dmgOverlay');
   if (alpha > 0.005) {
     vig.style.boxShadow = `inset 0 0 ${blur}px ${spread}px rgba(180,0,0,${alpha.toFixed(3)})`;
@@ -482,15 +499,18 @@ function _applyVignetteOverlay() {
   }
 }
 
-// --- Low Health Heartbeat Overlay ---
-
+// updateLowHealthEffect also drives the progressive tint, so it runs
+// every frame we're in gameplay (not just <15% HP like before).
+let state_isPlaying = false;
 function updateLowHealthEffect(dt, state) {
-  if (_player.hp > 0 && _player.hp < _player.maxHp * 0.15 && state === 'playing') {
+  state_isPlaying = (state === 'playing');
+  if (_player.hp > 0 && _player.hp < _player.maxHp * 0.15 && state_isPlaying) {
     heartbeatPhase += dt * 3;
-    _applyVignetteOverlay();
   } else {
     heartbeatPhase = 0;
   }
+  // Always refresh the overlay so progressive tint scales with HP live
+  _applyVignetteOverlay();
 }
 
 // --- Directional Hit Indicators (CoD-style red arcs) ---
