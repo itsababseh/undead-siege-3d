@@ -449,15 +449,18 @@ function updateRoundTransition(dt) {
 let vignetteIntensity = 0;
 
 function triggerDamageVignette(amount) {
-  vignetteIntensity = Math.min(1, vignetteIntensity + amount * 0.015);
+  // Cap at 0.6 so the overlay never blocks too much of the screen
+  vignetteIntensity = Math.min(0.6, vignetteIntensity + amount * 0.010);
 }
 
 function updateDamageVignette(dt) {
   if (vignetteIntensity > 0.01) {
     const vig = document.getElementById('dmgOverlay');
-    vig.style.boxShadow = `inset 0 0 ${60 + vignetteIntensity * 100}px ${vignetteIntensity * 40}px rgba(180, 0, 0, ${vignetteIntensity * 0.5})`;
+    // Reduced blur/spread/opacity so gameplay stays visible
+    vig.style.boxShadow = `inset 0 0 ${40 + vignetteIntensity * 60}px ${vignetteIntensity * 15}px rgba(180, 0, 0, ${vignetteIntensity * 0.35})`;
     vig.style.display = 'block';
-    vignetteIntensity *= Math.pow(0.1, dt);
+    // Faster decay — back to clear in ~0.8s instead of ~2s
+    vignetteIntensity *= Math.pow(0.02, dt);
   } else {
     vignetteIntensity = 0;
     const vig = document.getElementById('dmgOverlay');
@@ -469,12 +472,13 @@ function updateDamageVignette(dt) {
 let heartbeatPhase = 0;
 
 function updateLowHealthEffect(dt, state) {
-  if (_player.hp > 0 && _player.hp < _player.maxHp * 0.25 && state === 'playing') {
+  // Only show when critically low (below 15%, not 25%) and with softer overlay
+  if (_player.hp > 0 && _player.hp < _player.maxHp * 0.15 && state === 'playing') {
     heartbeatPhase += dt * 3; // heartbeat speed
     const pulse = Math.abs(Math.sin(heartbeatPhase));
     const vig = document.getElementById('dmgOverlay');
-    const baseAlpha = 0.15 + pulse * 0.15;
-    vig.style.boxShadow = `inset 0 0 80px 30px rgba(180, 0, 0, ${baseAlpha})`;
+    const baseAlpha = 0.08 + pulse * 0.10;
+    vig.style.boxShadow = `inset 0 0 60px 15px rgba(180, 0, 0, ${baseAlpha})`;
     vig.style.display = 'block';
   } else {
     heartbeatPhase = 0;

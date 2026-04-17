@@ -148,8 +148,8 @@ const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x111118);
-scene.fog = new THREE.FogExp2(0x111118, 0.018);
+scene.background = new THREE.Color(0x1a1a24);
+scene.fog = new THREE.FogExp2(0x1a1a24, 0.010);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -160,7 +160,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.4;
+renderer.toneMappingExposure = 1.7;
 document.body.appendChild(renderer.domElement);
 
 // ===== POST-PROCESSING =====
@@ -226,9 +226,9 @@ window.addEventListener('focus', () => suppressMouse(200));
 window.addEventListener('blur', () => suppressMouse(200));
 
 // ===== LIGHTING =====
-const ambientLight = new THREE.AmbientLight(0x445566, 1.2);
+const ambientLight = new THREE.AmbientLight(0x556677, 1.8);
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0x8899bb, 0.7);
+const dirLight = new THREE.DirectionalLight(0xaabbcc, 1.0);
 dirLight.position.set(50, 30, 50);
 scene.add(dirLight);
 
