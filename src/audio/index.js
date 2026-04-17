@@ -827,7 +827,7 @@ function sfxZombieShuffle(distFrac) {
   if (!actx || !masterGain) return;
   try {
     const vol = (1 - distFrac * 0.85) * 0.045; // 0.045 close → 0.00675 at distFrac=1
-    if (vol < 0.008) return; // effective cutoff at ~distFrac > 0.86 (~d > 19 units)
+    if (vol < 0.012) return; // effective cutoff at ~distFrac > 0.86 (~d > 15.5 units)
     const t = actx.currentTime;
     // Drag scrape — low bandpass noise (reused pre-allocated buffer)
     const src = actx.createBufferSource(); src.buffer = _getShuffleBuf();
