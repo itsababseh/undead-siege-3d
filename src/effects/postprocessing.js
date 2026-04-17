@@ -158,35 +158,39 @@ export function initPostProcessing(renderer, scene, camera) {
   _scene = scene;
   _camera = camera;
 
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const pixelRatio = renderer.getPixelRatio();
+  try {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const pixelRatio = renderer.getPixelRatio();
 
-  // Create composer — uses renderer's existing render target format
-  composer = new EffectComposer(renderer);
+    // Create composer — uses renderer's existing render target format
+    composer = new EffectComposer(renderer);
 
-  // Pass 1: Render the scene normally
-  const renderPass = new RenderPass(scene, camera);
-  composer.addPass(renderPass);
+    // Pass 1: Render the scene normally
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
 
-  // Pass 2: Unreal Bloom — subtle glow on bright elements (muzzle flash, lights)
-  const resolution = new THREE.Vector2(w, h);
-  bloomPass = new UnrealBloomPass(resolution, 0.4, 0.4, 0.85);
-  // strength=0.4, radius=0.4, threshold=0.85 — very subtle, only bright things glow
-  composer.addPass(bloomPass);
+    // Pass 2: Unreal Bloom — subtle glow on bright elements (muzzle flash, lights)
+    const resolution = new THREE.Vector2(w, h);
+    bloomPass = new UnrealBloomPass(resolution, 0.4, 0.4, 0.85);
+    // strength=0.4, radius=0.4, threshold=0.85 — very subtle, only bright things glow
+    composer.addPass(bloomPass);
 
-  // Pass 3: Combined film grain + vignette + color grading (single pass)
-  filmPass = new ShaderPass(FilmHorrorShader);
-  composer.addPass(filmPass);
+    // Pass 3: Combined film grain + vignette + color grading (single pass)
+    filmPass = new ShaderPass(FilmHorrorShader);
+    composer.addPass(filmPass);
 
-  // Pass 4: FXAA — antialiasing (EffectComposer disables renderer's built-in AA)
-  fxaaPass = new ShaderPass(FXAAShader);
-  fxaaPass.uniforms.resolution.value.set(
-    1.0 / (w * pixelRatio),
-    1.0 / (h * pixelRatio)
-  );
-  fxaaPass.renderToScreen = true;
-  composer.addPass(fxaaPass);
+    // Pass 4: FXAA — antialiasing (EffectComposer disables renderer's built-in AA)
+    fxaaPass = new ShaderPass(FXAAShader);
+    fxaaPass.uniforms.resolution.value.set(
+      1.0 / (w * pixelRatio),
+      1.0 / (h * pixelRatio)
+    );
+    composer.addPass(fxaaPass);
+  } catch (e) {
+    console.warn('Post-processing init failed, falling back to standard render:', e);
+    composer = null;
+  }
 }
 
 /**
@@ -219,10 +223,6 @@ export function resizePostProcessing(w, h) {
       1.0 / (w * pixelRatio),
       1.0 / (h * pixelRatio)
     );
-  }
-
-  if (bloomPass) {
-    bloomPass.resolution.set(w, h);
   }
 }
 
