@@ -54,6 +54,10 @@ const _zombies = new Map();       // hostZidStr -> zombie row
 const _powerUps = new Map();      // puIdStr    -> powerup row
 const _chatMessages = [];         // all messages across all lobbies, filtered at read time
 const _highScores = [];           // global
+// Per-player current weapon index. Server schema doesn't have a weapon
+// column on the Player row, so we piggyback on the chat channel: players
+// broadcast "_wpn:N" markers when they switch, filtered from chat UI.
+const _playerWeapons = new Map(); // identityHex -> weapon idx (0..3)
 
 // Host sync / callbacks.
 let _hostZombiesProvider = null;
@@ -124,6 +128,7 @@ function identityHex(identity) {
 }
 
 function rowToPlayer(row) {
+  const hex = identityHex(row.identity);
   return {
     identity: row.identity,
     name: row.name,
@@ -137,8 +142,20 @@ function rowToPlayer(row) {
     alive: row.alive,
     downed: row.downed,
     spectating: row.spectating,
+    curWeapon: _playerWeapons.get(hex) ?? 0,
     lastUpdate: performance.now(),
   };
+}
+
+// Message prefix used to piggyback weapon updates on the chat stream.
+// See _playerWeapons comment above for why.
+const WEAPON_MSG_PREFIX = '_wpn:';
+function _isWeaponMsg(text) { return typeof text === 'string' && text.startsWith(WEAPON_MSG_PREFIX); }
+function _parseWeaponMsg(row) {
+  if (!_isWeaponMsg(row.text)) return null;
+  const n = parseInt(row.text.slice(WEAPON_MSG_PREFIX.length), 10);
+  if (!Number.isFinite(n) || n < 0 || n > 10) return null;
+  return { hex: identityHex(row.sender), weapon: n };
 }
 
 function syncPlayerFromRow(row) {
@@ -324,7 +341,12 @@ export function connect() {
             for (const row of conn.db.lobby.iter()) syncLobbyFromRow(row);
             for (const row of conn.db.zombie.iter()) syncZombieFromRow(row);
             for (const row of conn.db.powerUp.iter()) syncPowerUpFromRow(row);
-            for (const row of conn.db.chatMessage.iter()) _chatMessages.push(rowToChat(row));
+            _playerWeapons.clear();
+            for (const row of conn.db.chatMessage.iter()) {
+              const wm = _parseWeaponMsg(row);
+              if (wm) { _playerWeapons.set(wm.hex, wm.weapon); continue; }
+              _chatMessages.push(rowToChat(row));
+            }
             _chatMessages.sort((a, b) => Number(a.msgId - b.msgId));
             for (const row of conn.db.highScore.iter()) _highScores.push(rowToHighScore(row));
             rebucketHighScores();
@@ -425,8 +447,11 @@ export function connect() {
           if (_onPowerUpDelete) { try { _onPowerUpDelete(row); } catch (e) { console.warn('[netcode] onPowerUpDelete cb', e); } }
         });
 
-        // Chat deltas. Filter by our current lobby.
+        // Chat deltas. Filter by our current lobby. Weapon-marker msgs
+        // are absorbed into _playerWeapons and skipped from chat UI.
         conn.db.chatMessage.onInsert((_c, row) => {
+          const wm = _parseWeaponMsg(row);
+          if (wm) { _playerWeapons.set(wm.hex, wm.weapon); return; }
           const msg = rowToChat(row);
           _chatMessages.push(msg);
           if (_chatMessages.length > 240) _chatMessages.splice(0, _chatMessages.length - 240);
@@ -651,8 +676,21 @@ export function callSubmitHighScore({ name, round, points, kills }) {
 
 export function callSendChat(text) {
   if (!_conn) return;
+  // Don't let users type the weapon-marker prefix
+  if (_isWeaponMsg(text)) return;
   try { _conn.reducers.sendChat({ text }); }
   catch (e) { console.warn('[netcode] sendChat failed', e); }
+}
+
+// Broadcast our current weapon idx via a hidden chat marker so remote
+// clients can render the correct gun model on our soldier.
+let _lastSentWeapon = -1;
+export function broadcastLocalWeapon(idx) {
+  if (!_conn || !isConnected()) return;
+  if (idx === _lastSentWeapon) return;
+  _lastSentWeapon = idx;
+  try { _conn.reducers.sendChat({ text: WEAPON_MSG_PREFIX + idx }); }
+  catch (e) { console.warn('[netcode] broadcastLocalWeapon failed', e); }
 }
 
 export function callSetPlayerName(name) {

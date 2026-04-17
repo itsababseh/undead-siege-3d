@@ -198,25 +198,12 @@ function buildSoldier(teamColor) {
   helmetBrim.position.set(0, 1.52, -0.02);
   bodyGroup.add(helmetBrim);
 
-  // ── Weapon (rifle held by right arm, pointing forward) ──
+  // ── Weapon (switchable — see _buildWeaponInto below) ──
   const weaponGroup = new THREE.Group();
-  // Position in right hand area, angled forward
   weaponGroup.position.set(0.30, 0.80, -0.20);
   weaponGroup.rotation.x = -0.15;
   bodyGroup.add(weaponGroup);
-
-  const rifleBody = new THREE.Mesh(_geo.rifleBody, _weaponMetalMat);
-  rifleBody.position.set(0, 0, -0.10);
-  weaponGroup.add(rifleBody);
-
-  const rifleBarrel = new THREE.Mesh(_geo.rifleBarrel, _weaponDarkMat);
-  rifleBarrel.rotation.x = Math.PI / 2;
-  rifleBarrel.position.set(0, 0.01, -0.55);
-  weaponGroup.add(rifleBarrel);
-
-  const rifleStock = new THREE.Mesh(_geo.rifleStock, _weaponWoodMat);
-  rifleStock.position.set(0, -0.01, 0.22);
-  weaponGroup.add(rifleStock);
+  _buildWeaponInto(weaponGroup, 0); // default to pistol until first broadcast arrives
 
   // ── Downed indicator light (hidden by default) ──
   const downedLight = new THREE.PointLight(0xff2200, 0, 4);
@@ -232,9 +219,111 @@ function buildSoldier(teamColor) {
       rightArmPivot,
       torso,
       downedLight,
+      weaponGroup,
+      weaponIdx: 0,
       perPlayerMats,
     },
   };
+}
+
+// Ray Gun glow material (separate so we can make it emissive)
+const _rayGunMat = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
+const _rayGunGlowMat = new THREE.MeshBasicMaterial({ color: 0x88ffaa, transparent: true, opacity: 0.55 });
+// Extra geometries for weapon variants
+const _wGeo = {
+  pistolBody:     new THREE.BoxGeometry(0.08, 0.09, 0.22),
+  pistolBarrel:   new THREE.BoxGeometry(0.05, 0.06, 0.15),
+  pistolGrip:     new THREE.BoxGeometry(0.06, 0.14, 0.08),
+  smgBody:        new THREE.BoxGeometry(0.08, 0.09, 0.40),
+  smgBarrel:      new THREE.CylinderGeometry(0.018, 0.02, 0.28, 6),
+  smgMag:         new THREE.BoxGeometry(0.05, 0.20, 0.06),
+  shotgunBody:    new THREE.BoxGeometry(0.1, 0.1, 0.55),
+  shotgunBarrel:  new THREE.CylinderGeometry(0.04, 0.04, 0.38, 8),
+  shotgunStock:   new THREE.BoxGeometry(0.09, 0.08, 0.22),
+  rayBody:        new THREE.BoxGeometry(0.13, 0.12, 0.45),
+  rayCoil:        new THREE.TorusGeometry(0.08, 0.02, 6, 16),
+  rayEmitter:     new THREE.SphereGeometry(0.06, 10, 8),
+};
+
+function _clearGroup(group) {
+  while (group.children.length) {
+    const c = group.children.pop();
+    if (c.material && c.material !== _rayGunMat && c.material !== _rayGunGlowMat &&
+        c.material !== _weaponMetalMat && c.material !== _weaponDarkMat && c.material !== _weaponWoodMat) {
+      // instance-owned material, dispose
+      try { c.material.dispose(); } catch (e) {}
+    }
+  }
+}
+
+function _buildWeaponInto(group, idx) {
+  _clearGroup(group);
+  switch (idx) {
+    case 0: { // M1911 pistol
+      const body = new THREE.Mesh(_wGeo.pistolBody, _weaponMetalMat);
+      body.position.set(0, 0.02, -0.02);
+      group.add(body);
+      const barrel = new THREE.Mesh(_wGeo.pistolBarrel, _weaponDarkMat);
+      barrel.position.set(0, 0.03, -0.18);
+      group.add(barrel);
+      const grip = new THREE.Mesh(_wGeo.pistolGrip, _weaponWoodMat);
+      grip.position.set(0, -0.07, 0.02);
+      group.add(grip);
+      break;
+    }
+    case 1: { // MP40 SMG
+      const body = new THREE.Mesh(_wGeo.smgBody, _weaponMetalMat);
+      body.position.set(0, 0, -0.05);
+      group.add(body);
+      const barrel = new THREE.Mesh(_wGeo.smgBarrel, _weaponDarkMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.01, -0.42);
+      group.add(barrel);
+      const mag = new THREE.Mesh(_wGeo.smgMag, _weaponDarkMat);
+      mag.position.set(0, -0.14, -0.02);
+      group.add(mag);
+      break;
+    }
+    case 2: { // Trench Gun
+      const body = new THREE.Mesh(_wGeo.shotgunBody, _weaponMetalMat);
+      body.position.set(0, 0, -0.10);
+      group.add(body);
+      const barrel = new THREE.Mesh(_wGeo.shotgunBarrel, _weaponDarkMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.02, -0.55);
+      group.add(barrel);
+      const stock = new THREE.Mesh(_wGeo.shotgunStock, _weaponWoodMat);
+      stock.position.set(0, -0.02, 0.24);
+      group.add(stock);
+      break;
+    }
+    case 3: { // Ray Gun
+      const body = new THREE.Mesh(_wGeo.rayBody, _rayGunMat);
+      body.position.set(0, 0.02, -0.10);
+      group.add(body);
+      const coil = new THREE.Mesh(_wGeo.rayCoil, _rayGunGlowMat);
+      coil.rotation.y = Math.PI / 2;
+      coil.position.set(0, 0.02, -0.30);
+      group.add(coil);
+      const emitter = new THREE.Mesh(_wGeo.rayEmitter, _rayGunGlowMat);
+      emitter.position.set(0, 0.02, -0.40);
+      group.add(emitter);
+      break;
+    }
+    default: {
+      // Fallback: generic rifle
+      const body = new THREE.Mesh(_geo.rifleBody, _weaponMetalMat);
+      body.position.set(0, 0, -0.10);
+      group.add(body);
+      const barrel = new THREE.Mesh(_geo.rifleBarrel, _weaponDarkMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.01, -0.55);
+      group.add(barrel);
+      const stock = new THREE.Mesh(_geo.rifleStock, _weaponWoodMat);
+      stock.position.set(0, -0.01, 0.22);
+      group.add(stock);
+    }
+  }
 }
 
 // ─── Mesh lifecycle ──────────────────────────────────────────────────────────
@@ -362,6 +451,12 @@ export function updateRemotePlayers(dt, remoteMap) {
     rec.targetWz = data.wz;
     rec.targetRy = data.ry;
     rec._downed = !!data.downed;
+    // Swap weapon model if their curWeapon changed since we last drew
+    const newWeapon = (data.curWeapon ?? 0) | 0;
+    if (newWeapon !== rec.parts.weaponIdx) {
+      _buildWeaponInto(rec.parts.weaponGroup, newWeapon);
+      rec.parts.weaponIdx = newWeapon;
+    }
   }
   for (const [hex, rec] of _meshes) {
     if (!seen.has(hex)) {

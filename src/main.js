@@ -1955,6 +1955,7 @@ function gameLoop(time) {
   // and the local transform keeps streaming even while paused.
   netcode.update(dt);
   netcode.setLocalTransform(camera.position.x, camera.position.z, controls._yaw);
+  netcode.broadcastLocalWeapon(player.curWeapon | 0);
   updateRemotePlayers(dt, netcode.getRemotePlayers());
   tickChat();
 
