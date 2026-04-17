@@ -5,7 +5,7 @@ import {
   beep, sfxShoot, sfxReload, sfxHit, sfxKill, sfxHurt, sfxEmpty,
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
-  sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
@@ -1426,6 +1426,18 @@ function _update(dt) {
       }
     }
     
+    // Zombie shuffle footstep — proximity-gated, distance-scaled volume
+    if (!z._spawnRising && d < 22) {
+      if (!z._stepTimer) z._stepTimer = Math.random() * 0.5; // stagger on spawn
+      z._stepTimer -= dt;
+      if (z._stepTimer <= 0) {
+        const distFrac = Math.min(d / 22, 1);
+        sfxZombieShuffle(distFrac);
+        // Step interval: ~0.45s close, ~0.7s far, randomised ±15%
+        z._stepTimer = (0.45 + distFrac * 0.25) * (0.85 + Math.random() * 0.3);
+      }
+    }
+
     // Attack check always uses LOCAL distance — each client applies
     // damage to its own player regardless of who the AI is chasing.
     // Fires whether the pause overlay is up or not; in MP, pausing

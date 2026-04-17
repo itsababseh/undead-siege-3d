@@ -811,6 +811,32 @@ function sfxPlayerDeath() {
   } catch(e) {}
 }
 
+function sfxZombieShuffle(distFrac) {
+  // Dragging foot shuffle — quieter at distance (distFrac 0=close, 1=far)
+  if (!actx || !masterGain) return;
+  try {
+    const vol = (1 - distFrac * 0.85) * 0.045; // 0.045 close → 0.007 far
+    if (vol < 0.005) return;
+    const t = actx.currentTime;
+    // Drag scrape — low bandpass noise
+    const bufLen = Math.floor(actx.sampleRate * 0.12);
+    const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.4));
+    const src = actx.createBufferSource(); src.buffer = buf;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 180 + Math.random() * 120; f.Q.value = 1.5;
+    const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    src.connect(f); f.connect(g); g.connect(masterGain); src.start(t);
+    // Optional light thud on every other step
+    if (Math.random() < 0.5) {
+      const o = actx.createOscillator(), og = actx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.06);
+      og.gain.setValueAtTime(vol * 0.7, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+      o.connect(og); og.connect(masterGain); o.start(t); o.stop(t + 0.07);
+    }
+  } catch(e) {}
+}
+
 function sfxFootstep() {
   // Concrete footstep — low thud + scuff
   if (!actx || !masterGain) return;
@@ -1024,7 +1050,7 @@ export {
   beep, sfxShoot, sfxReload, sfxHit, sfxKill, sfxHurt, sfxEmpty,
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
-  sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
