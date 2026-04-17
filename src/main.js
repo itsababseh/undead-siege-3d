@@ -2333,6 +2333,11 @@ function _onMatchEnded() {
   state = 'dead';
   paused = false;
   hidePause();
+  // Release the mouse so the user can actually click the overlay
+  // buttons. Without this the pointer stays locked to the canvas from
+  // the moment the squad wipes, blocking PLAY AGAIN / BACK TO LOBBY.
+  try { controls.unlock(); } catch (e) {}
+  try { document.exitPointerLock(); } catch (e) {}
   zombies.forEach(z => removeZombieMesh(z));
   zombies.length = 0;
   points = 500; totalKills = 0; round = 0;
