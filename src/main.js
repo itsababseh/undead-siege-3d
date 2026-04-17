@@ -666,6 +666,38 @@ function nextRound() {
 
 function getDifficultyTier() { return Math.floor((round - 1) / 5); }
 
+// Collision radius for zombies so they don't visually clip walls when
+// their center is a few pixels from the tile edge.
+const ZOMBIE_RADIUS = 0.6;
+
+// Axis-aware walkability: returns true only if (x,z) AND the point
+// `radius` past it in each movement direction are all open. Used so
+// zombies stop before their body clips into a wall.
+function _zombieCanOccupy(x, z, mx, mz, radius) {
+  if (mapAt(x, z) !== 0) return false;
+  const rx = mx !== 0 ? radius * Math.sign(mx) : 0;
+  const rz = mz !== 0 ? radius * Math.sign(mz) : 0;
+  if (rx && mapAt(x + rx, z) !== 0) return false;
+  if (rz && mapAt(x, z + rz) !== 0) return false;
+  return true;
+}
+
+// Step along the line from (x1,z1) to (x2,z2) in TILE/2 increments,
+// returning false if any step hits a wall. Used before teleport/snap
+// to avoid clipping through walls.
+function _lineIsClear(x1, z1, x2, z2) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.001) return mapAt(x2, z2) === 0;
+  const steps = Math.max(1, Math.ceil(d / (TILE * 0.5)));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = x1 + dx * t, z = z1 + dz * t;
+    if (mapAt(x, z) !== 0) return false;
+  }
+  return true;
+}
+
 // Build the list of player-target positions for spawn distance checks.
 // Host camera + every remote player so zombies don't spawn on top of
 // any lobby member.
@@ -1436,22 +1468,26 @@ function _update(dt) {
       const gap = z._targetWx - z.wx;
       const gapZ = z._targetWz - z.wz;
       const gapD = Math.hypot(gap, gapZ);
-      // If the gap is large (teleport / respawn), snap immediately
-      if (gapD > TILE * 3) {
+      // If the gap is large AND the straight line is wall-clear, snap.
+      // If blocked by a wall we'd clip through, let the lerp path find
+      // a walkable approximation instead of teleporting through geometry.
+      if (gapD > TILE * 3 && _lineIsClear(z.wx, z.wz, z._targetWx, z._targetWz)) {
         z.wx = z._targetWx;
         z.wz = z._targetWz;
       } else {
         const lerp = Math.min(1, dt * 15);
-        z.wx += gap * lerp;
-        z.wz += gapZ * lerp;
-        // Extrapolate: nudge toward the player at the zombie's speed
-        // when the gap is nearly closed, to keep motion smooth between
-        // server ticks. Only move if the tile is walkable.
+        const nx = z.wx + gap * lerp;
+        const nz = z.wz + gapZ * lerp;
+        // Apply each axis independently so we slide along walls instead
+        // of getting yanked through them by the lerp.
+        if (_zombieCanOccupy(nx, z.wz, gap, 0, ZOMBIE_RADIUS)) z.wx = nx;
+        if (_zombieCanOccupy(z.wx, nz, 0, gapZ, ZOMBIE_RADIUS)) z.wz = nz;
+        // Extrapolation between server ticks
         if (gapD < 0.5 && localD > 1.5) {
           const ex = (localDx / localD) * z.spd * dt * 0.5;
           const ez = (localDz / localD) * z.spd * dt * 0.5;
-          if (mapAt(z.wx + ex, z.wz) === 0) z.wx += ex;
-          if (mapAt(z.wx, z.wz + ez) === 0) z.wz += ez;
+          if (_zombieCanOccupy(z.wx + ex, z.wz, ex, 0, ZOMBIE_RADIUS)) z.wx += ex;
+          if (_zombieCanOccupy(z.wx, z.wz + ez, 0, ez, ZOMBIE_RADIUS)) z.wz += ez;
         }
       }
     }
@@ -1553,15 +1589,16 @@ function _update(dt) {
 
       const nx = z.wx + mx, nz = z.wz + mz;
       let movedX = false, movedZ = false;
-      if (mapAt(nx, z.wz) === 0) { z.wx = nx; movedX = true; }
-      if (mapAt(z.wx, nz) === 0) { z.wz = nz; movedZ = true; }
+      // Include the zombie's body radius so they stop before clipping walls
+      if (_zombieCanOccupy(nx, z.wz, mx, 0, ZOMBIE_RADIUS)) { z.wx = nx; movedX = true; }
+      if (_zombieCanOccupy(z.wx, nz, 0, mz, ZOMBIE_RADIUS)) { z.wz = nz; movedZ = true; }
       if (!movedX && !movedZ) {
         const perpX = (-dz / d) * z.spd * dt * 0.7;
         const perpZ = (dx / d) * z.spd * dt * 0.7;
-        if (mapAt(z.wx + perpX, z.wz) === 0) { z.wx += perpX; movedX = true; }
-        else if (mapAt(z.wx - perpX, z.wz) === 0) { z.wx -= perpX; movedX = true; }
-        if (mapAt(z.wx, z.wz + perpZ) === 0) { z.wz += perpZ; movedZ = true; }
-        else if (mapAt(z.wx, z.wz - perpZ) === 0) { z.wz -= perpZ; movedZ = true; }
+        if (_zombieCanOccupy(z.wx + perpX, z.wz, perpX, 0, ZOMBIE_RADIUS)) { z.wx += perpX; movedX = true; }
+        else if (_zombieCanOccupy(z.wx - perpX, z.wz, -perpX, 0, ZOMBIE_RADIUS)) { z.wx -= perpX; movedX = true; }
+        if (_zombieCanOccupy(z.wx, z.wz + perpZ, 0, perpZ, ZOMBIE_RADIUS)) { z.wz += perpZ; movedZ = true; }
+        else if (_zombieCanOccupy(z.wx, z.wz - perpZ, 0, -perpZ, ZOMBIE_RADIUS)) { z.wz -= perpZ; movedZ = true; }
       }
 
       // Stuck detection — nudge zombie toward player when it hasn't
@@ -1572,18 +1609,26 @@ function _update(dt) {
         const stuckDist = Math.hypot(z.wx - z.stuckCheck.x, z.wz - z.stuckCheck.z);
         if (stuckDist < TILE * 0.3) {
           z.stuckCheck.totalStuck += z.stuckCheck.timer;
-          // Aggressive nudge toward player to break free
-          const nudgeStr = TILE * (z.stuckCheck.totalStuck > 8 ? 3 : 1.5);
+          // Nudge toward player to break free — but only if the destination
+          // is reachable WITHOUT clipping through a wall. Without the line
+          // check, a zombie against a wall would tunnel straight through.
+          const nudgeStr = TILE * (z.stuckCheck.totalStuck > 8 ? 1.5 : 1.0);
+          const tryNudge = (ox, oz) => {
+            const tx = z.wx + ox, tz = z.wz + oz;
+            if (mapAt(tx, tz) !== 0) return false;
+            if (!_lineIsClear(z.wx, z.wz, tx, tz)) return false;
+            z.wx = tx; z.wz = tz; return true;
+          };
           const nudgeX = (dx / d) * nudgeStr;
           const nudgeZ = (dz / d) * nudgeStr;
-          if (mapAt(z.wx + nudgeX, z.wz + nudgeZ) === 0) { z.wx += nudgeX; z.wz += nudgeZ; }
-          else if (mapAt(z.wx + nudgeX, z.wz) === 0) { z.wx += nudgeX; }
-          else if (mapAt(z.wx, z.wz + nudgeZ) === 0) { z.wz += nudgeZ; }
-          else {
-            const perpX = (-dz / d) * nudgeStr;
-            const perpZ = (dx / d) * nudgeStr;
-            if (mapAt(z.wx + perpX, z.wz + perpZ) === 0) { z.wx += perpX; z.wz += perpZ; }
-            else if (mapAt(z.wx - perpX, z.wz - perpZ) === 0) { z.wx -= perpX; z.wz -= perpZ; }
+          if (!tryNudge(nudgeX, nudgeZ)) {
+            if (!tryNudge(nudgeX, 0)) {
+              if (!tryNudge(0, nudgeZ)) {
+                const perpX = (-dz / d) * nudgeStr;
+                const perpZ = (dx / d) * nudgeStr;
+                if (!tryNudge(perpX, perpZ)) tryNudge(-perpX, -perpZ);
+              }
+            }
           }
         } else { z.stuckCheck.totalStuck = 0; }
         z.stuckCheck.x = z.wx;
