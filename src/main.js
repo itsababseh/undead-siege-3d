@@ -363,10 +363,15 @@ const wallBuys = [
 
 // ===== PERKS =====
 const PERK_DURATION = 90; // seconds — all perks expire after 90s
+const JUGG_SHIELD_HITS = 3; // hits absorbed before shield breaks
 const perks = [
-  { id:'juggernog', name:'Juggernog', desc:'+75 HP', cost:2500, color:'#e44', minRound:1,
-    apply() { player.maxHp = 175; player.hp = Math.min(player.hp+75, 175); },
-    unapply() { player.maxHp = 100; player.hp = Math.min(player.hp, 100); }},
+  // Juggernog now behaves like CoD Zombies: a hit-absorbing shield.
+  // Player takes zero HP damage while shieldHits > 0. Each zombie hit
+  // decrements shieldHits; when it reaches 0 (or the timer expires),
+  // the shield is gone.
+  { id:'juggernog', name:'Juggernog', desc:`Shield (${JUGG_SHIELD_HITS} hits)`, cost:2500, color:'#f66', minRound:1,
+    apply() { player.shieldHits = JUGG_SHIELD_HITS; },
+    unapply() { player.shieldHits = 0; }},
   { id:'speedcola', name:'Speed Cola', desc:'Faster Reload', cost:3000, color:'#4e4', minRound:3,
     apply() { player.reloadMult = 0.5; },
     unapply() { player.reloadMult = 1; }},
@@ -376,12 +381,17 @@ const perks = [
   { id:'quickrevive', name:'Quick Revive', desc:'HP Regen + Fast Revive', cost:1500, color:'#4af', minRound:1,
     apply() { player.hpRegen = true; player.reviveSpeedMult = 4; },
     unapply() { player.hpRegen = false; player.reviveSpeedMult = 1; }},
+  // New perk — was the old Juggernog behavior.
+  { id:'health', name:'Health', desc:'+75 Max HP', cost:2500, color:'#e84', minRound:1,
+    apply() { player.maxHp = 175; player.hp = Math.min(player.hp + 75, 175); },
+    unapply() { player.maxHp = 100; player.hp = Math.min(player.hp, 100); }},
 ];
 const perkMachines = [
   { tx:10, tz:11, perkIdx:0 },
   { tx:19, tz:6, perkIdx:1 },
   { tx:5, tz:5, perkIdx:2 },
   { tx:21, tz:14, perkIdx:3 },
+  { tx:14, tz:17, perkIdx:4 }, // Health — new machine in the main arena
 ];
 
 // ===== PERK MACHINE 3D MESHES =====
@@ -538,6 +548,7 @@ function initGame() {
   player.reloading = false; player.reloadTimer = 0;
   player.fireTimer = 0; player.fireRateMult = 1; player.reloadMult = 1;
   player.hpRegen = false; player.hpRegenTimer = 0; player.reviveSpeedMult = 1;
+  player.shieldHits = 0;
   player.perksOwned = {};
   
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -1681,6 +1692,25 @@ function _update(dt) {
     if (!_iAmDowned && !hasReviveGrace() && localD < 1.8 && state === 'playing') {
       z.atkTimer -= dt;
       if (z.atkTimer <= 0) {
+        // Juggernog shield absorbs a hit without costing HP
+        if (player.shieldHits > 0) {
+          player.shieldHits--;
+          sfxHurt();
+          sfxZombieAttack();
+          triggerScreenShake(0.5, 6);
+          triggerHitIndicator(z.wx, z.wz);
+          addFloatText(player.shieldHits > 0 ? `SHIELD (${player.shieldHits})` : 'SHIELD BROKEN', '#ff6', 1.2);
+          // When all shield hits consumed, clear Juggernog timer too
+          if (player.shieldHits === 0) {
+            const jugg = perks.find(p => p.id === 'juggernog');
+            if (jugg && player.perksOwned['juggernog'] > 0) {
+              player.perksOwned['juggernog'] = 0;
+              jugg.unapply();
+            }
+          }
+          z.atkTimer = 1;
+          continue;
+        }
         player.hp -= z.dmg;
         sfxHurt();
         sfxZombieAttack();

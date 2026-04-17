@@ -117,18 +117,23 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   const perkEl = document.getElementById('perkIcons');
   const PERK_DURATION = 90;
   const PU_DURATION = 15;
-  const PERK_ICONS = { juggernog: '🛡️', speedcola: '⚡', doubletap: '🔥', quickrevive: '💉' };
-  const makeIcon = (color, icon, label, secs, total) => {
+  const PERK_ICONS = { juggernog: '🛡️', speedcola: '⚡', doubletap: '🔥', quickrevive: '💉', health: '❤️' };
+  const makeIcon = (color, icon, label, secs, total, extra) => {
     const pct = Math.max(0, Math.min(100, (secs / total) * 100));
     const low = secs <= 5 ? ' low-time' : '';
-    return `<div class="perk-icon${low}" style="color:${color};border-color:${color}"><div class="pi-drain" style="width:${pct}%"></div><div class="pi-content"><span class="pi-icon">${icon}</span><span class="pi-label">${label}</span><span class="pi-time">${Math.ceil(secs)}s</span></div></div>`;
+    const extraHtml = extra ? `<span class="pi-time">${extra}</span>` : '';
+    return `<div class="perk-icon${low}" style="color:${color};border-color:${color}"><div class="pi-drain" style="width:${pct}%"></div><div class="pi-content"><span class="pi-icon">${icon}</span><span class="pi-label">${label}</span>${extraHtml}<span class="pi-time">${Math.ceil(secs)}s</span></div></div>`;
   };
   let perkHTML = '';
   for (const p of _perks) {
     if (_player.perksOwned[p.id] > 0) {
       const icon = PERK_ICONS[p.id] || '✦';
       const label = p.name.substring(0, 3).toUpperCase();
-      perkHTML += makeIcon(p.color, icon, label, _player.perksOwned[p.id], PERK_DURATION);
+      // Juggernog: show remaining shield hits instead of only the timer
+      const extra = p.id === 'juggernog' && _player.shieldHits > 0
+        ? `×${_player.shieldHits}`
+        : '';
+      perkHTML += makeIcon(p.color, icon, label, _player.perksOwned[p.id], PERK_DURATION, extra);
     }
   }
   if (_player._instaKill && _player._instaKillTimer > 0) {

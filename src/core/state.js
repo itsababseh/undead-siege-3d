@@ -37,6 +37,7 @@ export const player = {
   reloading: false, reloadTimer: 0, reloadTotal: 0,
   fireTimer: 0, fireRateMult: 1, reloadMult: 1,
   hpRegen: false, hpRegenTimer: 0,
+  shieldHits: 0, // Juggernog shield-hits remaining (0 = no shield)
   perksOwned: {},
   bobPhase: 0,
   _lastFiring: false,
