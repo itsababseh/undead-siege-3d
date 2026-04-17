@@ -1238,11 +1238,35 @@ function createZombieMesh(z) {
   hpSprite.visible = false;
   group.add(hpSprite);
 
+  // === BOSS VISUAL DISTINCTION (S4.2) ===
+  let bossLight = null, bossShadow = null;
+  if (z.isBoss) {
+    // Red/orange PointLight attached to the boss group
+    bossLight = new THREE.PointLight(0xff4400, 0.8, 6);
+    bossLight.position.set(0, spriteH * 0.5, 0);
+    group.add(bossLight);
+
+    // Tint the boss sprite slightly red
+    planeMat.color.set(0xff8888);
+
+    // Ground shadow circle below the boss
+    const shadowGeo = new THREE.PlaneGeometry(2.5, 2.5);
+    shadowGeo.rotateX(-Math.PI / 2);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.35,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    bossShadow = new THREE.Mesh(shadowGeo, shadowMat);
+    bossShadow.position.y = 0.05;
+    group.add(bossShadow);
+  }
+
   _scene.add(group);
 
   zombieMeshes.set(z, {
     group, mesh, planeMat, tex, frameCanvas,
     hpSprite, hpCanvas, hpTex, spriteSheet, spriteH,
+    bossLight, bossShadow,
   });
   return group;
 }
@@ -1307,14 +1331,37 @@ function updateZombieMesh(z, dt) {
     tex.needsUpdate = true;
   }
 
-  // Hit flash
+  // Hit flash — boss keeps red tint when not flashing (S4.2)
   if (z.flash > 0) {
     planeMat.color.setRGB(1, 0.3, 0.3);
+  } else if (z.isBoss) {
+    // Phase 3 enraged: intensify red tint
+    const phase = z._bossPhase || 1;
+    if (phase >= 3) {
+      planeMat.color.setRGB(1, 0.4, 0.4);
+    } else {
+      planeMat.color.setRGB(1, 0.53, 0.53); // 0xff8888
+    }
   } else {
     planeMat.color.setRGB(1, 1, 1);
   }
 
   // Eye light flicker is now driven by the shared pool in updateZombieEyeLightPool
+
+  // === BOSS LIGHT FLICKER (S4.2) — Phase 3 rapid flicker ===
+  if (z.isBoss && data.bossLight) {
+    const phase = z._bossPhase || 1;
+    if (phase >= 3) {
+      // Rapid flicker in enraged phase
+      data.bossLight.intensity = 0.6 + Math.random() * 1.2;
+      data.bossLight.color.setHex(Math.random() > 0.3 ? 0xff4400 : 0xff2200);
+    } else if (phase >= 2) {
+      // Subtle pulse in phase 2
+      data.bossLight.intensity = 0.8 + Math.sin(performance.now() * 0.005) * 0.3;
+    } else {
+      data.bossLight.intensity = 0.8;
+    }
+  }
 
   // HP bar (polished with rounded edges, glow, gradient layers)
   if (z.hp < z.maxHp) {

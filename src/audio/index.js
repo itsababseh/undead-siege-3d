@@ -1259,6 +1259,25 @@ function _getBossNoise() {
   return _bossNoiseBuf;
 }
 
+// S4.2: Boss ground pound — deep boom + metallic crack
+function sfxBossGroundPound() {
+  if (!actx || !masterGain) return;
+  try {
+    const t = actx.currentTime;
+    // Deep boom — 40Hz sine with 0.3s decay
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(40, t);
+    o.frequency.exponentialRampToValueAtTime(20, t + 0.35);
+    g.gain.setValueAtTime(0.25, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o.connect(g); g.connect(masterGain);
+    o.start(t); o.stop(t + 0.35);
+    // Metallic crack at 800Hz
+    _metalClick(t + 0.03, 800, 4, 0.06, 0.14);
+  } catch(e) {}
+}
+
 function sfxBossKill() {
   if (!actx || !masterGain) return;
   try {
@@ -1595,6 +1614,7 @@ export {
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxBossGroundPound,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn, sfxZombieIdle,
   startBackgroundMusic, updateAmbientSounds,

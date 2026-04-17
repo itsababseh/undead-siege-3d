@@ -6,6 +6,7 @@ import {
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxBossGroundPound,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn, sfxZombieIdle,
   startBackgroundMusic, updateAmbientSounds,
@@ -754,6 +755,7 @@ function spawnZombie() {
   if (isElite) { speedMult = 1.15 + Math.random() * 0.2; hasLimp = false; }
   spd *= speedMult;
 
+  const _aiSpeedMult = isBoss ? 0.7 : (0.85 + Math.random() * 0.3);
   const z = {
     hostZid: makeHostZid(),
     wx: pick.wx, wz: pick.wz,
@@ -768,7 +770,24 @@ function spawnZombie() {
     _baseSpd: spd,
     _spawnRising: false, // set true by createZombieMesh; safe default for early access
     stuckCheck: null,
+    _speedMult: _aiSpeedMult,
+    _staggerSeed: (Math.random() - 0.5) * 0.3,
+    _lunging: false,
+    _lungeTimer: 0,
+    _lungeWindup: false,
+    _lungeCooldown: 0,
   };
+  // S4.2: Boss phase properties
+  if (isBoss) {
+    z._bossPhase = 1;
+    z._bossBaseSpd = z.spd;
+    z._groundPoundTimer = 5 + Math.random() * 3; // 5-8s initial delay
+    z._groundPounding = false;
+    z._groundPoundPause = 0;
+    z._zigzagTimer = 0;
+    z._zigzagDir = 1;
+  }
+
   const offX = (Math.random()-0.5)*1.5;
   const offZ = (Math.random()-0.5)*1.5;
   if (mapAt(z.wx + offX, z.wz + offZ) === 0) { z.wx += offX; z.wz += offZ; }
@@ -1301,6 +1320,73 @@ function _update(dt) {
     // Skip movement + attack while zombie is still emerging from the ground
     if (z._spawnRising) { updateZombieMesh(z, dt); continue; }
 
+    // === S4.2: BOSS HEALTH PHASES ===
+    if (z.isBoss && _isHostOrSP) {
+      const hpRatio = z.hp / z.maxHp;
+      const prevPhase = z._bossPhase || 1;
+      if (hpRatio > 0.6) z._bossPhase = 1;
+      else if (hpRatio > 0.3) z._bossPhase = 2;
+      else z._bossPhase = 3;
+
+      // Apply phase speed multipliers (relative to boss base speed)
+      if (z._bossPhase === 2) {
+        z.spd = z._bossBaseSpd * 1.3;
+      } else if (z._bossPhase === 3) {
+        z.spd = z._bossBaseSpd * 1.5;
+      } else {
+        z.spd = z._bossBaseSpd;
+      }
+
+      // Ground pound attack (Phase 2+)
+      if (z._bossPhase >= 2) {
+        if (z._groundPounding) {
+          z._groundPoundPause -= dt;
+          if (z._groundPoundPause <= 0) {
+            z._groundPounding = false;
+            // Trigger ground pound effects
+            triggerScreenShake(3, 12);
+            spawnDirtParticles(z.wx, z.wz, 20);
+            sfxBossGroundPound();
+            // Damage player if within 4 units
+            const gpDx = camera.position.x - z.wx;
+            const gpDz = camera.position.z - z.wz;
+            const gpDist = Math.hypot(gpDx, gpDz);
+            if (gpDist < 4 && state === 'playing' && !_iAmDowned && !hasReviveGrace()) {
+              player.hp -= 15;
+              sfxHurt();
+              triggerDamageVignette(15);
+              triggerHitIndicator(z.wx, z.wz);
+              if (player.hp <= 0) {
+                player.hp = 0;
+                if (!onLocalHpZero()) {
+                  state = 'dead';
+                  sfxPlayerDeath();
+                  controls.unlock();
+                  setTimeout(showDeath, 1000);
+                }
+              }
+            }
+            z._groundPoundTimer = 5 + Math.random() * 3; // reset 5-8s
+          }
+        } else {
+          z._groundPoundTimer -= dt;
+          if (z._groundPoundTimer <= 0) {
+            z._groundPounding = true;
+            z._groundPoundPause = 0.5; // pause before slam
+          }
+        }
+      }
+
+      // Phase 3: erratic zigzag movement
+      if (z._bossPhase >= 3) {
+        z._zigzagTimer -= dt;
+        if (z._zigzagTimer <= 0) {
+          z._zigzagDir *= -1;
+          z._zigzagTimer = 0.3 + Math.random() * 0.4;
+        }
+      }
+    }
+
     // Non-host zombies (server-driven) smoothly track their target wx/wz
     // toward the last-received server position. Lerp factor 15 gives
     // snappy catch-up (~65ms). Also extrapolate using the delta between
@@ -1378,24 +1464,57 @@ function _update(dt) {
     if (!z._aliveTimer) z._aliveTimer = 0;
     z._aliveTimer += dt;
 
+    // S4.1: Lunge timer tick — runs even if d <= 1.5 so the lunge completes
+    if (z._lungeWindup) {
+      z._lungeTimer -= dt;
+      if (z._lungeTimer <= 0) {
+        z._lungeWindup = false;
+        z._lunging = true;
+        z._lungeTimer = 0.3;
+      }
+    } else if (z._lunging) {
+      z._lungeTimer -= dt;
+      if (z._lungeTimer <= 0) {
+        z._lunging = false;
+        z._lungeCooldown = 2;
+      }
+    }
+    if (z._lungeCooldown > 0) z._lungeCooldown -= dt;
+
     if (_isHostOrSP && d > 1.5) {
-      let curSpd = z.spd;
+      let curSpd = z.spd * (z._speedMult || 1);
       if (z._hasLimp) {
         z._limpPhase += dt * (3 + z._limpSeverity * 2);
         const limpFactor = 1 - z._limpSeverity * (0.5 + 0.5 * Math.sin(z._limpPhase));
-        curSpd = z._baseSpd * Math.max(0.1, limpFactor);
+        curSpd = z._baseSpd * (z._speedMult || 1) * Math.max(0.1, limpFactor);
       }
-      let mx = (dx / d) * curSpd * dt;
-      let mz = (dz / d) * curSpd * dt;
+      if (z._lunging) curSpd *= 2;
+      else if (z._lungeWindup) curSpd = 0;
 
+      // S4.2: Boss ground pound pause — freeze movement during windup
+      if (z.isBoss && z._groundPounding) { curSpd = 0; }
+
+      // S4.1: Stagger approach — add a perpendicular offset based on per-zombie seed
+      let stagger = z._staggerSeed || 0;
+      // S4.2: Boss Phase 3 erratic zigzag — add strong perpendicular offset
+      if (z.isBoss && z._bossPhase >= 3) {
+        stagger += z._zigzagDir * 0.6;
+      }
+      const dirX = dx / d, dirZ = dz / d;
+      const perpDirX = -dirZ, perpDirZ = dirX;
+      let mx = (dirX + perpDirX * stagger) * curSpd * dt;
+      let mz = (dirZ + perpDirZ * stagger) * curSpd * dt;
+
+      // S4.1: Horde separation — boid-like repulsion, squared distance to skip sqrt
+      const sepThreshSq = 9;
       for (const oz of zombies) {
         if (oz === z) continue;
         const sx = z.wx - oz.wx, sz = z.wz - oz.wz;
-        const sd = Math.hypot(sx, sz);
-        if (sd < 2 && sd > 0.01) {
-          mx += (sx / sd) * 0.03 * dt * 60;
-          mz += (sz / sd) * 0.03 * dt * 60;
-        }
+        const sdSq = sx * sx + sz * sz;
+        if (sdSq >= sepThreshSq || sdSq < 0.0001) continue;
+        const invD = 1 / Math.sqrt(sdSq);
+        mx += sx * invD * 0.03 * dt * 60;
+        mz += sz * invD * 0.03 * dt * 60;
       }
 
       const nx = z.wx + mx, nz = z.wz + mz;
@@ -1460,6 +1579,15 @@ function _update(dt) {
         // Interval: 4–10s, further zombies groan less often
         const distFrac = Math.min(d / 18, 1);
         z._idleTimer = (4 + distFrac * 4) * (0.8 + Math.random() * 0.4);
+      }
+    }
+
+    // S4.1: Lunge trigger — when within 2-3 units, chance to initiate a speed burst
+    if (_isHostOrSP && localD > 1.8 && localD < 3 && !z._lunging && !z._lungeWindup && z._lungeCooldown <= 0) {
+      const lungeChance = z.isBoss ? 0.6 : 0.3;
+      if (Math.random() < lungeChance * dt) {
+        z._lungeWindup = true;
+        z._lungeTimer = 0.15;
       }
     }
 
