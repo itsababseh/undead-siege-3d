@@ -41,22 +41,27 @@ canvas{display:block}
 #bossFill{height:100%;background:linear-gradient(180deg,#f44 0%,#c00 50%,#900 100%);width:100%;position:relative;border-radius:2px}
 #bossFill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:linear-gradient(180deg,rgba(255,255,255,0.18),transparent)}
 #bossLabel{position:fixed;top:36px;left:50%;transform:translateX(-50%);color:#f44;font-size:11px;font-weight:bold;letter-spacing:2px;display:none;text-shadow:0 0 8px rgba(255,50,50,0.4)}
-#perkIcons{position:fixed;bottom:68px;left:15px;display:flex;flex-wrap:wrap;gap:5px;z-index:13;max-width:calc(50vw - 30px)}
-.perk-icon{width:auto;min-width:28px;height:28px;border-radius:4px;border:2px solid;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold;opacity:0.9;text-shadow:0 0 5px rgba(255,255,255,0.5);flex-shrink:0;padding:0 4px;gap:2px;white-space:nowrap}
-@keyframes perkBlink{0%,100%{opacity:1}50%{opacity:0.3}}
-.perk-icon.powerup-active{width:auto;min-width:28px;padding:0 6px;gap:3px;font-size:9px;white-space:nowrap;animation:hpShimmer 1s infinite}
+#perkIcons{position:fixed;bottom:76px;left:15px;display:flex;flex-wrap:wrap;gap:6px;z-index:13;max-width:calc(100vw - 30px);pointer-events:none}
+.perk-icon{position:relative;overflow:hidden;padding:0 12px;height:32px;border-radius:16px;border:1.5px solid currentColor;background:rgba(12,12,18,0.75);font-size:11px;font-weight:bold;letter-spacing:0.5px;display:flex;align-items:center;box-shadow:0 0 10px rgba(0,0,0,0.6),inset 0 0 12px rgba(0,0,0,0.35);text-shadow:0 0 6px currentColor;backdrop-filter:blur(3px);flex-shrink:0;white-space:nowrap}
+.perk-icon .pi-drain{position:absolute;left:0;top:0;bottom:0;background:currentColor;opacity:0.3;pointer-events:none}
+.perk-icon .pi-content{position:relative;display:flex;align-items:center;gap:7px;z-index:1}
+.perk-icon .pi-icon{font-size:15px;filter:drop-shadow(0 0 4px currentColor);line-height:1}
+.perk-icon .pi-label{font-size:11px}
+.perk-icon .pi-time{opacity:0.9;font-variant-numeric:tabular-nums;font-size:10px;padding-left:2px;border-left:1px solid currentColor}
+@keyframes piPulse{0%,100%{box-shadow:0 0 10px currentColor,0 0 4px rgba(0,0,0,0.5);transform:scale(1)}50%{box-shadow:0 0 22px currentColor,0 0 8px rgba(0,0,0,0.5);transform:scale(1.05)}}
+.perk-icon.low-time{animation:piPulse 0.6s infinite}
 #buyPrompt{position:fixed;top:55%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);padding:8px 24px;border-radius:4px;color:#fc0;font-size:13px;letter-spacing:1px;display:none;text-align:center;border:1px solid rgba(255,200,0,0.2)}
 #centerMsg{position:fixed;top:28%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none;z-index:12}
 #centerMsg .big{font-size:clamp(28px,5vw,48px);font-weight:bold;letter-spacing:4px;text-shadow:0 0 30px currentColor,0 0 60px currentColor;animation:msgPulseIn 0.4s ease-out}
 #centerMsg .small{font-size:clamp(11px,2vw,16px);margin-top:8px;letter-spacing:2px;opacity:0.8;animation:msgSlideUp 0.5s ease-out 0.15s both}
 @keyframes msgPulseIn{0%{transform:scale(1.8);opacity:0}50%{transform:scale(0.95)}100%{transform:scale(1);opacity:1}}
 @keyframes msgSlideUp{0%{transform:translateY(10px);opacity:0}100%{transform:translateY(0);opacity:0.8}}
+/* Always-on subtle cinematic vignette. Radial gradient mask keeps the
+   center fully transparent and only darkens the corners/edges slightly. */
+#gameVignette{position:fixed;inset:0;pointer-events:none;z-index:8;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.18) 82%, rgba(0,0,0,0.42) 100%)}
 #dmgOverlay{position:fixed;inset:0;pointer-events:none;z-index:9;border:0px solid rgba(180,0,0,0);transition:border-width 0.05s,border-color 0.3s}
 #dmgOverlay.flash{border:8px solid rgba(180,0,0,0.5)}
 #hitDirCanvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
-#powerupTimerBar{position:fixed;top:50px;left:50%;transform:translateX(-50%);width:240px;height:5px;border-radius:3px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.12);z-index:13;pointer-events:none;display:none;overflow:hidden;box-shadow:0 0 10px rgba(0,0,0,0.4)}
-#powerupTimerFill{height:100%;border-radius:3px;transition:width 0.25s linear;box-shadow:0 0 6px currentColor}
-#powerupTimerLabel{position:fixed;top:34px;left:50%;transform:translateX(-50%);z-index:13;pointer-events:none;display:none;font-size:10px;letter-spacing:2px;font-weight:bold;text-shadow:0 0 8px currentColor,0 0 16px currentColor,0 1px 4px rgba(0,0,0,0.9)}
 #pauseOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:50}
 #pauseOverlay h2{color:#fff;font-size:48px;letter-spacing:6px;margin-bottom:10px}
 #pauseOverlay .info{color:#888;font-size:14px;letter-spacing:2px}
@@ -96,10 +101,11 @@ canvas{display:block}
   #bossBarWrap{width:220px}
   #centerMsg .big{font-size:clamp(22px,5vw,36px)}
   #radioOverlay{max-width:85%;width:85%;padding:8px 16px;top:45px;font-size:11px}
-  #powerupTimerBar{width:160px}
-  #perkIcons{bottom:56px;left:10px;max-width:calc(50vw - 20px)}
-  .perk-icon{width:24px;height:24px;font-size:8px}
-  .perk-icon.powerup-active{width:auto;min-width:24px;padding:0 4px;font-size:7px}
+  #perkIcons{bottom:62px;left:10px;max-width:calc(100vw - 20px);gap:5px}
+  .perk-icon{height:28px;padding:0 10px;font-size:10px}
+  .perk-icon .pi-icon{font-size:13px}
+  .perk-icon .pi-time{font-size:9px}
+  .perk-icon .pi-content{gap:6px}
   #reloadBarWrap{width:120px;bottom:48px;right:10px}
   .controls-info{display:none}
   #menuLogo h1{font-size:clamp(28px,8vw,48px);letter-spacing:6px}

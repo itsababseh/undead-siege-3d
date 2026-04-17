@@ -1293,9 +1293,17 @@ function _update(dt) {
 
   if (_isHostOrSP && zSpawned < zToSpawn) {
     spawnTimer -= dt;
-    if (spawnTimer <= 0 && zombies.length < maxAlive) {
+    const remaining = zToSpawn - zSpawned;
+    // When only 1-2 zombies left to spawn, ignore the maxAlive cap and
+    // use a short cooldown. Otherwise players can wait 10+ seconds for
+    // the final zombie to appear if earlier ones are still alive,
+    // which feels like the game is broken.
+    const isFinalSpawn = remaining <= 2;
+    const canSpawn = isFinalSpawn || zombies.length < maxAlive;
+    if (spawnTimer <= 0 && canSpawn) {
       spawnZombie();
-      spawnTimer = Math.max(0.5, 2.5 - round * 0.12);
+      const baseRate = Math.max(0.5, 2.5 - round * 0.12);
+      spawnTimer = isFinalSpawn ? Math.min(baseRate, 0.8) : baseRate;
     }
   }
 

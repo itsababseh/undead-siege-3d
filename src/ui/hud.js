@@ -113,21 +113,29 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
     document.getElementById('bossFill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
   }
   
-  // Perks
+  // Perks + power-ups — unified stylized pill buttons with time-drain fill
   const perkEl = document.getElementById('perkIcons');
+  const PERK_DURATION = 90;
+  const PU_DURATION = 15;
+  const PERK_ICONS = { juggernog: '🛡️', speedcola: '⚡', doubletap: '🔥', quickrevive: '💉' };
+  const makeIcon = (color, icon, label, secs, total) => {
+    const pct = Math.max(0, Math.min(100, (secs / total) * 100));
+    const low = secs <= 5 ? ' low-time' : '';
+    return `<div class="perk-icon${low}" style="color:${color};border-color:${color}"><div class="pi-drain" style="width:${pct}%"></div><div class="pi-content"><span class="pi-icon">${icon}</span><span class="pi-label">${label}</span><span class="pi-time">${Math.ceil(secs)}s</span></div></div>`;
+  };
   let perkHTML = '';
   for (const p of _perks) {
     if (_player.perksOwned[p.id] > 0) {
-      const secs = Math.ceil(_player.perksOwned[p.id]);
-      const warn = secs <= 15 ? ';animation:perkBlink 0.5s infinite' : '';
-      perkHTML += `<div class="perk-icon" style="border-color:${p.color};color:${p.color}${warn}">${p.name.substring(0,3).toUpperCase()} ${secs}s</div>`;
+      const icon = PERK_ICONS[p.id] || '✦';
+      const label = p.name.substring(0, 3).toUpperCase();
+      perkHTML += makeIcon(p.color, icon, label, _player.perksOwned[p.id], PERK_DURATION);
     }
   }
   if (_player._instaKill && _player._instaKillTimer > 0) {
-    perkHTML += `<div class="perk-icon powerup-active" style="border-color:#f44;color:#f44">💀 ${Math.ceil(_player._instaKillTimer)}s</div>`;
+    perkHTML += makeIcon('#ff4444', '💀', 'KILL', _player._instaKillTimer, PU_DURATION);
   }
   if (_player._doublePoints && _player._doublePointsTimer > 0) {
-    perkHTML += `<div class="perk-icon powerup-active" style="border-color:#ff4;color:#ff4">💰 ${Math.ceil(_player._doublePointsTimer)}s</div>`;
+    perkHTML += makeIcon('#ffcc44', '💰', '2X', _player._doublePointsTimer, PU_DURATION);
   }
   perkEl.innerHTML = perkHTML;
   
@@ -232,46 +240,6 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   const dmgEl = document.getElementById('dmgOverlay');
   if (dmgFlash > 0) dmgEl.classList.add('flash');
   else dmgEl.classList.remove('flash');
-  
-  // Power-up timer bar
-  const puBar = document.getElementById('powerupTimerBar');
-  const puFill = document.getElementById('powerupTimerFill');
-  const puLabel = document.getElementById('powerupTimerLabel');
-  const hasInsta = _player._instaKill && _player._instaKillTimer > 0;
-  const hasDbl = _player._doublePoints && _player._doublePointsTimer > 0;
-  if (hasInsta || hasDbl) {
-    puBar.style.display = 'block';
-    puLabel.style.display = 'block';
-    const PU_DUR = 15;
-    if (hasInsta && hasDbl) {
-      const iPct = (_player._instaKillTimer / PU_DUR) * 50;
-      const dPct = (_player._doublePointsTimer / PU_DUR) * 50;
-      puFill.style.width = (iPct + dPct) + '%';
-      puFill.style.background = `linear-gradient(90deg, #f44 0%, #f44 ${iPct/(iPct+dPct)*100}%, #fc0 ${iPct/(iPct+dPct)*100}%, #fc0 100%)`;
-      puLabel.style.color = '#f88';
-      puLabel.textContent = `💀 ${Math.ceil(_player._instaKillTimer)}s  💰 ${Math.ceil(_player._doublePointsTimer)}s`;
-    } else if (hasInsta) {
-      puFill.style.width = (_player._instaKillTimer / PU_DUR) * 100 + '%';
-      puFill.style.background = '#f44';
-      puLabel.style.color = '#f66';
-      puLabel.textContent = `💀 INSTA-KILL ${Math.ceil(_player._instaKillTimer)}s`;
-    } else {
-      puFill.style.width = (_player._doublePointsTimer / PU_DUR) * 100 + '%';
-      puFill.style.background = '#fc0';
-      puLabel.style.color = '#fc0';
-      puLabel.textContent = `💰 DOUBLE POINTS ${Math.ceil(_player._doublePointsTimer)}s`;
-    }
-    const lowestTimer = Math.min(
-      hasInsta ? _player._instaKillTimer : 999,
-      hasDbl ? _player._doublePointsTimer : 999
-    );
-    const pulseAlpha = lowestTimer < 5 ? (0.5 + Math.sin(performance.now() / 150) * 0.5) : 1;
-    puBar.style.opacity = pulseAlpha;
-    puLabel.style.opacity = pulseAlpha;
-  } else {
-    puBar.style.display = 'none';
-    puLabel.style.display = 'none';
-  }
   
   // Mobile weapon switcher active state
   if (_isMobile) {
