@@ -1657,12 +1657,60 @@ function showDeath() {
 }
 
 // ===== FLICKER LIGHTS =====
-function updateLights(dt) {
-  const t = performance.now() / 1000;
+// Each light gets independent stochastic flicker state.
+// Modes: 0=normal drift, 1=struggling (rapid stutter), 2=blackout
+(function initFlickerState() {
   for (let i = 0; i < lights.length; i++) {
-    const base = lights[i]._baseIntensity || lights[i].intensity;
-    if (!lights[i]._baseIntensity) lights[i]._baseIntensity = lights[i].intensity;
-    lights[i].intensity = base * (0.7 + 0.3 * Math.sin(t * (2 + i * 0.7) + i * 1.5));
+    const l = lights[i];
+    l._baseIntensity = l.intensity;
+    l._flickMode    = 0;          // 0=drift, 1=struggle, 2=blackout
+    l._flickTimer   = Math.random() * 4; // time until next mode change
+    l._flickVal     = 1.0;        // current multiplier
+    l._stutterT     = 0;          // stutter phase accumulator
+    l._stutterSpeed = 18 + Math.random() * 22; // Hz for struggle mode
+    // Stagger so not all lights change mode simultaneously
+    l._phaseOffset  = Math.random() * 6.28;
+  }
+})();
+
+function updateLights(dt) {
+  for (let i = 0; i < lights.length; i++) {
+    const l = lights[i];
+    l._flickTimer -= dt;
+
+    if (l._flickTimer <= 0) {
+      // Pick next mode: mostly normal drift, occasional struggle/blackout
+      const roll = Math.random();
+      if (roll < 0.65) {
+        l._flickMode  = 0; // normal drift
+        l._flickTimer = 2 + Math.random() * 6;
+      } else if (roll < 0.88) {
+        l._flickMode  = 1; // struggling bulb
+        l._flickTimer = 0.15 + Math.random() * 0.45;
+        l._stutterSpeed = 14 + Math.random() * 28;
+        l._stutterT = 0;
+      } else {
+        l._flickMode  = 2; // full blackout
+        l._flickTimer = 0.05 + Math.random() * 0.18;
+      }
+    }
+
+    if (l._flickMode === 0) {
+      // Smooth horror drift: slow sine + small high-freq noise jitter
+      const t = performance.now() / 1000;
+      const slow = Math.sin(t * 1.1 + l._phaseOffset) * 0.18;
+      const fast = Math.sin(t * 9.3 + l._phaseOffset * 2.1) * 0.06;
+      l._flickVal = 0.76 + slow + fast; // range ~[0.52, 1.00]
+    } else if (l._flickMode === 1) {
+      // Struggling: square-ish wave at stutter frequency
+      l._stutterT += dt * l._stutterSpeed;
+      l._flickVal = (Math.sin(l._stutterT * Math.PI * 2) > 0) ? (0.55 + Math.random() * 0.3) : (0.05 + Math.random() * 0.12);
+    } else {
+      // Blackout
+      l._flickVal = 0;
+    }
+
+    l.intensity = l._baseIntensity * Math.max(0, l._flickVal);
   }
 }
 
