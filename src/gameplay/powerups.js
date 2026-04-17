@@ -98,23 +98,44 @@ export const POWERUP_TYPES = [
 
 export let roundPowerUpsDropped = 0;
 let _lastPowerUpIdx = -1;
+// Pity counter — number of kills since the last drop. Guarantees a
+// drop every N kills so a player can't go a whole round without seeing
+// one. Resets on every successful drop and on round reset.
+let _killsSinceDrop = 0;
 
 export function resetRoundPowerUps() {
   roundPowerUpsDropped = 0;
+  // Don't reset _killsSinceDrop — it carries across rounds so a dry
+  // run-start won't feel barren.
 }
 
 export function spawnPowerUp(wx, wz) {
   const round = _getRound();
-  const dropChance = Math.min(0.08 + (round - 1) * 0.02, 0.28);
-  
-  const minDrops = round >= 5 ? 2 : round >= 2 ? 1 : 0;
+  // Base drop chance scales with round. Slightly more generous than
+  // before (floor at 10%, ceiling at 30%) so round 1 doesn't feel
+  // completely dry.
+  const dropChance = Math.min(0.10 + (round - 1) * 0.02, 0.30);
+
+  _killsSinceDrop++;
+
+  // Minimum drops per round. Scales with round.
+  const minDrops = round >= 5 ? 3 : round >= 2 ? 2 : 1;
   const zombies = _getZombies();
   const zToSpawn = _getZToSpawn();
   const zSpawned = _getZSpawned();
   const zombiesRemaining = zToSpawn - zSpawned + zombies.length;
-  const needGuarantee = roundPowerUpsDropped < minDrops && zombiesRemaining <= Math.max(3, Math.floor(zToSpawn * 0.15));
-  
-  if (!needGuarantee && Math.random() > dropChance) return;
+
+  // End-of-round catchup: if we're close to done and haven't hit the
+  // minimum yet, force-drop. Triggers earlier now (30% remaining vs 15%)
+  // so drops don't all stack on the last zombie.
+  const needCatchup = roundPowerUpsDropped < minDrops
+    && zombiesRemaining <= Math.max(4, Math.floor(zToSpawn * 0.30));
+
+  // Pity guarantee: after 18 kills with no drop, force one. Keeps the
+  // "where are the drops?" feeling at bay across long mid-round streaks.
+  const pityTrigger = _killsSinceDrop >= 18;
+
+  if (!needCatchup && !pityTrigger && Math.random() > dropChance) return;
   
   let typeIdx;
   const available = [];
@@ -155,6 +176,7 @@ export function spawnPowerUp(wx, wz) {
   const pu = { typeIdx, wx, wz, mesh, lightSlot, life: 20, bobPhase: Math.random() * Math.PI * 2 };
   powerUps.push(pu);
   roundPowerUpsDropped++;
+  _killsSinceDrop = 0; // Reset pity counter on successful drop
 }
 
 export function updatePowerUps(dt) {
