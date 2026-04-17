@@ -124,8 +124,6 @@ export function tryShoot() {
           const idx = zombies.indexOf(bestZ);
           if (idx >= 0) {
             setTotalKills(getTotalKills() + 1);
-            // Notify Last Stand (SP) so kill counts toward self-revive
-            try { window.__onLastStandKill && window.__onLastStandKill(); } catch (e) {}
             const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
             const pts = player._doublePoints ? basePts * 2 : basePts;
             setPoints(getPoints() + pts);

@@ -101,6 +101,9 @@ export function tickDowned() {
     _downed = false;
     _downedAckedByServer = false;
     _ctx.setPlayerHp(50);
+    // Restore the weapon the player was holding when they went down.
+    // main.js installs the hook; safe to no-op if not present.
+    try { window.__onMpRevived && window.__onMpRevived(); } catch (e) {}
     // Start the post-revive invulnerability window so the same zombie
     // that downed us can't instant-bite us back to zero.
     _reviveGraceUntil = performance.now() + REVIVE_GRACE_SEC * 1000;

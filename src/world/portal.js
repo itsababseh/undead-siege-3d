@@ -564,7 +564,11 @@ export function animateVibeJamPortals(dt, state) {
     _exitPortalGroup.light.intensity = 2 + Math.sin(t * 3) * 0.8;
 
     // Player can enter portal when door is sufficiently open (>= 70%)
-    if (_doorT > 0.7 && (state === 'playing' || state === 'roundIntro')) {
+    // AND they're not currently downed in MP (prevents permanent escape
+    // from a revivable state). main.js installs the gate via window.
+    const portalAllowed = (state === 'playing' || state === 'roundIntro')
+      && !(window.__siegeIsLocallyDowned && window.__siegeIsLocallyDowned());
+    if (_doorT > 0.7 && portalAllowed) {
       const dx = _camera.position.x - _exitPortalGroup.group.position.x;
       const dz = _camera.position.z - _exitPortalGroup.group.position.z;
       if (Math.sqrt(dx * dx + dz * dz) < 3) _triggerExitPortal();

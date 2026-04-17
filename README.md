@@ -22,7 +22,7 @@
 - **Weapon Quick-Swap** — Press Q to instantly toggle between your last two weapons
 - **Per-Weapon Recoil** — Every gun has hand-tuned kick, barrel rise, and settle behavior
 - **Sprint** — Hold Shift while moving forward to run at 1.45× speed. Faster head-bob cadence, subtle FOV widen, and the gun lowers CoD-style to signal you're in motion
-- **Last Stand (solo)** — When your HP hits 0 in single-player, you drop into a prone pistol-only crawl for 45 seconds. Kill 3 zombies with the M1911 to self-revive with half health. Bleed out and it's game over
+- **Last Stand (multiplayer only)** — When a teammate's HP hits 0 in MP, they drop to a prone pistol-only crawl. They can still move slowly and shoot the M1911 while waiting for a teammate to revive them. Solo: HP zero is final — there's nobody to revive you
 
 ### Perks (90s timed duration unless noted, CoD-style)
 - **🛡️ Juggernog** — 3-hit absorbing shield. Zombies eat the shield before your HP (2500 pts)
@@ -84,7 +84,8 @@
 - **Chat gating** — T only opens chat during gameplay; lobby presses no longer steal keyboard focus
 - **Portal resume** — Hit browser back after using the in-game portal and your run resumes (SP paused at the same round, MP rejoins the lobby if squad's still alive)
 - **Sprint** — Hold Shift to run. Gun lowers, FOV widens, bob quickens
-- **Last Stand** — Solo death is no longer instant; crawl with a pistol and earn a self-revive
+- **MP Last Stand** — Downed teammates drop to a prone crawl with a pistol; they can return fire while waiting for a revive (solo death stays final — no one to revive you)
+- **Downed-state safeguards** — Portal, weapon swaps, and shop purchases are blocked while downed so a revivable player can't accidentally escape or grief
 
 ---
 

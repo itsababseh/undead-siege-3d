@@ -24,6 +24,11 @@ export function tryBuy() {
     switchWeapon,
   } = _ctx;
 
+  // Downed players are on the ground — can't buy anything until revived.
+  if (typeof window !== 'undefined' && window.__siegeIsLocallyDowned && window.__siegeIsLocallyDowned()) {
+    return;
+  }
+
   const px = camera.position.x, pz = camera.position.z;
 
   for (const wb of wallBuys) {
