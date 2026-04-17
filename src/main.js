@@ -549,6 +549,7 @@ function initGame() {
   player.fireTimer = 0; player.fireRateMult = 1; player.reloadMult = 1;
   player.hpRegen = false; player.hpRegenTimer = 0; player.reviveSpeedMult = 1;
   player.shieldHits = 0;
+  player.sprinting = false;
   player.perksOwned = {};
   
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -942,7 +943,7 @@ const _hostSync = createHostSync({
 
 
 // ===== INPUT =====
-const gameKeys = ['w','a','s','d','r','e','q','f','1','2','3','4'];
+const gameKeys = ['w','a','s','d','r','e','q','f','shift','1','2','3','4'];
 let _quickSwapWeapon = 0;
 // True when a text/number/textarea input (or contentEditable) currently
 // owns the keyboard — e.g. the main-menu NAME field, the in-game chat
@@ -1788,13 +1789,21 @@ function _update(dt) {
   }
 }
 
+// Sprint tuning — kept conservative so it never turns the game into a foot race
+const SPRINT_MULT = 1.45;      // 1.45x walk speed (~11.6 units/s)
+const SPRINT_BOB_RATE = 15;    // walk is 10, sprint bob is snappier
+const WALK_BOB_RATE = 10;
+const SPRINT_FOV = 82;         // walk FOV is 75; subtle widen for speed feel
+const WALK_FOV = 75;
+const FOV_LERP_RATE = 6;
+
 function updateMovement(dt) {
   let mx = 0, mz = 0;
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-  
+
   if (isMobile) {
     mx = forward.x * (-joystickY) + right.x * joystickX;
     mz = forward.z * (-joystickY) + right.z * joystickX;
@@ -1804,24 +1813,40 @@ function updateMovement(dt) {
     if (keys['a']) { mx -= right.x; mz -= right.z; }
     if (keys['d']) { mx += right.x; mz += right.z; }
   }
-  
+
+  // --- Sprint: Shift + forward movement (CoD-style) ---
+  // Only forward sprint allowed (not backwards), not while reloading,
+  // not while knifing. Keyboard-only for now; mobile keeps walk pace.
+  const shiftHeld = !!keys['shift'];
+  const movingForward = !isMobile && !!keys['w'] && !keys['s'];
+  const canSprint = movingForward && shiftHeld && !player.reloading && !(knifeAnimTimer > 0);
+  player.sprinting = !!canSprint;
+  const speedMult = canSprint ? SPRINT_MULT : 1;
+
   const len = Math.hypot(mx, mz);
   if (len > 0.01) {
-    mx = (mx / len) * player.speed * dt;
-    mz = (mz / len) * player.speed * dt;
+    mx = (mx / len) * player.speed * speedMult * dt;
+    mz = (mz / len) * player.speed * speedMult * dt;
     const margin = 0.6;
     const nx = camera.position.x + mx;
     const nz = camera.position.z + mz;
     if (mapAt(nx + margin * Math.sign(mx), camera.position.z) === 0) camera.position.x = nx;
     if (mapAt(camera.position.x, nz + margin * Math.sign(mz)) === 0) camera.position.z = nz;
     const prevBobSin = Math.sin(player.bobPhase);
-    player.bobPhase += dt * 10;
+    player.bobPhase += dt * (canSprint ? SPRINT_BOB_RATE : WALK_BOB_RATE);
     // Fire footstep on each downward zero-crossing of sin(bobPhase) — one step per stride
     if (prevBobSin > 0 && Math.sin(player.bobPhase) <= 0) sfxFootstep();
   }
-  
+
   if (!isMobile) {
-    camera.position.y = 1.6 + Math.sin(player.bobPhase) * 0.06;
+    // Bob amplitude slightly higher when sprinting for extra motion feel
+    const bobAmp = canSprint ? 0.09 : 0.06;
+    camera.position.y = 1.6 + Math.sin(player.bobPhase) * bobAmp;
+    // Smoothly lerp FOV toward target — gives a subtle "speed lines" effect
+    const targetFov = canSprint ? SPRINT_FOV : WALK_FOV;
+    const fovLerp = Math.min(1, dt * FOV_LERP_RATE);
+    camera.fov += (targetFov - camera.fov) * fovLerp;
+    camera.updateProjectionMatrix();
   }
 }
 

@@ -296,6 +296,7 @@ export function initGunModels() {
 
 // ── Per-weapon recoil state (S3.1) ──
 let _recoilX = 0, _recoilY = 0, _recoilZ = 0, _recoilRotX = 0, _recoilRotZ = 0;
+let _sprintLerp = 0;
 
 // Per-weapon recoil profiles: how the gun moves when gunKick is active
 // kickUp    = vertical rise
@@ -363,13 +364,23 @@ function updateGunModel(dt, gunKick) {
   // Reload animation
   const reloadOff = _player.reloading ? Math.sin(_player.reloadTimer * 4) * 0.05 : 0;
 
+  // Sprint: lower and tilt the gun down so it's clearly "not ready",
+  // mirroring CoD's gun-at-hip look while running. Smoothly interpolated.
+  if (_sprintLerp === undefined) _sprintLerp = 0;
+  const sprintTarget = _player.sprinting ? 1 : 0;
+  _sprintLerp += (sprintTarget - _sprintLerp) * Math.min(1, dt * 8);
+  const sprintDropY = _sprintLerp * 0.22;   // drop the gun ~0.22 units
+  const sprintPushX = _sprintLerp * 0.06;   // nudge to the right
+  const sprintTiltX = _sprintLerp * 0.45;   // barrel down
+  const sprintTiltZ = _sprintLerp * 0.18;   // cant slightly inward
+
   gunGroup.position.set(
-    0.25 + bobX + _recoilX,
-    -0.2 + bobY - _recoilY + reloadOff,
+    0.25 + bobX + _recoilX + sprintPushX,
+    -0.2 + bobY - _recoilY + reloadOff - sprintDropY,
     -0.5 + _recoilZ
   );
-  gunGroup.rotation.x = _recoilRotX;
-  gunGroup.rotation.z = _recoilRotZ;
+  gunGroup.rotation.x = _recoilRotX + sprintTiltX;
+  gunGroup.rotation.z = _recoilRotZ - sprintTiltZ;
   
   // Muzzle flash
   const w = _weapons[_player.curWeapon];
