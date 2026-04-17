@@ -95,6 +95,7 @@ import { updateHUD as _updateHUD, showCenterMsg, updateCenterMsg,
          showRoundBanner, updateRoundBanner } from './ui/hud.js';
 import { drawMinimap, setMinimapDeps } from './ui/minimap.js';
 import { initAtmosphere, updateAtmosphere } from './effects/atmosphere.js';
+import { initPostProcessing, renderPostProcessing, resizePostProcessing } from './effects/postprocessing.js';
 
 
 // PointerLockControls removed — using custom FPS camera to prevent roll drift
@@ -161,6 +162,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.4;
 document.body.appendChild(renderer.domElement);
+
+// ===== POST-PROCESSING =====
+initPostProcessing(renderer, scene, camera);
 
 // ===== CONTROLS =====
 camera.rotation.order = 'YXZ';
@@ -1922,7 +1926,7 @@ function gameLoop(time) {
     po.light.intensity = owned ? 0.2 : 0.5 + Math.sin(t * 2 + 1) * 0.3;
   }
   
-  renderer.render(scene, camera);
+  renderPostProcessing();
 }
 
 // ===== START =====
@@ -2624,9 +2628,12 @@ if (_arrivedViaPortal) {
 }
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
+  resizePostProcessing(w, h);
 });
 
 requestAnimationFrame(gameLoop);
