@@ -267,6 +267,19 @@ initAtmosphere(scene, camera);
 // ===== GAME STATE =====
 let state = 'menu';
 let paused = false;
+
+// Last Stand (SP only — MP uses the downed system). When the player's
+// HP hits 0 in single-player, instead of instant death they drop to a
+// prone pistol-only crawl. 45s to claw back 3 kills to self-revive,
+// else they bleed out.
+const LAST_STAND_DURATION = 45;     // seconds before bleed-out
+const LAST_STAND_KILLS_TO_REVIVE = 3;
+const LAST_STAND_SPEED_MULT = 0.28; // crawl crawl
+const LAST_STAND_CAM_Y = 0.55;      // near-ground view
+let lastStandTimer = 0;
+let lastStandKills = 0;
+let lastStandPrevWeapon = 0;
+let lastStandPrevMag = 0;
 // MP revive + downed state lives in src/netcode/reviveMp.js. main.js
 // just calls onLocalHpZero / tickDowned / tickRevive from its update
 // loop and doesn't track the downed flag itself.
@@ -553,6 +566,8 @@ function initGame() {
   player.shieldHits = 0;
   player.sprinting = false;
   player.perksOwned = {};
+  lastStandTimer = 0;
+  lastStandKills = 0;
   
   camera.position.set(12 * TILE, 1.6, 12 * TILE);
   controls._yaw = 0;
@@ -684,6 +699,61 @@ function getDifficultyTier() { return Math.floor((round - 1) / 5); }
 // goes down (or dies in SP) so timed buffs don't survive a revive.
 // Power-ups (insta-kill, double points) are also cleared because they
 // wouldn't make sense carrying over through a down.
+// Enter SP Last Stand. Player flipped to prone, pistol equipped,
+// bleed-out timer started. MP uses reviveMp (downed/revive) instead.
+function enterLastStand() {
+  if (state === 'lastStand') return;
+  state = 'lastStand';
+  lastStandTimer = LAST_STAND_DURATION;
+  lastStandKills = 0;
+  lastStandPrevWeapon = player.curWeapon;
+  lastStandPrevMag = player.mag;
+  // Snapshot current mag into weaponMags so restoring on revive works
+  weaponMags[player.curWeapon] = player.mag;
+  // Force-equip the M1911 pistol (index 0); owned is already true for it
+  player.curWeapon = 0;
+  player.mag = weapons[0].mag;
+  player.ammo[0] = weapons[0].maxAmmo;
+  player.reloading = false;
+  player.reloadTimer = 0;
+  player.fireTimer = 0;
+  player.sprinting = false;
+  sfxPlayerDeath();
+  triggerScreenShake(2, 3);
+  triggerDamageVignette(60);
+  addFloatText('LAST STAND — kill 3 to revive', '#f44', 4);
+}
+
+function exitLastStandSuccess() {
+  state = 'playing';
+  player.hp = Math.max(50, Math.floor(player.maxHp * 0.5));
+  // Restore the weapon we had before going down
+  if (player.owned[lastStandPrevWeapon]) {
+    player.curWeapon = lastStandPrevWeapon;
+    const saved = weaponMags[lastStandPrevWeapon];
+    player.mag = (typeof saved === 'number') ? saved : weapons[lastStandPrevWeapon].mag;
+  }
+  lastStandTimer = 0;
+  lastStandKills = 0;
+  addFloatText('REVIVED!', '#4f4', 2.5);
+}
+
+function exitLastStandFailure() {
+  state = 'dead';
+  sfxPlayerDeath();
+  controls.unlock();
+  setTimeout(showDeath, 800);
+}
+
+// Hook: called by shooting.js kill path so last-stand kills count
+// toward the self-revive threshold.
+window.__onLastStandKill = () => {
+  if (state !== 'lastStand') return;
+  lastStandKills++;
+  addFloatText(`${lastStandKills}/${LAST_STAND_KILLS_TO_REVIVE}`, '#ff4', 1.5);
+  if (lastStandKills >= LAST_STAND_KILLS_TO_REVIVE) exitLastStandSuccess();
+};
+
 function clearAllTimedPerks() {
   for (const p of perks) {
     if (p.permanent) continue; // Health & other permanent perks survive a down
@@ -1291,18 +1361,39 @@ function _update(dt) {
     roundIntroTimer -= dt;
     if (roundIntroTimer <= 0) state = 'playing';
   }
-  if (state !== 'playing' && state !== 'roundIntro') return;
+
+  // --- SP LAST STAND tick ---
+  // In last stand the player can still move (crawl), shoot a pistol,
+  // and be attacked by zombies. If they score LAST_STAND_KILLS_TO_REVIVE
+  // kills the timer exits success; otherwise the timer bleeds out.
+  if (state === 'lastStand') {
+    lastStandTimer -= dt;
+    // Lock the weapon to M1911 in case quick-swap / number keys fired
+    if (player.curWeapon !== 0) player.curWeapon = 0;
+    // Drop the camera to prone height (smoothly lerp)
+    camera.position.y += (LAST_STAND_CAM_Y - camera.position.y) * Math.min(1, dt * 6);
+    if (lastStandTimer <= 0) { exitLastStandFailure(); return; }
+    // Run the rest of the loop like 'playing' so zombies keep attacking,
+    // shooting still works, etc. (state is still 'lastStand' so guards
+    // that only accept 'playing'/'roundIntro' will skip — we patch
+    // key-gated systems below.)
+  }
+
+  if (state !== 'playing' && state !== 'roundIntro' && state !== 'lastStand') return;
 
   // Buying, weapon switching, reloading, and movement work during both
   // playing and roundIntro so players can purchase between rounds.
   if (!_iAmDowned) {
     updateMovement(dt);
 
-    if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
-    if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
-    if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
-    if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
-    if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
+    // In Last Stand the player is locked to pistol and can't swap / buy
+    if (state !== 'lastStand') {
+      if (keyPressed('1') && player.owned[0]) { _quickSwapWeapon = player.curWeapon; switchWeapon(0); }
+      if (keyPressed('2') && player.owned[1]) { _quickSwapWeapon = player.curWeapon; switchWeapon(1); }
+      if (keyPressed('3') && player.owned[2]) { _quickSwapWeapon = player.curWeapon; switchWeapon(2); }
+      if (keyPressed('4') && player.owned[3]) { _quickSwapWeapon = player.curWeapon; switchWeapon(3); }
+      if (keyPressed('q') && player.owned[_quickSwapWeapon]) { const prev = player.curWeapon; switchWeapon(_quickSwapWeapon); _quickSwapWeapon = prev; }
+    }
     if (keyPressed('r')) doReload();
     if (keyPressed('e')) tryBuy();
     if (keyPressed('f')) tryKnife();
@@ -1362,7 +1453,7 @@ function _update(dt) {
 
     const w = weapons[player.curWeapon];
     const isFiring = mouseDown || mobileFiring;
-    if (isFiring && state === 'playing') {
+    if (isFiring && (state === 'playing' || state === 'lastStand')) {
       if (w.auto) { tryShoot(); }
       else { if (!player._lastFiring) tryShoot(); }
     }
@@ -1744,15 +1835,11 @@ function _update(dt) {
         if (player.hp <= 0) {
           player.hp = 0;
           clearAllTimedPerks();
-          // onLocalHpZero handles the MP-downed path and returns true
-          // when it took over. If we're in SP it returns false and we
-          // fall through to the old permanent-death flow.
-          if (!onLocalHpZero()) {
-            state = 'dead';
-            sfxPlayerDeath();
-            controls.unlock();
-            setTimeout(showDeath, 1000);
-          }
+          // MP first (downed + revive via teammates).
+          if (onLocalHpZero()) { break; }
+          // SP: drop into Last Stand instead of insta-death. Only
+          // escalates to the real death screen if bleed-out completes.
+          enterLastStand();
           break;
         }
       }
@@ -1827,10 +1914,17 @@ function updateMovement(dt) {
   player.sprinting = !!canSprint;
   const speedMult = canSprint ? SPRINT_MULT : 1;
 
+  // Last Stand: force crawl speed regardless of sprint/walk state
+  let effectiveSpeedMult = speedMult;
+  if (state === 'lastStand') {
+    effectiveSpeedMult = LAST_STAND_SPEED_MULT;
+    player.sprinting = false;
+  }
+
   const len = Math.hypot(mx, mz);
   if (len > 0.01) {
-    mx = (mx / len) * player.speed * speedMult * dt;
-    mz = (mz / len) * player.speed * speedMult * dt;
+    mx = (mx / len) * player.speed * effectiveSpeedMult * dt;
+    mz = (mz / len) * player.speed * effectiveSpeedMult * dt;
     const margin = 0.6;
     const nx = camera.position.x + mx;
     const nz = camera.position.z + mz;
@@ -1842,7 +1936,7 @@ function updateMovement(dt) {
     if (prevBobSin > 0 && Math.sin(player.bobPhase) <= 0) sfxFootstep();
   }
 
-  if (!isMobile) {
+  if (!isMobile && state !== 'lastStand') {
     // Bob amplitude slightly higher when sprinting for extra motion feel
     const bobAmp = canSprint ? 0.09 : 0.06;
     camera.position.y = 1.6 + Math.sin(player.bobPhase) * bobAmp;
@@ -2091,6 +2185,7 @@ function gameLoop(time) {
     drawMinimap();
     drawFloatTexts(floatTexts);
   }
+  _updateLastStandHud();
   
   const t = performance.now() / 1000;
   for (const po of perkMeshObjects) {
@@ -2980,6 +3075,34 @@ window.addEventListener('pageshow', (e) => {
     else if (snap.mode === 'mp') _attemptMultiplayerRejoin(snap);
   }, 800);
 })();
+
+// ===== LAST STAND HUD OVERLAY =====
+let _lsHudEl = null;
+function _updateLastStandHud() {
+  if (state !== 'lastStand') {
+    if (_lsHudEl && _lsHudEl.style.display !== 'none') _lsHudEl.style.display = 'none';
+    return;
+  }
+  if (!_lsHudEl) {
+    _lsHudEl = document.createElement('div');
+    _lsHudEl.id = 'lastStandHud';
+    _lsHudEl.style.cssText = 'position:fixed;left:50%;bottom:48%;transform:translateX(-50%);z-index:45;pointer-events:none;text-align:center;font-family:monospace;font-weight:bold;color:#ff4444;text-shadow:0 0 10px #ff4444,0 0 20px rgba(255,0,0,0.5)';
+    _lsHudEl.innerHTML = `
+      <div style="font-size:26px;letter-spacing:6px;margin-bottom:4px">LAST STAND</div>
+      <div id="lsSub" style="font-size:13px;letter-spacing:2px;color:#fc8;margin-bottom:8px"></div>
+      <div style="width:320px;height:10px;background:rgba(0,0,0,0.7);border:1px solid #ff4444;border-radius:5px;overflow:hidden;margin:0 auto">
+        <div id="lsFill" style="height:100%;width:100%;background:linear-gradient(90deg,#ff2222,#ff6644);transition:width 0.2s linear"></div>
+      </div>
+    `;
+    document.body.appendChild(_lsHudEl);
+  }
+  _lsHudEl.style.display = 'block';
+  const pct = Math.max(0, lastStandTimer / LAST_STAND_DURATION) * 100;
+  const fill = document.getElementById('lsFill');
+  if (fill) fill.style.width = pct + '%';
+  const sub = document.getElementById('lsSub');
+  if (sub) sub.textContent = `Kill ${LAST_STAND_KILLS_TO_REVIVE - lastStandKills} more to revive · ${lastStandTimer.toFixed(1)}s`;
+}
 
 window._vibeJamPortal = function() {
   // Only snapshot if we're actually in a run — portal from the menu
