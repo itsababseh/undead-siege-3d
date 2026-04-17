@@ -33,6 +33,10 @@ export const mysteryBox = {
 
 export const mysteryBoxMeshes = {};
 
+// Timestamp of a "premature" E press. If the spin finishes within this
+// window we auto-collect instead of making the user press E again.
+let _pendingCollectAt = 0;
+
 export function buildMysteryBox() {
   if (mysteryBoxMeshes.body) {
     _scene.remove(mysteryBoxMeshes.body);
@@ -111,11 +115,20 @@ export function tryMysteryBox() {
 }
 
 export function collectMysteryBoxWeapon() {
-  if (mysteryBox.collectTimer <= 0 || mysteryBox.resultWeaponIdx < 0) return false;
+  if (mysteryBox.collectTimer <= 0 || mysteryBox.resultWeaponIdx < 0) {
+    // Buffer the press: if a weapon becomes available within the next
+    // ~0.6s (e.g. the user mashed E right before the spin finished),
+    // auto-collect then. Fixes the classic "first time using the box
+    // nothing happens" glitch.
+    _pendingCollectAt = performance.now() + 600;
+    return false;
+  }
   const bx = mysteryBox.tx * _TILE + _TILE / 2;
   const bz = mysteryBox.tz * _TILE + _TILE / 2;
   const d = Math.hypot(bx - _camera.position.x, bz - _camera.position.z);
-  if (d > _TILE * 2.5) return false;
+  // 3-tile radius — a hair more forgiving than the 2.5-tile tryMysteryBox
+  // range so standing right at the edge still collects.
+  if (d > _TILE * 3.0) return false;
   
   const wi = mysteryBox.resultWeaponIdx;
   // Perform the switch inline. We DON'T call shooting.js's switchWeapon
@@ -197,6 +210,14 @@ export function updateMysteryBox(dt) {
       }
       
       addFloatText(`${w.name}! [E] to grab`, w.color, 5);
+
+      // If the player pressed E while the spin was still running
+      // (premature press), auto-collect now — exactly as if they had
+      // tapped E the instant the weapon appeared.
+      if (performance.now() < _pendingCollectAt) {
+        _pendingCollectAt = 0;
+        collectMysteryBoxWeapon();
+      }
     }
   } else if (mysteryBox.collectTimer > 0) {
     mysteryBox.collectTimer -= dt;
@@ -243,4 +264,5 @@ export function resetMysteryBox() {
   mysteryBox.spinTimer = 0;
   mysteryBox.collectTimer = 0;
   mysteryBox.resultWeaponIdx = -1;
+  _pendingCollectAt = 0;
 }
