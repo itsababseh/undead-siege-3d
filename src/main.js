@@ -92,6 +92,7 @@ import { updateHUD as _updateHUD, showCenterMsg, updateCenterMsg,
          showPause, hidePause, drawFloatTexts, setHudDeps,
          showRoundBanner, updateRoundBanner } from './ui/hud.js';
 import { drawMinimap, setMinimapDeps } from './ui/minimap.js';
+import { initAtmosphere, updateAtmosphere } from './effects/atmosphere.js';
 
 
 // PointerLockControls removed — using custom FPS camera to prevent roll drift
@@ -253,6 +254,9 @@ scene.add(playerLight);
 
 const muzzleLight = new THREE.PointLight(0xffcc44, 0, 12);
 scene.add(muzzleLight);
+
+// ===== ATMOSPHERIC PARTICLES =====
+initAtmosphere(scene, camera);
 
 // ===== GAME STATE =====
 let state = 'menu';
@@ -1497,6 +1501,7 @@ function _update(dt) {
   updateZombieEyeLightPool(zombies);
 
   updateParticles(dt);
+  updateAtmosphere(dt);
   
   for (let i = floatTexts.length - 1; i >= 0; i--) {
     floatTexts[i].life -= dt;
