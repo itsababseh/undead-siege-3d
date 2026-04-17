@@ -294,6 +294,28 @@ export function initGunModels() {
   _scene.add(_camera);
 }
 
+// ── Per-weapon recoil state (S3.1) ──
+let _recoilX = 0, _recoilY = 0, _recoilZ = 0, _recoilRotX = 0, _recoilRotZ = 0;
+
+// Per-weapon recoil profiles: how the gun moves when gunKick is active
+// kickUp    = vertical rise
+// kickBack  = push toward player
+// rotSnap   = barrel-up rotation
+// settle    = how fast it returns to rest (multiplier on dt decay)
+// driftX    = lateral sway amplitude (per frame random)
+// driftFreq = lateral sway speed (for auto weapons)
+// wobble    = rotational wobble amplitude (Ray Gun energy feel)
+const RECOIL_PROFILES = [
+  // 0: M1911 — sharp snap-up with quick settle
+  { kickUp: 0.12, kickBack: 0.06, rotSnap: 0.5, settle: 10, driftX: 0, driftFreq: 0, wobble: 0 },
+  // 1: MP40 — steady climb with slight left-right drift (auto fire)
+  { kickUp: 0.06, kickBack: 0.03, rotSnap: 0.2, settle: 7, driftX: 0.015, driftFreq: 18, wobble: 0 },
+  // 2: Trench Gun — massive kick-up with slow recovery
+  { kickUp: 0.22, kickBack: 0.1, rotSnap: 0.7, settle: 3.5, driftX: 0, driftFreq: 0, wobble: 0 },
+  // 3: Ray Gun — smooth pulse backward with energy wobble
+  { kickUp: 0.04, kickBack: 0.12, rotSnap: 0.15, settle: 5, driftX: 0, driftFreq: 0, wobble: 0.03 },
+];
+
 let _prevWeapon = -1;
 function updateGunModel(dt, gunKick) {
   // Show correct gun model
@@ -305,15 +327,49 @@ function updateGunModel(dt, gunKick) {
   // Bob
   const bobX = Math.sin(_player.bobPhase) * 0.01;
   const bobY = Math.abs(Math.cos(_player.bobPhase)) * 0.008;
-  
-  // Kick
-  const kick = gunKick * 0.08;
-  
+
+  // Per-weapon recoil (S3.1)
+  const prof = RECOIL_PROFILES[_player.curWeapon] || RECOIL_PROFILES[0];
+  const settleRate = prof.settle;
+
+  // When a shot fires (gunKick jumps to 1), snap recoil values up
+  if (gunKick > 0.8) {
+    _recoilY = prof.kickUp;
+    _recoilZ = prof.kickBack;
+    _recoilRotX = prof.rotSnap;
+    // MP40 drift: alternating left/right
+    if (prof.driftX > 0) {
+      _recoilX = (Math.random() - 0.5) * 2 * prof.driftX;
+    }
+    // Ray Gun wobble: random rotational wobble
+    if (prof.wobble > 0) {
+      _recoilRotZ = (Math.random() - 0.5) * 2 * prof.wobble;
+    }
+  }
+
+  // Decay recoil toward zero
+  _recoilX *= Math.pow(0.01, dt * settleRate * 0.8);
+  _recoilY *= Math.pow(0.01, dt * settleRate);
+  _recoilZ *= Math.pow(0.01, dt * settleRate);
+  _recoilRotX *= Math.pow(0.01, dt * settleRate);
+  _recoilRotZ *= Math.pow(0.01, dt * settleRate * 1.2);
+
+  // MP40 continuous drift while gunKick is active
+  if (prof.driftFreq > 0 && gunKick > 0.1) {
+    const t = performance.now() / 1000;
+    _recoilX += Math.sin(t * prof.driftFreq) * prof.driftX * gunKick * dt * 8;
+  }
+
   // Reload animation
   const reloadOff = _player.reloading ? Math.sin(_player.reloadTimer * 4) * 0.05 : 0;
-  
-  gunGroup.position.set(0.25 + bobX, -0.2 + bobY - kick + reloadOff, -0.5 + kick * 0.5);
-  gunGroup.rotation.x = kick * 0.3;
+
+  gunGroup.position.set(
+    0.25 + bobX + _recoilX,
+    -0.2 + bobY - _recoilY + reloadOff,
+    -0.5 + _recoilZ
+  );
+  gunGroup.rotation.x = _recoilRotX;
+  gunGroup.rotation.z = _recoilRotZ;
   
   // Muzzle flash
   const w = _weapons[_player.curWeapon];

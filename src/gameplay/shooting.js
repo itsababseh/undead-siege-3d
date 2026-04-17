@@ -28,6 +28,7 @@ export function tryShoot() {
     showHitmarker, addFloatText,
     startZombieDeathAnim, removeZombieMesh,
     triggerScreenShake,
+    spawnTracer,
     getPoints, setPoints,
     getTotalKills, setTotalKills,
   } = _ctx;
@@ -86,6 +87,15 @@ export function tryShoot() {
         if (mapAt(cx, cz) !== 0) { blocked = true; break; }
       }
       if (!blocked && tClosest < bestD) { bestD = tClosest; bestZ = z; }
+    }
+
+    // Tracer round (S3.1) — fire from muzzle toward hit or max range
+    if (spawnTracer) {
+      const muzzleOrigin = camera.position.clone().add(shootDir.clone().multiplyScalar(1.0));
+      const tracerEnd = bestZ
+        ? new THREE.Vector3(bestZ.wx, 1.2, bestZ.wz)
+        : camera.position.clone().add(shootDir.clone().multiplyScalar(50));
+      spawnTracer(muzzleOrigin, tracerEnd, player.curWeapon);
     }
 
     if (bestZ) {

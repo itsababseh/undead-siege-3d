@@ -77,9 +77,27 @@ function updateScreenShake(dt) {
   }
 }
 
-// --- Muzzle Flash Particles (3D sparks) ---
+// --- Muzzle Flash Particles (3D sparks) — per-weapon variation (S3.1) ---
 const muzzleSparks = [];
 const sparkGeo = new THREE.SphereGeometry(0.02, 3, 3);
+
+// Per-weapon muzzle flash profiles
+// color     = spark color
+// count     = number of sparks
+// spread    = cone spread of spark velocities
+// speed     = base forward velocity
+// life      = base lifetime (randomised +50%)
+// scale     = spark mesh scale
+const MUZZLE_PROFILES = [
+  // 0: M1911 — compact yellow flash, 4 sparks
+  { color: 0xffdd44, count: 4, spread: 1.2, speed: 9, life: 0.07, scale: 1.0 },
+  // 1: MP40 — rapid orange flicker, 3 sparks per shot (fast rate = lots of sparks)
+  { color: 0xff8822, count: 3, spread: 1.0, speed: 10, life: 0.05, scale: 0.8 },
+  // 2: Trench Gun — wide cone spread, 12+ sparks, longer life
+  { color: 0xffaa33, count: 14, spread: 3.5, speed: 7, life: 0.14, scale: 1.3 },
+  // 3: Ray Gun — green energy burst, 6 sparks with glow trail
+  { color: 0x00ff44, count: 6, spread: 1.8, speed: 6, life: 0.18, scale: 1.6 },
+];
 
 function spawnMuzzleSparks() {
   if (!_camera) return;
@@ -90,25 +108,100 @@ function spawnMuzzleSparks() {
   const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
   origin.add(right.multiplyScalar(0.15));
   origin.y -= 0.1;
-  
-  const w = _weapons[_player.curWeapon];
-  const sparkColor = w.isRayGun ? 0x00ff44 : 0xffaa22;
-  const sparkCount = w.isRayGun ? 6 : (_player.curWeapon === 2 ? 10 : 4); // more for shotgun
-  
-  for (let i = 0; i < sparkCount; i++) {
-    const mat = new THREE.MeshBasicMaterial({ color: sparkColor, transparent: true, opacity: 1 });
+
+  const wIdx = _player.curWeapon;
+  const prof = MUZZLE_PROFILES[wIdx] || MUZZLE_PROFILES[0];
+
+  for (let i = 0; i < prof.count; i++) {
+    // Ray Gun sparks get a random green-cyan hue for energy feel
+    let c = prof.color;
+    if (wIdx === 3) {
+      c = Math.random() > 0.5 ? 0x00ff44 : 0x44ffaa;
+    }
+    // MP40 flicker: alternate orange/yellow
+    if (wIdx === 1) {
+      c = Math.random() > 0.4 ? 0xff8822 : 0xffcc44;
+    }
+    const mat = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(sparkGeo, mat);
     mesh.position.copy(origin);
+    mesh.scale.setScalar(prof.scale);
     _scene.add(mesh);
-    
-    const spread = _player.curWeapon === 2 ? 3 : 1.5;
+
     muzzleSparks.push({
       mesh,
-      vx: dir.x * 8 + (Math.random() - 0.5) * spread,
-      vy: dir.y * 8 + Math.random() * 2 + (Math.random() - 0.5) * spread,
-      vz: dir.z * 8 + (Math.random() - 0.5) * spread,
-      life: 0.08 + Math.random() * 0.12,
+      vx: dir.x * prof.speed + (Math.random() - 0.5) * prof.spread,
+      vy: dir.y * prof.speed + Math.random() * 2 + (Math.random() - 0.5) * prof.spread,
+      vz: dir.z * prof.speed + (Math.random() - 0.5) * prof.spread,
+      life: prof.life + Math.random() * prof.life * 0.5,
     });
+  }
+}
+
+// --- Tracer Rounds (S3.1) ---
+const tracers = [];
+const _tracerGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.4, 4, 1);
+_tracerGeo.rotateX(Math.PI / 2); // align along Z axis
+let _mp40ShotCount = 0; // throttle: only every 3rd MP40 bullet gets a tracer
+
+function spawnTracer(origin, hitPoint, weaponIdx) {
+  if (!_scene) return;
+  // MP40: only show every 3rd bullet
+  if (weaponIdx === 1) {
+    _mp40ShotCount++;
+    if (_mp40ShotCount % 3 !== 0) return;
+  }
+
+  const isRayGun = weaponIdx === 3;
+  const color = isRayGun ? 0x44ff66 : 0xffffaa;
+
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+  const mesh = new THREE.Mesh(_tracerGeo, mat);
+
+  // Start position = slightly in front of camera (gun muzzle area)
+  mesh.position.copy(origin);
+
+  // Direction from origin to hit
+  const dir = new THREE.Vector3().subVectors(hitPoint, origin).normalize();
+  // Orient the cylinder along the travel direction
+  mesh.lookAt(hitPoint);
+
+  const totalDist = origin.distanceTo(hitPoint);
+  const speed = 100; // units per second
+  const maxLife = Math.min(totalDist / speed, 0.15); // cap at 0.15s
+
+  _scene.add(mesh);
+  tracers.push({
+    mesh,
+    dx: dir.x * speed,
+    dy: dir.y * speed,
+    dz: dir.z * speed,
+    life: maxLife,
+    isRayGun,
+  });
+}
+
+function updateTracers(dt) {
+  for (let i = tracers.length - 1; i >= 0; i--) {
+    const tr = tracers[i];
+    tr.life -= dt;
+    if (tr.life <= 0) {
+      _scene.remove(tr.mesh);
+      tr.mesh.material.dispose();
+      tracers.splice(i, 1);
+      continue;
+    }
+    tr.mesh.position.x += tr.dx * dt;
+    tr.mesh.position.y += tr.dy * dt;
+    tr.mesh.position.z += tr.dz * dt;
+    // Fade out in last 30%
+    const fade = Math.min(1, tr.life / 0.05);
+    tr.mesh.material.opacity = fade * 0.9;
+    // Ray Gun tracer slight scale pulse
+    if (tr.isRayGun) {
+      const pulse = 1 + Math.sin(performance.now() * 0.03) * 0.3;
+      tr.mesh.scale.set(pulse, pulse, 1);
+    }
   }
 }
 
@@ -596,6 +689,7 @@ export {
   // Blood & combat effects
   spawnBloodParticles, spawnBloodSplatter, spawnEnergyParticles, spawnDirtParticles,
   spawnMuzzleSparks, updateMuzzleSparks, muzzleSparks,
+  spawnTracer, updateTracers, tracers,
   updateBloodDecals, bloodDecals,
   // Zombie death
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
@@ -617,4 +711,11 @@ function resetEffects() {
   heartbeatPhase = 0;
   hitmarkerTimer = 0;
   clearHitIndicators();
+  // Clean up tracers (S3.1)
+  for (let i = tracers.length - 1; i >= 0; i--) {
+    _scene.remove(tracers[i].mesh);
+    tracers[i].mesh.material.dispose();
+  }
+  tracers.length = 0;
+  _mp40ShotCount = 0;
 }

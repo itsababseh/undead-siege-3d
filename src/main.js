@@ -59,6 +59,7 @@ import {
   resizeHitDirCanvas,
   spawnBloodParticles, spawnBloodSplatter, spawnEnergyParticles,
   spawnMuzzleSparks, updateMuzzleSparks, muzzleSparks,
+  spawnTracer, updateTracers, tracers,
   updateBloodDecals, bloodDecals,
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
   updateParticles, particles,
@@ -470,6 +471,7 @@ initShooting({
   showHitmarker, addFloatText,
   startZombieDeathAnim, removeZombieMesh,
   triggerScreenShake,
+  spawnTracer,
   weaponMags,
   getPoints: () => points,
   setPoints: (v) => { points = v; },
@@ -1764,6 +1766,7 @@ function gameLoop(time) {
   updateHitmarker(dt);
   updateScreenShake(dt);
   updateMuzzleSparks(dt);
+  updateTracers(dt);
   updateDyingZombies(dt);
   updateBloodDecals(dt);
   updateRoundTransition(dt);
