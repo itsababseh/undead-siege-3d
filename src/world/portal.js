@@ -587,6 +587,10 @@ export function animateVibeJamPortals(dt, state) {
 }
 
 export function _triggerExitPortal() {
+  // Snapshot game state first so the browser back button drops the
+  // player back into the run. main.js installs this hook on window
+  // when it boots.
+  try { window.__siegeSnapshotPortal && window.__siegeSnapshotPortal(); } catch (e) {}
   const params = new URLSearchParams();
   params.set('portal', 'true');
   params.set('ref', window.location.hostname);

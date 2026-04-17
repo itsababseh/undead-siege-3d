@@ -2808,7 +2808,183 @@ function tickSpectator() {
   return true;
 }
 
-window._vibeJamPortal = function() { _triggerExitPortal(); };
+// ===== PORTAL RETURN (SP pause / MP rejoin) =====
+// Before the portal navigates the tab to vibej.am, snapshot enough state
+// so that hitting the browser back button drops the player back into
+// their run. For SP that's a paused resume at the same round/hp. For MP
+// we store the lobby invite code and try to rejoin via netcode.
+const PORTAL_RETURN_KEY = 'siege.portalReturn';
+const PORTAL_RETURN_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Exposed to portal.js so the in-game portal ring also snapshots state
+// before it navigates away.
+window.__siegeSnapshotPortal = () => {
+  if (state === 'playing' || state === 'roundIntro') _snapshotPortalState();
+};
+
+function _snapshotPortalState() {
+  try {
+    const lobby = netcode.isConnected() ? netcode.getMyLobby() : null;
+    const mpMode = !!lobby;
+    const snapshot = {
+      ts: Date.now(),
+      mode: mpMode ? 'mp' : 'sp',
+      lobbyCode: mpMode ? String(lobby.inviteCode || '') : '',
+      round, points, totalKills,
+      zToSpawn, zSpawned, maxAlive, spawnTimer, doorsOpenedCount,
+      cam: {
+        x: camera.position.x, y: camera.position.y, z: camera.position.z,
+        yaw: controls._yaw, pitch: controls._pitch,
+      },
+      player: {
+        hp: player.hp, maxHp: player.maxHp,
+        curWeapon: player.curWeapon, mag: player.mag,
+        ammo: player.ammo.slice(),
+        owned: player.owned.slice(),
+        reloadMult: player.reloadMult,
+        fireRateMult: player.fireRateMult,
+        hpRegen: player.hpRegen,
+        shieldHits: player.shieldHits,
+        perksOwned: { ...player.perksOwned },
+      },
+      weaponMags: { ...weaponMags },
+      doorsOpened: doors.filter(d => d.opened).map(d => d.id),
+      name: getLocalPlayerName(),
+    };
+    sessionStorage.setItem(PORTAL_RETURN_KEY, JSON.stringify(snapshot));
+  } catch (e) { console.warn('[portal] snapshot failed', e); }
+}
+
+function _loadPortalSnapshot() {
+  try {
+    const raw = sessionStorage.getItem(PORTAL_RETURN_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || typeof s.ts !== 'number') return null;
+    if (Date.now() - s.ts > PORTAL_RETURN_TTL_MS) { _clearPortalSnapshot(); return null; }
+    return s;
+  } catch (e) { return null; }
+}
+function _clearPortalSnapshot() {
+  try { sessionStorage.removeItem(PORTAL_RETURN_KEY); } catch (e) {}
+}
+
+// Resume a Single-Player run. Restore state, show a paused overlay;
+// clicking anywhere resumes. Uses the existing pause infrastructure.
+function _resumeSinglePlayerRun(snap) {
+  state = 'playing';
+  paused = true;
+  round = snap.round | 0;
+  points = snap.points | 0;
+  totalKills = snap.totalKills | 0;
+  zToSpawn = snap.zToSpawn | 0;
+  zSpawned = snap.zSpawned | 0;
+  maxAlive = snap.maxAlive | 0;
+  spawnTimer = snap.spawnTimer || 0;
+  doorsOpenedCount = snap.doorsOpenedCount | 0;
+  // Camera + look direction
+  camera.position.set(snap.cam.x, snap.cam.y, snap.cam.z);
+  controls._yaw = snap.cam.yaw;
+  controls._pitch = snap.cam.pitch;
+  controls._applyRotation();
+  // Player
+  Object.assign(player, snap.player);
+  player.ammo = snap.player.ammo.slice();
+  player.owned = snap.player.owned.slice();
+  player.perksOwned = { ...snap.player.perksOwned };
+  for (const k in weaponMags) delete weaponMags[k];
+  Object.assign(weaponMags, snap.weaponMags);
+  // Re-apply each active perk's effect (buffs are state-side, not just
+  // timer-side, so we need to call apply() to re-activate the effect)
+  for (const p of perks) {
+    if (player.perksOwned[p.id] > 0) { try { p.apply(); } catch (e) {} }
+  }
+  // Open the doors that were open before
+  for (const door of doors) {
+    if (snap.doorsOpened.includes(door.id) && !door.opened) {
+      try { openDoorLocal(door); } catch (e) {}
+    }
+  }
+  // Make sure the menu/blocker is hidden
+  document.getElementById('blocker')?.classList.add('hidden');
+  document.getElementById('hud')?.classList.remove('hidden');
+  // Enter paused state so the player sees the world and can click to resume
+  showPause();
+  _clearPortalSnapshot();
+  addFloatText('Run resumed — click to continue', '#fc0', 3);
+}
+
+// Attempt to rejoin the MP lobby the player left. If the lobby still
+// exists and is in 'playing' state, they rejoin the match. Otherwise
+// we show them the match-ended summary with their last-known stats.
+function _attemptMultiplayerRejoin(snap) {
+  // Make sure netcode is connecting/connected
+  if (!netcode.isConnected() && netcode.getStatus() !== 'connecting') {
+    try { netcode.connect(); } catch (e) {}
+  }
+  // Wait up to 4s for the connection to land, then try to join by code
+  const deadline = Date.now() + 4000;
+  const tryJoin = () => {
+    if (netcode.isConnected()) {
+      try { netcode.callJoinLobbyByCode(snap.lobbyCode); }
+      catch (e) { console.warn('[portal] rejoin failed', e); }
+      // The lobby subscription will react from here; host-status change
+      // handlers will pull us into the match if it's still playing.
+      // Schedule a check: if after 3s we didn't enter the match, show
+      // the run-ended summary using the snapshot stats.
+      setTimeout(() => {
+        const lobby = netcode.getMyLobby();
+        if (!lobby || lobby.status !== 'playing') {
+          // Squad must have wiped or the lobby is gone — show summary
+          if (typeof showMpRunSummary === 'function') {
+            try { showMpRunSummary(snap.round | 0, snap.totalKills | 0, snap.points | 0); } catch (e) {}
+          }
+        }
+      }, 3000);
+      _clearPortalSnapshot();
+      return;
+    }
+    if (Date.now() < deadline) return setTimeout(tryJoin, 200);
+    // Gave up waiting — show summary from snapshot
+    _clearPortalSnapshot();
+    if (typeof showMpRunSummary === 'function') {
+      try { showMpRunSummary(snap.round | 0, snap.totalKills | 0, snap.points | 0); } catch (e) {}
+    }
+  };
+  tryJoin();
+}
+
+// Browser "back" from the portal destination. If bfcache is used the
+// page is restored with JS state intact; `persisted` is true. We also
+// handle a full page reload via the sessionStorage path.
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  const snap = _loadPortalSnapshot();
+  if (!snap) return;
+  if (snap.mode === 'sp') _resumeSinglePlayerRun(snap);
+  else if (snap.mode === 'mp') _attemptMultiplayerRejoin(snap);
+});
+
+// On fresh page load, check for a recent portal snapshot. If found,
+// auto-resume (SP) or auto-rejoin (MP).
+(() => {
+  const snap = _loadPortalSnapshot();
+  if (!snap) return;
+  // Wait a tick so all subsystems are initialized
+  setTimeout(() => {
+    if (snap.mode === 'sp') _resumeSinglePlayerRun(snap);
+    else if (snap.mode === 'mp') _attemptMultiplayerRejoin(snap);
+  }, 800);
+})();
+
+window._vibeJamPortal = function() {
+  // Only snapshot if we're actually in a run — portal from the menu
+  // shouldn't leave resume state lying around.
+  if (state === 'playing' || state === 'roundIntro') {
+    _snapshotPortalState();
+  }
+  _triggerExitPortal();
+};
 
 // Death screen multiplayer button — page-reloads to ?mp=1 which the
 // bootstrap below auto-triggers. We can't just rebuild the menu DOM here
