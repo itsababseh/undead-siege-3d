@@ -14,12 +14,12 @@ const FilmHorrorShader = {
   uniforms: {
     tDiffuse:       { value: null },
     time:           { value: 0.0 },
-    grainIntensity: { value: 0.10 },
-    vignetteOffset: { value: 0.92 },
-    vignetteDarkness: { value: 1.15 },
-    saturation:     { value: 0.85 },
-    // Teal/blue shadow tint — subtle horror color grading
-    tintColor:      { value: new THREE.Vector3(0.85, 0.95, 1.08) },
+    grainIntensity: { value: 0.06 },
+    vignetteOffset: { value: 0.85 },
+    vignetteDarkness: { value: 0.4 },
+    saturation:     { value: 0.92 },
+    // Teal/blue shadow tint — very subtle horror color grading
+    tintColor:      { value: new THREE.Vector3(0.92, 0.97, 1.04) },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -60,8 +60,8 @@ const FilmHorrorShader = {
       vec2 uv = vUv;
       vec2 center = uv - 0.5;
       float dist = length(center);
-      float vig = smoothstep(vignetteOffset, vignetteOffset - 0.45, dist);
-      color *= mix(1.0 - vignetteDarkness * 0.15, 1.0, vig);
+      float vig = smoothstep(vignetteOffset, vignetteOffset - 0.55, dist);
+      color *= mix(1.0 - vignetteDarkness * 0.12, 1.0, vig);
 
       // ── Film grain ──
       float grain = rand(vUv * vec2(1024.0, 768.0) + vec2(time * 100.0, time * 57.3));
