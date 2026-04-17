@@ -1832,14 +1832,34 @@ function showDeath() {
   updatePersistentStats();
   closeRadio();
   const board = saveScore(round, totalKills, points);
-  // Also push to the global SpacetimeDB leaderboard when connected —
-  // both SP and MP death paths reach here (MP session-reset path
-  // submits separately in hostSync to handle the all-died case).
-  if (netcode.isConnected() && round > 0) {
-    netcode.callSubmitHighScore({
-      name: getLocalPlayerName(),
-      round, points, kills: totalKills,
-    });
+  // Submit to the global SpacetimeDB leaderboard. Both SP and MP death
+  // paths reach here (MP session-reset path submits separately in
+  // hostSync to handle the all-died case with the full squad roster).
+  // If we're not yet connected, kick off a connect; the submit retries
+  // are handled by the reducer call (and the next death will have a
+  // live connection).
+  if (round > 0) {
+    const submitScore = () => {
+      try {
+        netcode.callSubmitHighScore({
+          name: getLocalPlayerName(),
+          round, points, kills: totalKills,
+        });
+        console.log('[score] submitted', { round, points, kills: totalKills });
+      } catch (e) {
+        console.warn('[score] submit failed', e);
+      }
+    };
+    if (netcode.isConnected()) {
+      submitScore();
+    } else {
+      // Kick off a connect attempt for next time; retry once if it lands quickly.
+      if (netcode.getStatus() !== 'connecting') {
+        try { netcode.connect(); } catch (e) {}
+      }
+      // Retry submission in 2s in case the connection lands quickly
+      setTimeout(() => { if (netcode.isConnected()) submitScore(); }, 2000);
+    }
   }
   
   const veil = document.getElementById('deathVeil');
@@ -1875,19 +1895,23 @@ function showDeath() {
     if (netcode.isConnected()) {
       const globals = netcode.getHighScores().slice(0, 5);
       if (globals.length === 0) {
-        globalLbHTML = '<div style="color:#555;text-align:center">No global scores yet</div>';
+        globalLbHTML = '<div style="color:#555;text-align:center">No global scores yet — yours is being submitted!</div>';
       } else {
         const myName = getLocalPlayerName();
         globalLbHTML = globals.map((s, i) => {
           const mine = s.name === myName && s.round === round && s.points === points && s.kills === totalKills;
-          const color = mine ? '#fc0' : '#aaf';
-          return `<div style="color:${color};${mine?'font-weight:bold':''}">
-            ${i+1}. ${String(s.name || 'Anon').slice(0,12)} · R${s.round} · ${s.points} pts${mine?' ← YOU':''}
+          const isSquad = typeof s.name === 'string' && s.name.includes(', ');
+          const color = mine ? '#fc0' : (isSquad ? '#8fcfff' : '#aaf');
+          const prefix = isSquad ? '👥 ' : '';
+          // Full name shown (no 12-char truncation) so squad rosters are visible
+          const name = String(s.name || 'Anon').slice(0, 50);
+          return `<div style="color:${color};${mine?'font-weight:bold':''};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${name.replace(/"/g,'&quot;')}">
+            ${i+1}. ${prefix}${name} · R${s.round} · ${s.points} pts${mine?' ← YOU':''}
           </div>`;
         }).join('');
       }
     } else {
-      globalLbHTML = '<div style="color:#555;text-align:center">Connect MP for global scores</div>';
+      globalLbHTML = '<div style="color:#555;text-align:center">Connecting to global leaderboard…</div>';
     }
 
     blocker.innerHTML = `
@@ -2100,41 +2124,54 @@ window._startGame = function() {
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
 
-// ===== NAME INPUT + GLOBAL LEADERBOARD (menu) =====
+// ===== NAME INPUT + GLOBAL LEADERBOARD (inside MULTIPLAYER screen) =====
 (() => {
   const nameInput = document.getElementById('menuNameInput');
-  const lbWrap = document.getElementById('menuGlobalLb');
-  const lbList = document.getElementById('menuGlobalLbList');
-  if (!nameInput || !lbWrap || !lbList) return;
+  if (nameInput) {
+    nameInput.value = getLocalPlayerName();
+    nameInput.addEventListener('change', () => setLocalPlayerName(nameInput.value));
+    nameInput.addEventListener('blur', () => setLocalPlayerName(nameInput.value));
+  }
 
-  // Seed the name input from localStorage so existing players keep their name.
-  nameInput.value = getLocalPlayerName();
-  nameInput.addEventListener('change', () => setLocalPlayerName(nameInput.value));
-  nameInput.addEventListener('blur', () => setLocalPlayerName(nameInput.value));
+  // Leaderboard lives in the MP menu panel now — main-menu rendering
+  // was unreliable because netcode auto-connect from the idle menu
+  // often never resolved. Users hit MULTIPLAYER → we connect in
+  // response, then the board populates reliably.
+  const mainLbWrap = document.getElementById('menuGlobalLb');
+  if (mainLbWrap) mainLbWrap.style.display = 'none';
+
+  const mpLbWrap = document.getElementById('mpMenuGlobalLb');
+  const mpLbList = document.getElementById('mpMenuGlobalLbList');
+  if (!mpLbWrap || !mpLbList) return;
+
+  function escapeMenuHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 
   function renderLb() {
-    lbWrap.style.display = 'block';
+    // Only show while the MP menu panel is actually on screen.
+    const mpPanel = document.getElementById('mpMenuPanel');
+    if (!mpPanel || getComputedStyle(mpPanel).display === 'none') {
+      mpLbWrap.style.display = 'none';
+      return;
+    }
+    mpLbWrap.style.display = 'block';
     const status = netcode.getStatus();
     if (!netcode.isConnected()) {
-      // Don't leave 'Connecting...' up forever if the server is down
-      // or the connection errored. Users should know when the board
-      // is unreachable vs. genuinely empty.
       const msg = (status === 'error' || status === 'disconnected')
         ? 'Leaderboard offline — try again later'
         : 'Connecting to global leaderboard…';
-      lbList.innerHTML = `<div style="color:#555;text-align:center">${msg}</div>`;
+      mpLbList.innerHTML = `<div style="color:#555;text-align:center">${msg}</div>`;
       return;
     }
     const scores = netcode.getHighScores();
     if (!scores || scores.length === 0) {
-      lbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first to post one!</div>';
+      mpLbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first to post one!</div>';
       return;
     }
     const top = scores.slice(0, 5);
-    lbList.innerHTML = top.map((s, i) => {
+    mpLbList.innerHTML = top.map((s, i) => {
       const rank = i + 1;
-      // Multi-player name strings (contain ", ") are squad rosters —
-      // show them whole without truncation so all players are visible.
       const isSquad = typeof s.name === 'string' && s.name.includes(', ');
       const name = String(s.name || 'Anon').slice(0, 60);
       const nameColor = isSquad ? '#8fcfff' : '#fff';
@@ -2149,22 +2186,11 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
     }).join('');
   }
 
-  function escapeMenuHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
   netcode.setOnHighScoresChange(renderLb);
-  netcode.onStatus(({ status }) => { if (status === 'connected') renderLb(); else renderLb(); });
+  netcode.onStatus(() => renderLb());
 
-  // Auto-connect on first load so the global leaderboard populates without
-  // making the user click MULTIPLAYER. Safe: connect() just opens a socket
-  // and subscribes to public tables; it does NOT place you in a lobby.
-  if (!netcode.isConnected() && netcode.getStatus() !== 'connecting') {
-    try { netcode.connect(); } catch (e) {}
-  }
-
-  // Initial render attempt in case we connect before this code runs.
-  renderLb();
+  // Expose so showMpMenuPanel() can re-render when the panel opens.
+  window._refreshMpLeaderboard = renderLb;
 })();
 
 // ===== MULTIPLAYER: MENU + LOBBY (M4 multi-room) =====
@@ -2236,6 +2262,8 @@ function showMpMenuPanel() {
   document.getElementById('hud')?.classList.add('hidden');
   renderPublicLobbiesList();
   if (_mpMenuStatusEl) _mpMenuStatusEl.textContent = '';
+  // Surface the global leaderboard now that the panel is visible.
+  try { window._refreshMpLeaderboard?.(); } catch (e) {}
 }
 function showLobbyPanel() {
   state = 'mpLobby';
