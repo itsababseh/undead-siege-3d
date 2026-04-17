@@ -16,21 +16,22 @@
 
 ### Combat & Weapons
 - **4 Iconic Weapons** — M1911 (starter), MP40, Trench Gun, Ray Gun — each with unique recoil profile, muzzle flash, and tracer
-- **Mystery Box** — Spend 950 points for a random weapon drop with animated spin reveal; 8-second collect window
+- **Mystery Box** — Spend 950 points for a random weapon drop with animated spin reveal; 8-second collect window; rolling the gun you already hold gives you a free max-ammo refill instead
 - **Pack-a-Punch** — Upgrade any weapon for 5000 points: boosted damage, bigger mags, animated camo & graffiti overlay
 - **Knife System** — Dedicated melee attack with swing animation, cooldown, and satisfying slash SFX
 - **Weapon Quick-Swap** — Press Q to instantly toggle between your last two weapons
 - **Per-Weapon Recoil** — Every gun has hand-tuned kick, barrel rise, and settle behavior
-- **Sprint** — Hold Shift while moving forward to run at 1.45× speed. Faster head-bob cadence, subtle FOV widen, and the gun lowers CoD-style to signal you're in motion (release to raise and fire)
+- **Sprint** — Hold Shift while moving forward to run at 1.45× speed. Faster head-bob cadence, subtle FOV widen, and the gun lowers CoD-style to signal you're in motion
+- **Last Stand (solo)** — When your HP hits 0 in single-player, you drop into a prone pistol-only crawl for 45 seconds. Kill 3 zombies with the M1911 to self-revive with half health. Bleed out and it's game over
 
-### Perks (90s timed duration, CoD-style)
+### Perks (90s timed duration unless noted, CoD-style)
 - **🛡️ Juggernog** — 3-hit absorbing shield. Zombies eat the shield before your HP (2500 pts)
-- **❤️ Health** — Permanent +75 max HP boost while active (2500 pts)
+- **❤️ Health** — Permanent +75 max HP for the rest of the run (2500 pts, no timer)
 - **⚡ Speed Cola** — 2× faster reload (3000 pts)
 - **🔥 Double Tap** — 2× fire rate (2000 pts)
 - **💉 Quick Revive** — HP regen + 4× faster ally revives (1500 pts)
 - **Stylized HUD Pills** — Each perk appears as a pill-shaped button with emoji, label, time-drain fill, and pulsing warning when <5s remain
-- **Down = Wipe** — All timed buffs clear when you go down; re-buy after revive to stack again
+- **Down = Wipe** — Timed buffs clear when you go down. Permanent perks (Health) survive
 
 ### Enemies & AI
 - **Dynamic Pathfinding** — Wall collision with body-radius margin so zombies never clip through geometry
@@ -46,9 +47,10 @@
 - **Full 3D Environment** — Three.js-powered with textured walls, floors, cinematic fog, and atmospheric lighting
 - **Buyable Doors** — West Wing (1250 pts) & East Chamber (2000 pts) unlock new areas with fresh spawn points
 - **Easter Egg Quest** — Activate generators in the correct sequence, collect the catalyst, complete the ritual
-- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo, Carpenter — with stylized animated pill UI showing remaining duration
-- **Vibe Jam Portals** — Interdimensional caution-tape portal built into the wall that transports you to other Vibe Jam 2026 games
+- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo with stylized animated pill UI. Drop rate scales with the round and a pity timer guarantees one every 18 kills so dry streaks are impossible
+- **Vibe Jam Portals** — Interdimensional caution-tape portal built into the wall that transports you to other Vibe Jam 2026 games. Hit browser back to resume your run — SP resumes paused on the same round, MP attempts to rejoin the lobby or shows the squad-wipe summary
 - **Subtle Cinematic Vignette** — Always-on film-style edge falloff that doesn't darken gameplay
+- **Progressive Low-HP Tint** — Screen edges tint red as your HP drops (quadratic curve below 60%). Critical heartbeat pulse kicks in under 15%
 
 ### Multiplayer (real-time up to 5 players)
 - **Lobby System** — Create public/private, join by invite code, or browse the public lobby list
@@ -75,10 +77,14 @@
 - **Brightness tuned for production** — Playable in any lighting condition while preserving the spooky zombie atmosphere
 - **Boss round distinction** — Every 5th round now shows a distinctive `⚠ BOSS ROUND N` banner with brighter red glow
 - **Gun recoil state fix** — No more stuck-forward gun after the last shot of a round
-- **Mystery box pickup** — Weapon swap is now bulletproof and works regardless of game state
+- **Mystery box pickup** — Weapon swap is now bulletproof; E presses during spin are buffered so "first time nothing happens" is gone; rolling your current gun is an ammo refill
 - **Last zombie spawn acceleration** — Final 1–2 zombies always spawn within 0.8s and bypass the maxAlive cap
 - **Zero zombie auto-kills** — Zombies now only die when shot or knifed; stuck ones get progressively stronger nudges toward the player
 - **MP death pointer unlock** — Cursor is properly freed on squad wipe so overlay buttons are clickable
+- **Chat gating** — T only opens chat during gameplay; lobby presses no longer steal keyboard focus
+- **Portal resume** — Hit browser back after using the in-game portal and your run resumes (SP paused at the same round, MP rejoins the lobby if squad's still alive)
+- **Sprint** — Hold Shift to run. Gun lowers, FOV widens, bob quickens
+- **Last Stand** — Solo death is no longer instant; crawl with a pistol and earn a self-revive
 
 ---
 
