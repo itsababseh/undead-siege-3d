@@ -393,19 +393,32 @@ function sfxKill() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    // Meaty crunch
+    // 1) Meaty crunch — sawtooth pitch drop with randomized start freq
+    const crunchFreq = 150 + Math.random() * 80;
     const o1 = actx.createOscillator(), g1 = actx.createGain();
-    o1.type = 'sawtooth'; o1.frequency.setValueAtTime(180, t);
-    o1.frequency.exponentialRampToValueAtTime(50, t + 0.15);
-    g1.gain.setValueAtTime(0.15, t);
-    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.2);
-    // Body thud
+    o1.type = 'sawtooth';
+    o1.frequency.setValueAtTime(crunchFreq, t);
+    o1.frequency.exponentialRampToValueAtTime(35, t + 0.18);
+    g1.gain.setValueAtTime(0.14, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.22);
+
+    // 2) Bone crack — short high-freq noise burst through narrow bandpass
+    _metalClick(t + 0.01, 2800 + Math.random() * 800, 8, 0.018, 0.10);
+
+    // 3) Body collapse thud — low sine with sub-bass
     const o2 = actx.createOscillator(), g2 = actx.createGain();
-    o2.type = 'sine'; o2.frequency.value = 40;
-    g2.gain.setValueAtTime(0.12, t + 0.05);
-    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.2);
+    o2.type = 'sine';
+    o2.frequency.setValueAtTime(55 + Math.random() * 20, t + 0.04);
+    o2.frequency.exponentialRampToValueAtTime(22, t + 0.25);
+    g2.gain.setValueAtTime(0.13, t + 0.04);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    o2.connect(g2); g2.connect(masterGain); o2.start(t + 0.04); o2.stop(t + 0.28);
+
+    // 4) Wet flesh slap (50% chance) — bandpass noise at mid freq
+    if (Math.random() < 0.5) {
+      _metalClick(t + 0.03, 600 + Math.random() * 300, 2, 0.04, 0.06);
+    }
   } catch(e) {}
 }
 
@@ -834,34 +847,69 @@ function sfxDoorOpen() {
   } catch(e) {}
 }
 
+// Pre-allocated explosion noise buffer (reused across boss kills)
+let _bossNoiseBuf = null;
+function _getBossNoise() {
+  const len = Math.floor(actx.sampleRate * 0.8);
+  if (_bossNoiseBuf && _bossNoiseBuf.length >= len && _bossNoiseBuf.sampleRate === actx.sampleRate) return _bossNoiseBuf;
+  _bossNoiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+  const d = _bossNoiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.18));
+  return _bossNoiseBuf;
+}
+
 function sfxBossKill() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    // Dramatic boss death: explosion + victory sting
-    // Explosion
-    const bufLen = actx.sampleRate * 0.5;
-    const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.15));
-    const noise = actx.createBufferSource(); noise.buffer = buf;
-    const gN = actx.createGain(); gN.gain.value = 0.15;
-    const fN = actx.createBiquadFilter(); fN.type = 'lowpass'; fN.frequency.value = 400;
+
+    // 1) Explosion — lowpass noise with longer tail
+    const noise = actx.createBufferSource(); noise.buffer = _getBossNoise();
+    const fN = actx.createBiquadFilter(); fN.type = 'lowpass'; fN.frequency.value = 500;
+    fN.frequency.exponentialRampToValueAtTime(150, t + 0.6);
+    const gN = actx.createGain();
+    gN.gain.setValueAtTime(0.18, t);
+    gN.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
     noise.connect(fN); fN.connect(gN); gN.connect(masterGain); noise.start(t);
-    // Bass boom
+
+    // 2) Sub-bass boom — deep sine with slow decay
     const o = actx.createOscillator(), g = actx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(80, t);
-    o.frequency.exponentialRampToValueAtTime(20, t + 0.5);
-    g.gain.setValueAtTime(0.2, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.6);
-    // Victory sting (delayed)
-    setTimeout(() => {
-      beep(440, 'triangle', 0.15, 0.08);
-      setTimeout(() => beep(554, 'triangle', 0.15, 0.08), 120);
-      setTimeout(() => beep(660, 'triangle', 0.2, 0.1), 240);
-      setTimeout(() => beep(880, 'sine', 0.4, 0.08), 360);
-    }, 400);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(60, t);
+    o.frequency.exponentialRampToValueAtTime(18, t + 0.7);
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.8);
+
+    // 3) Impact crack — high metallic transient
+    _metalClick(t + 0.02, 3200, 6, 0.04, 0.12);
+
+    // 4) Distortion growl — detuned sawtooth pair for demonic texture
+    for (let i = 0; i < 2; i++) {
+      const oD = actx.createOscillator(), gD = actx.createGain();
+      oD.type = 'sawtooth';
+      oD.frequency.setValueAtTime(90 + i * 15, t + 0.05);
+      oD.frequency.exponentialRampToValueAtTime(25, t + 0.5);
+      gD.gain.setValueAtTime(0.06, t + 0.05);
+      gD.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      oD.connect(gD); gD.connect(masterGain); oD.start(t + 0.05); oD.stop(t + 0.55);
+    }
+
+    // 5) Victory sting (delayed, sample-accurate via scheduled start)
+    const notes = [440, 554, 660, 880];
+    const durs  = [0.15, 0.15, 0.2, 0.4];
+    const vols  = [0.08, 0.08, 0.1, 0.08];
+    let off = 0.5;
+    for (let i = 0; i < notes.length; i++) {
+      const oS = actx.createOscillator(), gS = actx.createGain();
+      oS.type = i < 3 ? 'triangle' : 'sine';
+      oS.frequency.value = notes[i];
+      gS.gain.setValueAtTime(vols[i], t + off);
+      gS.gain.exponentialRampToValueAtTime(0.001, t + off + durs[i]);
+      oS.connect(gS); gS.connect(masterGain);
+      oS.start(t + off); oS.stop(t + off + durs[i]);
+      off += 0.12;
+    }
   } catch(e) {}
 }
 
