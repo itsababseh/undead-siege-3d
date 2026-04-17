@@ -30,6 +30,10 @@ function colorFromHex(hex) {
 }
 
 function darken(hex, amt = 0.6) {
+  // Normalize 3-digit hex (#abc → #aabbcc)
+  if (hex.length === 4) {
+    hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+  }
   // Parse hex color and darken by multiplying RGB
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -283,12 +287,20 @@ export function updateRemotePlayers(dt, remoteMap) {
     rec.renderRy += rotDiff * lerp;
 
     rec.group.position.set(rec.renderWx, 0, rec.renderWz);
+    // NOTE: group.rotation.y is intentionally kept for future 8-directional
+    // sprite support. THREE.Sprite always faces the camera so it has no visual
+    // effect currently, but the lerp state is still useful for direction logic.
     rec.group.rotation.y = rec.renderRy;
 
-    // Pulse red downed overlay each frame (needs canvas redraw for animation)
+    // Pulse red downed overlay — throttled to ~8 fps via phase bucket to avoid
+    // a canvas redraw + GPU texture upload every single frame.
     if (rec._downed) {
-      drawSoldier(rec.ctx, rec.teamColor, true);
-      rec.tex.needsUpdate = true;
+      const phase = Math.floor(performance.now() / 125);
+      if (phase !== rec._lastPulsePhase) {
+        rec._lastPulsePhase = phase;
+        drawSoldier(rec.ctx, rec.teamColor, true);
+        rec.tex.needsUpdate = true;
+      }
     }
   }
 }
