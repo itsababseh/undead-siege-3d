@@ -653,7 +653,13 @@ function nextRound() {
   state = 'roundIntro';
   roundIntroTimer = 3;
   sfxRound();
-  showCenterMsg(`ROUND ${round}`, `${zToSpawn} zombies${round%5===0 ? ' · 💀 BOSS ROUND' : ''}`, '#c00', 3);
+  const isBossRound = round % 5 === 0;
+  showCenterMsg(
+    isBossRound ? `⚠ BOSS ROUND ${round}` : `ROUND ${round}`,
+    isBossRound ? `${zToSpawn} hostiles + 💀 BOSS` : `${zToSpawn} zombies`,
+    isBossRound ? '#ff3344' : '#c00',
+    3
+  );
   showRoundBanner(round, round % 5 === 0 ? 'BOSS ROUND' : `${zToSpawn} HOSTILES INBOUND`);
   setTimeout(() => triggerRadioTransmission(round), 2000);
 }

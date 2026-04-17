@@ -137,7 +137,12 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   if (_player._doublePoints && _player._doublePointsTimer > 0) {
     perkHTML += makeIcon('#ffcc44', '💰', '2X', _player._doublePointsTimer, PU_DURATION);
   }
-  perkEl.innerHTML = perkHTML;
+  // Only touch the DOM when the generated HTML actually changes — avoids
+  // a full perk-icons reflow on every frame of the game loop.
+  if (perkEl._lastHTML !== perkHTML) {
+    perkEl.innerHTML = perkHTML;
+    perkEl._lastHTML = perkHTML;
+  }
   
   // Buy prompt
   const buyEl = document.getElementById('buyPrompt');

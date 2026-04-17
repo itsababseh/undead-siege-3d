@@ -453,33 +453,41 @@ function triggerDamageVignette(amount) {
   vignetteIntensity = Math.min(0.6, vignetteIntensity + amount * 0.010);
 }
 
+let heartbeatPhase = 0;
+
 function updateDamageVignette(dt) {
-  if (vignetteIntensity > 0.01) {
-    const vig = document.getElementById('dmgOverlay');
-    // Reduced blur/spread/opacity so gameplay stays visible
-    vig.style.boxShadow = `inset 0 0 ${40 + vignetteIntensity * 60}px ${vignetteIntensity * 15}px rgba(180, 0, 0, ${vignetteIntensity * 0.35})`;
+  vignetteIntensity *= Math.pow(0.02, dt);
+  if (vignetteIntensity < 0.001) vignetteIntensity = 0;
+  _applyVignetteOverlay();
+}
+
+function _applyVignetteOverlay() {
+  // Combine damage vignette and low-health heartbeat into a single shadow
+  // so neither overwrites the other. Use whichever is currently stronger.
+  const dmg = vignetteIntensity;
+  let pulse = 0;
+  if (_player && _player.hp > 0 && _player.hp < _player.maxHp * 0.15) {
+    pulse = 0.18 + Math.abs(Math.sin(heartbeatPhase)) * 0.15;
+  }
+  // Take max of damage vs heartbeat so both reds can coexist cleanly
+  const alpha = Math.max(dmg * 0.35, pulse);
+  const spread = Math.max(dmg * 15, pulse > 0 ? 12 : 0);
+  const blur = Math.max(40 + dmg * 60, pulse > 0 ? 55 : 0);
+  const vig = document.getElementById('dmgOverlay');
+  if (alpha > 0.005) {
+    vig.style.boxShadow = `inset 0 0 ${blur}px ${spread}px rgba(180,0,0,${alpha.toFixed(3)})`;
     vig.style.display = 'block';
-    // Faster decay — back to clear in ~0.8s instead of ~2s
-    vignetteIntensity *= Math.pow(0.02, dt);
   } else {
-    vignetteIntensity = 0;
-    const vig = document.getElementById('dmgOverlay');
     vig.style.boxShadow = '';
   }
 }
 
 // --- Low Health Heartbeat Overlay ---
-let heartbeatPhase = 0;
 
 function updateLowHealthEffect(dt, state) {
-  // Only show when critically low (below 15%, not 25%) and with softer overlay
   if (_player.hp > 0 && _player.hp < _player.maxHp * 0.15 && state === 'playing') {
-    heartbeatPhase += dt * 3; // heartbeat speed
-    const pulse = Math.abs(Math.sin(heartbeatPhase));
-    const vig = document.getElementById('dmgOverlay');
-    const baseAlpha = 0.08 + pulse * 0.10;
-    vig.style.boxShadow = `inset 0 0 60px 15px rgba(180, 0, 0, ${baseAlpha})`;
-    vig.style.display = 'block';
+    heartbeatPhase += dt * 3;
+    _applyVignetteOverlay();
   } else {
     heartbeatPhase = 0;
   }
