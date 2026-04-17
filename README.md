@@ -114,6 +114,6 @@ Welcome to Undead Siege. The undead are waiting.
 
 <div align="center">
 
-Built with <a href="https://agpt.co"><img src="autogpt-logo.png" height="28" alt="AutoGPT" align="center" /></a>
+Built with <a href="https://agpt.co"><picture><source media="(prefers-color-scheme: dark)" srcset="autogpt-logo-light.png"><source media="(prefers-color-scheme: light)" srcset="autogpt-logo-dark.png"><img src="autogpt-logo-dark.png" height="28" alt="AutoGPT" align="center" /></picture></a>
 
 </div>
