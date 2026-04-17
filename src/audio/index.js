@@ -526,76 +526,447 @@ function sfxRoundEnd() {
   } catch(e) {}
 }
 
-// ===== ZOMBIE GROANING (procedural) =====
-function sfxZombieGrunt() {
-  if (!actx || !masterGain) return;
-  try {
-    const t = actx.currentTime;
-    const baseFreq = 60 + Math.random() * 40;
-    const dur = 0.4 + Math.random() * 0.5;
-    // Guttural growl
+// ===== ZOMBIE GROANING (procedural — S2.6 groan variety) =====
+
+// ── Distance-gated volume helper for all zombie sounds ──
+// Returns scaled volume or -1 if too far to hear (skip the sound).
+// distFrac = d / 18; vol = (1 - distFrac*0.85) * baseVol; skip if distFrac > 0.86
+function _zombieVol(wx, wz, camX, camZ, baseVol) {
+  const dx = wx - camX, dz = wz - camZ;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  const distFrac = d / 18;
+  if (distFrac > 0.86) return -1;
+  return (1 - distFrac * 0.85) * baseVol;
+}
+
+// Pre-allocated noise buffer for zombie vocal textures (reused)
+let _zombieNoiseBuf = null;
+function _getZombieNoise(dur) {
+  const len = Math.floor(actx.sampleRate * dur);
+  if (!_zombieNoiseBuf || _zombieNoiseBuf.length < len || _zombieNoiseBuf.sampleRate !== actx.sampleRate) {
+    const bufLen = Math.floor(actx.sampleRate * Math.max(dur, 1.2));
+    _zombieNoiseBuf = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const d = _zombieNoiseBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return _zombieNoiseBuf;
+}
+
+// ── Groan type 0: Deep guttural moan (low sine + sawtooth growl) ──
+function _groanDeepMoan(t, vol) {
+  const baseFreq = 50 + Math.random() * 30;
+  const dur = 0.5 + Math.random() * 0.6;
+  // Low sine body
+  const o1 = actx.createOscillator(), g1 = actx.createGain();
+  o1.type = 'sine';
+  o1.frequency.setValueAtTime(baseFreq + 10, t);
+  o1.frequency.linearRampToValueAtTime(baseFreq - 8, t + dur * 0.7);
+  o1.frequency.linearRampToValueAtTime(baseFreq + 5 * Math.random(), t + dur);
+  g1.gain.setValueAtTime(0, t);
+  g1.gain.linearRampToValueAtTime(vol * 0.7, t + 0.06);
+  g1.gain.setValueAtTime(vol * 0.55, t + dur * 0.75);
+  g1.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o1.connect(g1); g1.connect(masterGain);
+  o1.start(t); o1.stop(t + dur);
+  // Sawtooth growl overlay
+  const o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type = 'sawtooth';
+  o2.frequency.setValueAtTime(baseFreq + 15 + Math.random() * 10, t);
+  o2.frequency.linearRampToValueAtTime(baseFreq - 5, t + dur * 0.6);
+  o2.frequency.linearRampToValueAtTime(baseFreq + Math.random() * 12, t + dur);
+  g2.gain.setValueAtTime(0, t);
+  g2.gain.linearRampToValueAtTime(vol * 0.5, t + 0.05);
+  g2.gain.setValueAtTime(vol * 0.4, t + dur * 0.7);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  const f2 = actx.createBiquadFilter();
+  f2.type = 'lowpass'; f2.frequency.value = 300 + Math.random() * 150; f2.Q.value = 3 + Math.random() * 3;
+  o2.connect(f2); f2.connect(g2); g2.connect(masterGain);
+  o2.start(t); o2.stop(t + dur);
+  // Subtle vocal formant
+  if (Math.random() < 0.6) {
+    const o3 = actx.createOscillator(), g3 = actx.createGain();
+    o3.type = 'sine';
+    o3.frequency.setValueAtTime(160 + Math.random() * 60, t + 0.04);
+    o3.frequency.linearRampToValueAtTime(110 + Math.random() * 40, t + dur * 0.8);
+    g3.gain.setValueAtTime(vol * 0.25, t + 0.04);
+    g3.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.85);
+    const f3 = actx.createBiquadFilter();
+    f3.type = 'bandpass'; f3.frequency.value = 250 + Math.random() * 150; f3.Q.value = 5;
+    o3.connect(f3); f3.connect(g3); g3.connect(masterGain);
+    o3.start(t + 0.04); o3.stop(t + dur);
+  }
+}
+
+// ── Groan type 1: Raspy wheeze (filtered noise + high sine) ──
+function _groanRaspyWheeze(t, vol) {
+  const dur = 0.35 + Math.random() * 0.45;
+  // Raspy noise breath
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(dur);
+  const bp = actx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 800 + Math.random() * 600; bp.Q.value = 2 + Math.random() * 3;
+  const gN = actx.createGain();
+  gN.gain.setValueAtTime(0, t);
+  gN.gain.linearRampToValueAtTime(vol * 0.55, t + 0.04);
+  gN.gain.setValueAtTime(vol * 0.45, t + dur * 0.5);
+  gN.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(bp); bp.connect(gN); gN.connect(masterGain);
+  src.start(t); src.stop(t + dur);
+  // High breathy sine
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine';
+  const hFreq = 320 + Math.random() * 180;
+  o.frequency.setValueAtTime(hFreq, t);
+  o.frequency.linearRampToValueAtTime(hFreq * 0.7, t + dur * 0.8);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol * 0.35, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.9);
+  const f = actx.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 400 + Math.random() * 200; f.Q.value = 4;
+  o.connect(f); f.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + dur);
+  // Optional throat crackle
+  if (Math.random() < 0.4) {
+    const crack = actx.createBufferSource();
+    crack.buffer = _getZombieNoise(0.06);
+    const crackBP = actx.createBiquadFilter();
+    crackBP.type = 'bandpass'; crackBP.frequency.value = 2000 + Math.random() * 1000; crackBP.Q.value = 6;
+    const crackG = actx.createGain();
+    crackG.gain.setValueAtTime(vol * 0.3, t + dur * 0.3);
+    crackG.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.3 + 0.06);
+    crack.connect(crackBP); crackBP.connect(crackG); crackG.connect(masterGain);
+    crack.start(t + dur * 0.3); crack.stop(t + dur * 0.3 + 0.06);
+  }
+}
+
+// ── Groan type 2: Angry snarl (detuned sawtooth pair + noise burst) ──
+function _groanAngrySnarl(t, vol) {
+  const dur = 0.3 + Math.random() * 0.35;
+  const baseF = 80 + Math.random() * 40;
+  // Detuned sawtooth pair
+  for (let i = 0; i < 2; i++) {
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = 'sawtooth';
-    o.frequency.setValueAtTime(baseFreq + 20, t);
-    o.frequency.linearRampToValueAtTime(baseFreq - 10, t + dur * 0.6);
-    o.frequency.linearRampToValueAtTime(baseFreq + 10 * Math.random(), t + dur);
+    const detune = (i === 0 ? -12 : 12) + Math.random() * 8;
+    o.frequency.setValueAtTime(baseF + detune, t);
+    o.frequency.exponentialRampToValueAtTime(baseF * 0.6 + detune, t + dur * 0.8);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.04 + Math.random() * 0.03, t + 0.05);
-    g.gain.setValueAtTime(0.04, t + dur * 0.7);
+    g.gain.linearRampToValueAtTime(vol * 0.6, t + 0.03);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     const f = actx.createBiquadFilter();
-    f.type = 'lowpass'; f.frequency.value = 350 + Math.random() * 200; f.Q.value = 3 + Math.random() * 4;
+    f.type = 'lowpass'; f.frequency.value = 450 + Math.random() * 200; f.Q.value = 4 + Math.random() * 3;
     o.connect(f); f.connect(g); g.connect(masterGain);
     o.start(t); o.stop(t + dur);
-    // Vocal formant layer
-    if (Math.random() < 0.5) {
-      const o2 = actx.createOscillator(), g2 = actx.createGain();
-      o2.type = 'sine';
-      o2.frequency.setValueAtTime(180 + Math.random() * 80, t);
-      o2.frequency.linearRampToValueAtTime(120 + Math.random() * 60, t + dur * 0.8);
-      g2.gain.setValueAtTime(0.02, t + 0.03);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.9);
-      const f2 = actx.createBiquadFilter();
-      f2.type = 'bandpass'; f2.frequency.value = 300 + Math.random() * 200; f2.Q.value = 5;
-      o2.connect(f2); f2.connect(g2); g2.connect(masterGain);
-      o2.start(t); o2.stop(t + dur);
+  }
+  // Aggressive noise burst
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(0.1);
+  const nBP = actx.createBiquadFilter();
+  nBP.type = 'bandpass'; nBP.frequency.value = 600 + Math.random() * 400; nBP.Q.value = 2;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(vol * 0.45, t + 0.02);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  src.connect(nBP); nBP.connect(nG); nG.connect(masterGain);
+  src.start(t + 0.02); src.stop(t + 0.12);
+}
+
+// ── Groan type 3: Distant wail (sine with slow vibrato + reverb-like delay) ──
+function _groanDistantWail(t, vol) {
+  const dur = 0.8 + Math.random() * 0.7;
+  const baseF = 130 + Math.random() * 80;
+  // Main wail tone with vibrato
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(baseF, t);
+  o.frequency.linearRampToValueAtTime(baseF * 1.3, t + dur * 0.3);
+  o.frequency.linearRampToValueAtTime(baseF * 0.7, t + dur * 0.8);
+  o.frequency.linearRampToValueAtTime(baseF * 0.5, t + dur);
+  // Vibrato LFO
+  const lfo = actx.createOscillator(), lfoG = actx.createGain();
+  lfo.type = 'sine'; lfo.frequency.value = 4 + Math.random() * 3;
+  lfoG.gain.value = 8 + Math.random() * 6;
+  lfo.connect(lfoG); lfoG.connect(o.frequency);
+  lfo.start(t); lfo.stop(t + dur);
+  // Envelope
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol * 0.5, t + dur * 0.15);
+  g.gain.setValueAtTime(vol * 0.45, t + dur * 0.5);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  const f = actx.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 250 + Math.random() * 150; f.Q.value = 3;
+  o.connect(f); f.connect(g);
+  // Dry path
+  const dryG = actx.createGain(); dryG.gain.value = 1;
+  g.connect(dryG); dryG.connect(masterGain);
+  // Reverb-like delay feedback
+  const delay = actx.createDelay(0.5);
+  delay.delayTime.value = 0.18 + Math.random() * 0.12;
+  const fbG = actx.createGain(); fbG.gain.value = 0.25;
+  const wetG = actx.createGain(); wetG.gain.value = 0.3;
+  g.connect(delay); delay.connect(fbG); fbG.connect(delay);
+  delay.connect(wetG); wetG.connect(masterGain);
+  o.start(t); o.stop(t + dur);
+  // Cleanup delay graph after tail decays
+  const cleanMs = (dur + 2.0) * 1000;
+  setTimeout(() => { try { f.disconnect(); delay.disconnect(); fbG.disconnect(); wetG.disconnect(); dryG.disconnect(); } catch(_){} }, cleanMs);
+}
+
+// ── Groan type 4: Gurgling choke (multiple bubbling oscillators) ──
+function _groanGurglingChoke(t, vol) {
+  const dur = 0.4 + Math.random() * 0.5;
+  const bubbleCount = 3 + Math.floor(Math.random() * 3); // 3-5 bubbles
+  for (let i = 0; i < bubbleCount; i++) {
+    const bFreq = 60 + Math.random() * 80;
+    const bDur = 0.08 + Math.random() * 0.12;
+    const bStart = t + Math.random() * (dur - bDur);
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(bFreq * 1.3, bStart);
+    o.frequency.exponentialRampToValueAtTime(bFreq * 0.6, bStart + bDur);
+    g.gain.setValueAtTime(vol * (0.3 + Math.random() * 0.3), bStart);
+    g.gain.exponentialRampToValueAtTime(0.001, bStart + bDur);
+    const f = actx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 300 + Math.random() * 200; f.Q.value = 4 + Math.random() * 4;
+    o.connect(f); f.connect(g); g.connect(masterGain);
+    o.start(bStart); o.stop(bStart + bDur);
+  }
+  // Wet gurgle noise layer
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(dur);
+  const nLP = actx.createBiquadFilter();
+  nLP.type = 'lowpass'; nLP.frequency.value = 400 + Math.random() * 200; nLP.Q.value = 3;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(0, t);
+  nG.gain.linearRampToValueAtTime(vol * 0.35, t + 0.04);
+  nG.gain.setValueAtTime(vol * 0.28, t + dur * 0.6);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(nLP); nLP.connect(nG); nG.connect(masterGain);
+  src.start(t); src.stop(t + dur);
+  // Throat rattle sine
+  const o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type = 'sawtooth';
+  o2.frequency.setValueAtTime(90 + Math.random() * 30, t);
+  o2.frequency.linearRampToValueAtTime(55 + Math.random() * 20, t + dur);
+  g2.gain.setValueAtTime(vol * 0.3, t + 0.03);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.9);
+  const f2 = actx.createBiquadFilter();
+  f2.type = 'lowpass'; f2.frequency.value = 250 + Math.random() * 100; f2.Q.value = 5;
+  o2.connect(f2); f2.connect(g2); g2.connect(masterGain);
+  o2.start(t); o2.stop(t + dur);
+}
+
+// ── Groan type 5: Hollow moan (resonant triangle + formant sweep) ──
+function _groanHollowMoan(t, vol) {
+  const dur = 0.6 + Math.random() * 0.5;
+  const baseF = 70 + Math.random() * 35;
+  // Hollow triangle wave body
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(baseF + 15, t);
+  o.frequency.linearRampToValueAtTime(baseF, t + dur * 0.4);
+  o.frequency.linearRampToValueAtTime(baseF - 10, t + dur);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol * 0.6, t + 0.05);
+  g.gain.setValueAtTime(vol * 0.5, t + dur * 0.6);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  const f = actx.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(200, t);
+  f.frequency.linearRampToValueAtTime(400 + Math.random() * 200, t + dur * 0.5);
+  f.frequency.linearRampToValueAtTime(180, t + dur);
+  f.Q.value = 6 + Math.random() * 4;
+  o.connect(f); f.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + dur);
+  // Breathy overtone
+  const o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type = 'sine';
+  o2.frequency.setValueAtTime(baseF * 2.5 + Math.random() * 30, t);
+  o2.frequency.linearRampToValueAtTime(baseF * 2, t + dur);
+  g2.gain.setValueAtTime(vol * 0.2, t + 0.06);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.8);
+  o2.connect(g2); g2.connect(masterGain);
+  o2.start(t); o2.stop(t + dur);
+}
+
+// ── Groan type 6: Strained growl (square wave with pitch bend + noise) ──
+function _groanStrainedGrowl(t, vol) {
+  const dur = 0.35 + Math.random() * 0.4;
+  const baseF = 55 + Math.random() * 25;
+  // Strained square wave
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'square';
+  o.frequency.setValueAtTime(baseF + 20, t);
+  o.frequency.linearRampToValueAtTime(baseF + 35, t + dur * 0.3);
+  o.frequency.exponentialRampToValueAtTime(baseF * 0.5, t + dur);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol * 0.4, t + 0.04);
+  g.gain.setValueAtTime(vol * 0.35, t + dur * 0.5);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  const f = actx.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 280 + Math.random() * 120; f.Q.value = 4 + Math.random() * 3;
+  o.connect(f); f.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + dur);
+  // Strained noise texture
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(dur * 0.6);
+  const nBP = actx.createBiquadFilter();
+  nBP.type = 'bandpass'; nBP.frequency.value = 500 + Math.random() * 300; nBP.Q.value = 3;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(vol * 0.25, t + dur * 0.2);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.8);
+  src.connect(nBP); nBP.connect(nG); nG.connect(masterGain);
+  src.start(t + dur * 0.2); src.stop(t + dur * 0.8);
+}
+
+// Array of groan generators for random selection
+const _groanTypes = [
+  _groanDeepMoan,      // 0 – deep guttural moan
+  _groanRaspyWheeze,   // 1 – raspy wheeze
+  _groanAngrySnarl,    // 2 – angry snarl
+  _groanDistantWail,   // 3 – distant wail
+  _groanGurglingChoke, // 4 – gurgling choke
+  _groanHollowMoan,    // 5 – hollow moan
+  _groanStrainedGrowl  // 6 – strained growl
+];
+let _lastGroanType = -1;
+
+// ── Main groan function — replaces old sfxZombieGrunt ──
+// Accepts zombie world pos + camera pos for distance attenuation.
+// Falls back to non-positional (legacy) if called without args.
+function sfxZombieGrunt(wx, wz, camX, camZ) {
+  if (!actx || !masterGain) return;
+  try {
+    let vol;
+    if (wx !== undefined && camX !== undefined) {
+      vol = _zombieVol(wx, wz, camX, camZ, 0.07);
+      if (vol < 0) return; // too far
+    } else {
+      vol = 0.07; // legacy fallback — full volume
     }
+    const t = actx.currentTime;
+    // Pick a groan type, avoid repeating the same one twice in a row
+    let idx = Math.floor(Math.random() * _groanTypes.length);
+    if (idx === _lastGroanType) idx = (idx + 1) % _groanTypes.length;
+    _lastGroanType = idx;
+    _groanTypes[idx](t, vol);
   } catch(e) {}
 }
+
+// ── Zombie idle ambience — low-volume groan for alive zombies ──
+// Called periodically per-zombie from the game loop.
+function sfxZombieIdle(wx, wz, camX, camZ) {
+  if (!actx || !masterGain) return;
+  try {
+    const vol = _zombieVol(wx, wz, camX, camZ, 0.03);
+    if (vol < 0) return; // too far
+    const t = actx.currentTime;
+    // Pick from the quieter groan types for ambient feel
+    const idleTypes = [_groanDeepMoan, _groanRaspyWheeze, _groanHollowMoan, _groanDistantWail];
+    const fn = idleTypes[Math.floor(Math.random() * idleTypes.length)];
+    fn(t, vol);
+  } catch(e) {}
+}
+
+// ── Attack variant 0: Aggressive snarl + bite snap (original, improved) ──
+function _attackSnarl(t, vol) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(100 + Math.random() * 50, t);
+  o.frequency.exponentialRampToValueAtTime(60 + Math.random() * 30, t + 0.4);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500 + Math.random() * 100; f.Q.value = 5 + Math.random() * 3;
+  o.connect(f); f.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.5);
+  // Bite snap
+  const o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type = 'square';
+  o2.frequency.setValueAtTime(300 + Math.random() * 200, t);
+  o2.frequency.exponentialRampToValueAtTime(150, t + 0.15);
+  g2.gain.setValueAtTime(vol * 0.45, t);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  const f2 = actx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 400; f2.Q.value = 3;
+  o2.connect(f2); f2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.2);
+  // Wet impact
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(0.08);
+  const nLP = actx.createBiquadFilter(); nLP.type = 'lowpass'; nLP.frequency.value = 600;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(vol * 0.6, t + 0.1);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  src.connect(nLP); nLP.connect(nG); nG.connect(masterGain); src.start(t + 0.1);
+}
+
+// ── Attack variant 1: Frenzied shriek — rising pitch attack cry ──
+function _attackShriek(t, vol) {
+  const baseF = 80 + Math.random() * 40;
+  // Rising scream
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(baseF, t);
+  o.frequency.exponentialRampToValueAtTime(baseF * 2.5, t + 0.15);
+  o.frequency.exponentialRampToValueAtTime(baseF * 0.8, t + 0.45);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 600 + Math.random() * 200; f.Q.value = 4;
+  o.connect(f); f.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.5);
+  // Teeth clack — sharp transient
+  _metalClick(t + 0.08, 2200 + Math.random() * 600, 7, 0.02, vol * 0.5);
+  // Guttural noise tail
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(0.15);
+  const nBP = actx.createBiquadFilter(); nBP.type = 'bandpass'; nBP.frequency.value = 500; nBP.Q.value = 2;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(vol * 0.4, t + 0.12);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  src.connect(nBP); nBP.connect(nG); nG.connect(masterGain); src.start(t + 0.12);
+}
+
+// ── Attack variant 2: Guttural lunge — heavy impact + growl ──
+function _attackLunge(t, vol) {
+  // Heavy growl
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(65 + Math.random() * 25, t);
+  o.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+  g.gain.setValueAtTime(vol * 0.9, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 350; f.Q.value = 6;
+  o.connect(f); f.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.4);
+  // Body slam thud
+  _mechThud(t + 0.05, 80 + Math.random() * 30, 0.1, vol * 0.7);
+  // Clawing noise
+  const src = actx.createBufferSource();
+  src.buffer = _getZombieNoise(0.1);
+  const nHP = actx.createBiquadFilter(); nHP.type = 'highpass'; nHP.frequency.value = 1500;
+  const nG = actx.createGain();
+  nG.gain.setValueAtTime(vol * 0.35, t + 0.06);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+  src.connect(nHP); nHP.connect(nG); nG.connect(masterGain); src.start(t + 0.06);
+  // Second detuned growl for thickness
+  const o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type = 'square';
+  o2.frequency.setValueAtTime(55 + Math.random() * 20, t);
+  o2.frequency.exponentialRampToValueAtTime(35, t + 0.3);
+  g2.gain.setValueAtTime(vol * 0.35, t + 0.02);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  const f2 = actx.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.value = 250; f2.Q.value = 5;
+  o2.connect(f2); f2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.35);
+}
+
+const _attackTypes = [_attackSnarl, _attackShriek, _attackLunge];
+let _lastAttackType = -1;
 
 function sfxZombieAttack() {
   if (!actx || !masterGain) return;
   try {
     const t = actx.currentTime;
-    // Aggressive snarl
-    const o = actx.createOscillator(), g = actx.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(100 + Math.random()*50, t);
-    o.frequency.exponentialRampToValueAtTime(60 + Math.random()*30, t + 0.4);
-    g.gain.setValueAtTime(0.14, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500; f.Q.value = 6;
-    o.connect(f); f.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.5);
-    // Bite snap
-    const o2 = actx.createOscillator(), g2 = actx.createGain();
-    o2.type = 'square';
-    o2.frequency.setValueAtTime(300 + Math.random()*200, t);
-    o2.frequency.exponentialRampToValueAtTime(150, t + 0.15);
-    g2.gain.setValueAtTime(0.06, t);
-    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    const f2 = actx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 400; f2.Q.value = 3;
-    o2.connect(f2); f2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.2);
-    // Wet impact
-    const bufLen = actx.sampleRate * 0.08;
-    const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.2));
-    const noise = actx.createBufferSource(); noise.buffer = buf;
-    const gN = actx.createGain();
-    gN.gain.setValueAtTime(0.08, t + 0.1);
-    gN.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    const fN = actx.createBiquadFilter(); fN.type = 'lowpass'; fN.frequency.value = 600;
-    noise.connect(fN); fN.connect(gN); gN.connect(masterGain); noise.start(t + 0.1);
+    const vol = 0.14;
+    // Pick a variant, avoid repeating the same one twice in a row
+    let idx = Math.floor(Math.random() * _attackTypes.length);
+    if (idx === _lastAttackType) idx = (idx + 1) % _attackTypes.length;
+    _lastAttackType = idx;
+    _attackTypes[idx](t, vol);
   } catch(e) {}
 }
 
@@ -774,14 +1145,19 @@ function updateAmbientSounds(dt, zombies, state, paused) {
   }
 
   // Zombie groans (proximity-based — nearby zombies groan more)
+  // S2.6: passes zombie position for distance-attenuated groan variety
   zombieGroanTimer -= dt;
   if (zombieGroanTimer <= 0 && zombies && zombies.length > 0) {
     let closestDist = Infinity;
+    let closestZ = null;
+    const camX = _camera.position.x, camZ = _camera.position.z;
     for (const z of zombies) {
-      const d = Math.hypot(z.wx - _camera.position.x, z.wz - _camera.position.z);
-      if (d < closestDist) closestDist = d;
+      const d = Math.hypot(z.wx - camX, z.wz - camZ);
+      if (d < closestDist) { closestDist = d; closestZ = z; }
     }
-    if (closestDist < 20) sfxZombieGrunt();
+    if (closestDist < 20 && closestZ) {
+      sfxZombieGrunt(closestZ.wx, closestZ.wz, camX, camZ);
+    }
     const distFactor = Math.min(closestDist / 15, 1);
     zombieGroanTimer = 1.5 + distFactor * 5 + Math.random() * 3;
   }
@@ -1220,7 +1596,7 @@ export {
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
-  sfxZombieSpawn,
+  sfxZombieSpawn, sfxZombieIdle,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playDistantHorde, playMetalCreak, playDrip
 };

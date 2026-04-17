@@ -7,7 +7,7 @@ import {
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxZombieShuffle, sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
-  sfxZombieSpawn,
+  sfxZombieSpawn, sfxZombieIdle,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playMetalCreak,
   setAudioDeps
@@ -89,7 +89,8 @@ import { packAPunch, papMeshes, buildPackAPunch, tryPackAPunch,
 import { powerUps, POWERUP_TYPES, spawnPowerUp, updatePowerUps,
          cleanupPowerUps, resetRoundPowerUps, setPowerUpDeps } from './gameplay/powerups.js';
 import { updateHUD as _updateHUD, showCenterMsg, updateCenterMsg,
-         showPause, hidePause, drawFloatTexts, setHudDeps } from './ui/hud.js';
+         showPause, hidePause, drawFloatTexts, setHudDeps,
+         showRoundBanner, updateRoundBanner } from './ui/hud.js';
 import { drawMinimap, setMinimapDeps } from './ui/minimap.js';
 
 
@@ -641,6 +642,7 @@ function nextRound() {
   roundIntroTimer = 3;
   sfxRound();
   showCenterMsg(`ROUND ${round}`, `${zToSpawn} zombies${round%5===0 ? ' · 💀 BOSS ROUND' : ''}`, '#c00', 3);
+  showRoundBanner(round, round % 5 === 0 ? 'BOSS ROUND' : `${zToSpawn} HOSTILES INBOUND`);
   setTimeout(() => triggerRadioTransmission(round), 2000);
 }
 
@@ -817,6 +819,7 @@ const _hostSync = createHostSync({
   sfxRound,
   showHitmarker,
   showCenterMsg,
+  showRoundBanner,
   addFloatText,
   triggerScreenShake,
   openDoorLocal: (door) => openDoorLocal(door),
@@ -1441,6 +1444,18 @@ function _update(dt) {
       }
     }
 
+    // S2.6: Zombie idle ambient groan — periodic low-vol moans from nearby zombies
+    if (!z._spawnRising && d < 18) {
+      if (!z._idleTimer) z._idleTimer = 3 + Math.random() * 6; // stagger on spawn
+      z._idleTimer -= dt;
+      if (z._idleTimer <= 0) {
+        sfxZombieIdle(z.wx, z.wz, camera.position.x, camera.position.z);
+        // Interval: 4–10s, further zombies groan less often
+        const distFrac = Math.min(d / 18, 1);
+        z._idleTimer = (4 + distFrac * 4) * (0.8 + Math.random() * 0.4);
+      }
+    }
+
     // Attack check always uses LOCAL distance — each client applies
     // damage to its own player regardless of who the AI is chasing.
     // Fires whether the pause overlay is up or not; in MP, pausing
@@ -1737,6 +1752,7 @@ function gameLoop(time) {
   update(dt);
   controls._applyRotation();
   updateCenterMsg(dt);
+  updateRoundBanner(dt);
   updateGunModel(dt, gunKick);
   updatePaPCamo();
   updateLights(dt);
