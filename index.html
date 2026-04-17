@@ -173,7 +173,15 @@
   </div>
   <div id="reloadTime">RELOADING 1.5s</div>
   <div id="reloadBarWrap"><div id="reloadFill"></div></div>
-  <div id="ammoBox"><div class="wname">M1911</div><div class="ammo">8 / ∞</div></div>
+  <div id="ammoBox">
+    <div class="wname-wrap"><div class="wname" id="wnameCur">M1911</div><div class="wname wname-old" id="wnameOld"></div></div>
+    <div class="ammo-wrap">
+      <span class="ammo-mag" id="ammoMag">8</span>
+      <span class="ammo-sep">/</span>
+      <span class="ammo-reserve" id="ammoReserve">∞</span>
+    </div>
+    <div class="ammo ammo-reload" id="ammoReload" style="display:none">RELOADING</div>
+  </div>
   <div id="pointsBox"><div class="label">POINTS</div><div class="val">500</div></div>
   <div id="roundBox"><div class="label">ROUND</div><div class="val">1</div></div>
   <div id="killsLabel">KILLS: 0</div>
@@ -191,6 +199,15 @@
   <div id="powerupTimerLabel"></div>
   <div id="powerupTimerBar"><div id="powerupTimerFill"></div></div>
   <div id="roundFlash" style="position:fixed;inset:0;background:rgba(255,255,255,0.3);pointer-events:none;z-index:8;display:none;opacity:0"></div>
+  <div id="roundBanner" class="round-banner">
+    <div class="rb-line"></div>
+    <div class="rb-content">
+      <div class="rb-label">ROUND</div>
+      <div class="rb-number" id="rbNumber">1</div>
+      <div class="rb-sub" id="rbSub"></div>
+    </div>
+    <div class="rb-line"></div>
+  </div>
   <div id="radioOverlay" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);border:1px solid rgba(100,180,255,0.3);padding:12px 24px;border-radius:6px;max-width:500px;width:80%;display:none;z-index:15;box-shadow:0 0 20px rgba(0,100,255,0.15)">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="color:#4af;font-size:10px;letter-spacing:2px">📻 RADIO</span>

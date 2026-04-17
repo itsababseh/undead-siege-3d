@@ -6,6 +6,10 @@ let _camera, _TILE, _weapons, _player, _isMobile,
     _perks, _perkMachines, _doors, _wallBuys,
     _mysteryBox, _packAPunch, _easterEgg, _powerUps, _POWERUP_TYPES;
 
+// Weapon switch animation state
+let _lastWeaponIdx = -1;
+let _switchAnimTimer = 0;
+
 export function setHudDeps(deps) {
   _camera = deps.camera;
   _TILE = deps.TILE;
@@ -34,24 +38,56 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   const zombies = _getZombies();
   const w = _weapons[_player.curWeapon];
   
-  document.querySelector('#ammoBox .wname').textContent = w.name;
-  document.querySelector('#ammoBox .wname').style.color = w.color;
-  const ammoEl = document.querySelector('#ammoBox .ammo');
+  // — Weapon switch animation —
+  const wnameCur = document.getElementById('wnameCur');
+  const wnameOld = document.getElementById('wnameOld');
+  if (_lastWeaponIdx !== _player.curWeapon) {
+    // Animate: slide old name out, new name in
+    if (_lastWeaponIdx >= 0) {
+      wnameOld.textContent = wnameCur.textContent;
+      wnameOld.style.color = wnameCur.style.color;
+      wnameOld.className = 'wname wname-old slide-out';
+      wnameCur.className = 'wname slide-in';
+      wnameCur.textContent = w.name;
+      wnameCur.style.color = w.color;
+      // Force reflow then activate slide-in
+      void wnameCur.offsetHeight;
+      wnameCur.className = 'wname slide-in-active';
+      _switchAnimTimer = 0.3;
+    } else {
+      wnameCur.textContent = w.name;
+      wnameCur.style.color = w.color;
+    }
+    _lastWeaponIdx = _player.curWeapon;
+  }
+
+  // — CoD-style ammo counter —
+  const ammoMag = document.getElementById('ammoMag');
+  const ammoReserve = document.getElementById('ammoReserve');
+  const ammoWrap = document.querySelector('.ammo-wrap');
+  const ammoReload = document.getElementById('ammoReload');
   const reloadBarWrap = document.getElementById('reloadBarWrap');
   const reloadFill = document.getElementById('reloadFill');
   const reloadTimeEl = document.getElementById('reloadTime');
   if (_player.reloading) {
-    const remaining = Math.max(0, _player.reloadTimer).toFixed(1);
-    ammoEl.textContent = `${remaining}s`;
-    ammoEl.className = 'ammo reloading';
+    ammoWrap.style.display = 'none';
+    ammoReload.style.display = 'block';
     const pct = Math.max(0, Math.min(100, ((_player.reloadTotal - _player.reloadTimer) / _player.reloadTotal) * 100));
     reloadBarWrap.style.display = 'block';
     reloadFill.style.width = pct + '%';
     reloadTimeEl.style.display = 'block';
-    reloadTimeEl.textContent = `RELOADING`;
+    reloadTimeEl.textContent = 'RELOADING';
   } else {
-    ammoEl.textContent = `${_player.mag} / ${_player.ammo[_player.curWeapon] === 999 ? '∞' : _player.ammo[_player.curWeapon]}`;
-    ammoEl.className = 'ammo';
+    ammoWrap.style.display = 'flex';
+    ammoReload.style.display = 'none';
+    ammoMag.textContent = _player.mag;
+    const reserve = _player.ammo[_player.curWeapon];
+    ammoReserve.textContent = reserve === 999 ? '\u221E' : reserve;
+    // Low ammo warning: glow when magazine is at or below 25% capacity
+    const magCap = w.mag;
+    const isLow = _player.mag <= Math.ceil(magCap * 0.25) && _player.mag > 0;
+    const isEmpty = _player.mag === 0;
+    ammoMag.classList.toggle('low-ammo', isLow || isEmpty);
     reloadBarWrap.style.display = 'none';
     reloadTimeEl.style.display = 'none';
   }
@@ -246,6 +282,31 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
       btn.className = `wsBtn${active ? ' active' : ''}${!owned ? ' locked' : ''}`;
       btn.textContent = _weapons[idx].name;
     });
+  }
+}
+
+// ===== ROUND BANNER =====
+let _roundBannerTimer = 0;
+
+export function showRoundBanner(roundNum, subText) {
+  const banner = document.getElementById('roundBanner');
+  const numEl = document.getElementById('rbNumber');
+  const subEl = document.getElementById('rbSub');
+  numEl.textContent = roundNum;
+  subEl.textContent = subText || '';
+  // Reset animation by removing and re-adding class
+  banner.classList.remove('active');
+  void banner.offsetHeight;
+  banner.classList.add('active');
+  _roundBannerTimer = 3.5; // matches CSS animation duration
+}
+
+export function updateRoundBanner(dt) {
+  if (_roundBannerTimer > 0) {
+    _roundBannerTimer -= dt;
+    if (_roundBannerTimer <= 0) {
+      document.getElementById('roundBanner').classList.remove('active');
+    }
   }
 }
 

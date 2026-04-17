@@ -86,7 +86,7 @@ export function createHostSync(ctx) {
     createZombieMesh, removeZombieMesh,
     startZombieDeathAnim, spawnBloodSplatter,
     sfxKill, sfxBossKill, sfxRound,
-    showHitmarker, showCenterMsg, addFloatText, triggerScreenShake,
+    showHitmarker, showCenterMsg, showRoundBanner, addFloatText, triggerScreenShake,
     openDoorLocal,
     onMatchStarted, onMatchEnded,
   } = ctx;
@@ -248,6 +248,7 @@ export function createHostSync(ctx) {
           setRoundIntroTimer(3);
           sfxRound();
           showCenterMsg(`ROUND ${row.round}`, `${row.round % 5 === 0 ? '💀 BOSS ROUND' : ''}`, '#c00', 3);
+          if (showRoundBanner) showRoundBanner(row.round, row.round % 5 === 0 ? 'BOSS ROUND' : 'HOSTILES INBOUND');
         }
       }
 

@@ -15,10 +15,8 @@ canvas{display:block}
 .ch-h{width:16px;height:2px;top:50%;transform:translateY(-50%)}
 .ch-v{height:16px;width:2px;left:50%;transform:translateX(-50%)}
 .ch-l{left:-20px}.ch-r{right:-20px}.ch-t{top:-20px}.ch-b{bottom:-20px}
-#ammoBox{position:fixed;bottom:15px;right:15px;background:rgba(0,0,0,0.65);border:1px solid rgba(255,255,255,0.1);padding:8px 16px;border-radius:4px;min-width:160px;text-align:right}
+/* #ammoBox base styles moved to S2.5 section below */
 #ammoBox .wname{color:#fc0;font-size:12px;letter-spacing:2px}
-#ammoBox .ammo{color:#fff;font-size:24px;font-weight:bold;letter-spacing:1px}
-#ammoBox .ammo.reloading{color:#f84;font-size:16px}
 #reloadBarWrap{position:fixed;bottom:58px;right:15px;width:160px;height:6px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,140,0,0.3);border-radius:3px;overflow:hidden;display:none;z-index:11}
 #reloadFill{height:100%;width:0%;background:linear-gradient(90deg,#f84,#fc0);border-radius:2px;transition:width 0.05s linear}
 #reloadTime{position:fixed;bottom:68px;right:15px;color:#f84;font-size:10px;letter-spacing:1px;display:none;z-index:11;min-width:160px;text-align:right}
@@ -86,7 +84,6 @@ canvas{display:block}
 @media (max-width:768px),(hover:none){
   #ammoBox{bottom:10px;right:10px;padding:6px 12px;min-width:120px}
   #ammoBox .wname{font-size:10px}
-  #ammoBox .ammo{font-size:18px}
   #pointsBox{bottom:10px;left:10px;padding:6px 12px}
   #pointsBox .val{font-size:20px}
   #roundBox{padding:3px 16px}
@@ -182,3 +179,50 @@ canvas{display:block}
 #hitmarker .hm-bl{width:8px;height:2px;bottom:4px;left:0;transform:rotate(-45deg)}
 #hitmarker .hm-br{width:8px;height:2px;bottom:4px;right:0;transform:rotate(45deg)}
 #hitmarker.kill .hm{background:#f44}
+
+/* ===== S2.5 HUD POLISH ===== */
+
+/* -- Weapon Switch Animation -- */
+.wname-wrap{position:relative;overflow:hidden;height:16px;margin-bottom:2px}
+#ammoBox .wname{position:absolute;right:0;top:0;transition:transform 0.25s ease-out,opacity 0.25s ease-out;white-space:nowrap}
+#ammoBox .wname-old{color:#fc0;opacity:0.6}
+#ammoBox .wname.slide-out{transform:translateY(-100%);opacity:0}
+#ammoBox .wname.slide-in{transform:translateY(100%);opacity:0}
+#ammoBox .wname.slide-in-active{transform:translateY(0);opacity:1}
+
+/* -- CoD-style Ammo Counter -- */
+#ammoBox{position:fixed;bottom:15px;right:15px;background:linear-gradient(135deg,rgba(0,0,0,0.75) 0%,rgba(20,20,20,0.85) 100%);border:1px solid rgba(255,200,0,0.15);padding:8px 18px 10px;border-radius:4px;min-width:170px;text-align:right;backdrop-filter:blur(3px);box-shadow:0 0 15px rgba(0,0,0,0.5)}
+.ammo-wrap{display:flex;align-items:baseline;justify-content:flex-end;gap:2px;line-height:1}
+.ammo-mag{color:#fff;font-size:32px;font-weight:bold;letter-spacing:1px;text-shadow:0 0 8px rgba(255,255,255,0.15);transition:color 0.3s,text-shadow 0.3s}
+.ammo-sep{color:rgba(255,255,255,0.3);font-size:18px;font-weight:normal;margin:0 3px}
+.ammo-reserve{color:rgba(255,255,255,0.45);font-size:18px;letter-spacing:1px}
+.ammo-reload{color:#f84;font-size:16px;font-weight:bold;letter-spacing:2px;animation:reloadPulse 0.8s ease-in-out infinite}
+@keyframes reloadPulse{0%,100%{opacity:1}50%{opacity:0.5}}
+
+/* Low ammo warning */
+.ammo-mag.low-ammo{color:#f44;text-shadow:0 0 12px rgba(255,50,50,0.6),0 0 24px rgba(255,50,50,0.3);animation:lowAmmoPulse 0.6s ease-in-out infinite}
+@keyframes lowAmmoPulse{0%,100%{text-shadow:0 0 12px rgba(255,50,50,0.6),0 0 24px rgba(255,50,50,0.3)}50%{text-shadow:0 0 20px rgba(255,50,50,0.9),0 0 40px rgba(255,50,50,0.5)}}
+
+/* -- Round Banner -- */
+.round-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:14;pointer-events:none;display:flex;align-items:center;gap:20px;opacity:0;visibility:hidden}
+.round-banner.active{visibility:visible;animation:rbFadeInOut 3.5s ease-in-out forwards}
+.rb-line{width:0;height:2px;background:linear-gradient(90deg,transparent,#c00,transparent);transition:width 0.6s ease-out}
+.round-banner.active .rb-line{width:clamp(60px,15vw,140px)}
+.rb-content{text-align:center;white-space:nowrap}
+.rb-label{color:#888;font-size:clamp(10px,1.5vw,13px);letter-spacing:6px;text-transform:uppercase;opacity:0;transform:translateY(8px);transition:opacity 0.4s 0.2s,transform 0.4s 0.2s}
+.round-banner.active .rb-label{opacity:1;transform:translateY(0)}
+.rb-number{color:#c00;font-size:clamp(42px,8vw,72px);font-weight:bold;letter-spacing:8px;text-shadow:0 0 40px rgba(200,0,0,0.6),0 0 80px rgba(200,0,0,0.3);opacity:0;transform:scale(1.5);transition:opacity 0.4s 0.3s,transform 0.5s 0.3s cubic-bezier(0.34,1.56,0.64,1)}
+.round-banner.active .rb-number{opacity:1;transform:scale(1)}
+.rb-sub{color:#666;font-size:clamp(9px,1.2vw,12px);letter-spacing:3px;margin-top:2px;opacity:0;transform:translateY(-5px);transition:opacity 0.3s 0.5s,transform 0.3s 0.5s}
+.round-banner.active .rb-sub{opacity:1;transform:translateY(0)}
+@keyframes rbFadeInOut{0%{opacity:0}10%{opacity:1}75%{opacity:1}100%{opacity:0;visibility:hidden}}
+
+/* Mobile overrides for new ammo styles */
+@media (max-width:768px),(hover:none){
+  .ammo-mag{font-size:22px}
+  .ammo-sep{font-size:14px}
+  .ammo-reserve{font-size:14px}
+  .wname-wrap{height:13px}
+  #ammoBox .wname{font-size:10px}
+  .round-banner.active .rb-line{width:clamp(40px,12vw,80px)}
+}
