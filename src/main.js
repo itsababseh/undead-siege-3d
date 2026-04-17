@@ -2255,6 +2255,20 @@ function dismissMpRunSummary() {
 // load, then once the connection's live we call joinLobbyByCode.
 let _pendingMpAction = null;
 
+// ── URL ?mp=1 bootstrap (death-screen MULTIPLAYER button reloads to this) ──
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mp') !== '1') return;
+  // Strip ?mp=1 so future reloads/shares don't re-trigger
+  const url = new URL(window.location.href);
+  url.searchParams.delete('mp');
+  history.replaceState({}, '', url.toString());
+  // Wait for menu DOM + button listeners to wire up, then click MULTIPLAYER
+  setTimeout(() => {
+    if (_multiBtnEl) _multiBtnEl.click();
+  }, 300);
+})();
+
 // ── URL ?invite=CODE bootstrap ────────────────────────────────────
 (() => {
   const params = new URLSearchParams(window.location.search);
@@ -2345,29 +2359,14 @@ function tickSpectator() {
 
 window._vibeJamPortal = function() { _triggerExitPortal(); };
 
-// Death screen multiplayer button — resets the game state, returns to main
-// menu, and auto-clicks the multiplayer flow.
+// Death screen multiplayer button — page-reloads to ?mp=1 which the
+// bootstrap below auto-triggers. We can't just rebuild the menu DOM here
+// because the death screen replaced blocker.innerHTML, detaching the
+// original mainMenuPanel + multiBtn nodes that this function would need.
 window._deathMultiplayer = function() {
-  _deathShown = false;
-  state = 'menu';
-  const blocker = document.getElementById('blocker');
-  if (blocker) { blocker.style.opacity = ''; blocker.style.transition = ''; }
-  document.getElementById('deathVeil').style.background = 'rgba(0,0,0,0)';
-  // Show HUD elements cleanup
-  document.getElementById('pointsBox').style.display = 'block';
-  document.getElementById('ammoBox').style.display = 'block';
-  document.getElementById('roundBox').style.display = 'block';
-  document.getElementById('hpBarWrap').style.display = 'block';
-  document.getElementById('killsLabel').style.display = 'block';
-  document.getElementById('minimap').style.display = 'block';
-  document.getElementById('weaponSwitcher').style.display = 'flex';
-  document.getElementById('perkIcons').style.display = 'flex';
-  showMainMenuPanel();
-  restartMenuBackground();
-  // Auto-trigger the multiplayer connect flow
-  setTimeout(() => {
-    if (_multiBtnEl) _multiBtnEl.click();
-  }, 100);
+  const url = new URL(window.location.href);
+  url.searchParams.set('mp', '1');
+  window.location.href = url.toString();
 };
 
 if (_arrivedViaPortal) {
