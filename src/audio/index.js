@@ -603,6 +603,9 @@ function playDistantHorde() {
       g.connect(delay); delay.connect(fbG); fbG.connect(delay);
       delay.connect(wetG); wetG.connect(masterGain);
       o.start(t + startOff); o.stop(t + startOff + dur + 0.3);
+      // Disconnect delay sub-graph after tail fully decays (~2.5s after osc stops)
+      const cleanMs = (startOff + dur + 0.3 + 2.5) * 1000;
+      setTimeout(() => { try { filt.disconnect(); delay.disconnect(); fbG.disconnect(); wetG.disconnect(); } catch(_){} }, cleanMs);
     }
   } catch(e) {}
 }
