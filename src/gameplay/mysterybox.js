@@ -118,20 +118,22 @@ export function collectMysteryBoxWeapon() {
   if (d > _TILE * 2.5) return false;
   
   const wi = mysteryBox.resultWeaponIdx;
-  // Mark owned + give full ammo BEFORE switching, so switchWeapon's
-  // owned[idx] check passes.
+  // Perform the switch inline. We DON'T call shooting.js's switchWeapon
+  // because that has guard clauses (state check, early returns) that
+  // can silently reject the switch — the user then "collects" the gun
+  // but nothing changes. Doing it here guarantees the swap lands.
+  if (wi !== _player.curWeapon) {
+    // Save the mag count of the weapon we're leaving
+    _weaponMags[_player.curWeapon] = _player.mag;
+    _player.curWeapon = wi;
+  }
   _player.owned[wi] = true;
   _player.ammo[wi] = _weapons[wi].maxAmmo;
-  // Pre-seed mag for the new weapon so switchWeapon reads the right value
+  _player.mag = _weapons[wi].mag;
   _weaponMags[wi] = _weapons[wi].mag;
-  if (wi !== _player.curWeapon && _switchWeapon) {
-    _switchWeapon(wi);
-  } else {
-    // Same weapon as currently equipped — just refresh mag
-    _player.mag = _weapons[wi].mag;
-    _player.reloading = false;
-    _player.reloadTimer = 0;
-  }
+  _player.reloading = false;
+  _player.reloadTimer = 0;
+  _player.fireTimer = 0;
 
   sfxBuyWeapon(_weapons[wi].isRayGun);
   const wName = _weapons[wi].name;
