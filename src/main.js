@@ -1704,7 +1704,7 @@ function updateLights(dt) {
     } else if (l._flickMode === 1) {
       // Struggling: square-ish wave at stutter frequency
       l._stutterT += dt * l._stutterSpeed;
-      l._flickVal = (Math.sin(l._stutterT * Math.PI * 2) > 0) ? (0.55 + Math.random() * 0.3) : (0.05 + Math.random() * 0.12);
+      l._flickVal = (Math.sin(l._stutterT * 6.2832) > 0) ? (0.55 + Math.random() * 0.3) : (0.05 + Math.random() * 0.12);
     } else {
       // Blackout
       l._flickVal = 0;
