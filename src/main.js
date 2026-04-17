@@ -76,6 +76,7 @@ import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals,
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
 import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';
 import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
+import { buildProps, setPropDeps } from './world/props.js';
 import { triggerRadioTransmission, updateRadioTransmission, closeRadio, easterEgg,
          buildGenerators, tryActivateGenerator, tryCatalyst, updateGenerators,
          updatePersistentStats, getPlayerRank, setStoryDeps, setStoryDoors } from './world/story.js';
@@ -320,6 +321,7 @@ setGunDeps(scene, camera, player, weapons);
 initGunModels();
 setPortalDeps(scene, camera, TILE);
 setMapDeps(scene, TILE, MAP_W, MAP_H, map);
+setPropDeps(scene, TILE, MAP_W, MAP_H, map);
 setStoryDeps(scene, camera, TILE, gameState, addFloatText);
 
 // Points accessor for gameplay modules
@@ -584,6 +586,7 @@ function initGame() {
   doorsOpenedCount = 0;
   
   buildMap();
+  buildProps();
   buildPerkMachines();
   
   cleanupVibeJamPortals();
