@@ -2113,22 +2113,32 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
   nameInput.addEventListener('blur', () => setLocalPlayerName(nameInput.value));
 
   function renderLb() {
+    lbWrap.style.display = 'block';
     if (!netcode.isConnected()) {
-      lbWrap.style.display = 'none';
+      lbList.innerHTML = '<div style="color:#555;text-align:center">Connecting to global leaderboard…</div>';
       return;
     }
     const scores = netcode.getHighScores();
     if (!scores || scores.length === 0) {
-      lbWrap.style.display = 'block';
       lbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first.</div>';
       return;
     }
-    lbWrap.style.display = 'block';
-    const top = scores.slice(0, 10);
+    const top = scores.slice(0, 5);
     lbList.innerHTML = top.map((s, i) => {
-      const rank = (i + 1).toString().padStart(2, ' ');
-      const name = (s.name || 'Anon').slice(0, 14).padEnd(14, ' ');
-      return `<div><span style="color:#666">${rank}.</span> <span style="color:#fff">${escapeMenuHtml(name)}</span> <span style="color:#fc0">R${s.round}</span> <span style="color:#4af">${s.points}</span> <span style="color:#8f8">${s.kills}k</span></div>`;
+      const rank = i + 1;
+      // Multi-player name strings (contain ", ") are squad rosters —
+      // show them whole without truncation so all players are visible.
+      const isSquad = typeof s.name === 'string' && s.name.includes(', ');
+      const name = String(s.name || 'Anon').slice(0, 60);
+      const nameColor = isSquad ? '#8fcfff' : '#fff';
+      const prefix = isSquad ? '👥 ' : '';
+      return `<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+        <span style="color:#666;min-width:18px">${rank}.</span>
+        <span style="color:${nameColor};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeMenuHtml(name)}">${prefix}${escapeMenuHtml(name)}</span>
+        <span style="color:#fc0;min-width:32px;text-align:right">R${s.round}</span>
+        <span style="color:#4af;min-width:42px;text-align:right">${s.points}</span>
+        <span style="color:#8f8;min-width:32px;text-align:right">${s.kills}k</span>
+      </div>`;
     }).join('');
   }
 
@@ -2138,6 +2148,14 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
 
   netcode.setOnHighScoresChange(renderLb);
   netcode.onStatus(({ status }) => { if (status === 'connected') renderLb(); else renderLb(); });
+
+  // Auto-connect on first load so the global leaderboard populates without
+  // making the user click MULTIPLAYER. Safe: connect() just opens a socket
+  // and subscribes to public tables; it does NOT place you in a lobby.
+  if (!netcode.isConnected() && netcode.getStatus() !== 'connecting') {
+    try { netcode.connect(); } catch (e) {}
+  }
+
   // Initial render attempt in case we connect before this code runs.
   renderLb();
 })();

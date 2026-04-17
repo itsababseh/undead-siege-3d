@@ -209,11 +209,26 @@ export function createHostSync(ctx) {
           if (onMatchStarted) { try { onMatchStarted(); } catch (e) { console.warn('[mp] onMatchStarted', e); } }
         } else if (prevStatus === 'playing' && newStatus === 'lobby') {
           // Match just ended — push the ended run to the global leaderboard.
+          // Include ALL squad names on the same line so the global
+          // leaderboard attributes MP runs to the whole crew.
           const endedRound = getRound();
           const endedPoints = getPoints();
           const endedKills = getTotalKills();
           if (endedRound > 0) {
-            const name = (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+            // Collect all lobby player names; fall back to local if empty
+            const lobbyPlayers = netcode.getLobbyPlayers();
+            let name;
+            if (lobbyPlayers.length > 1) {
+              // Multi-player run — join names, cap combined length
+              const names = lobbyPlayers
+                .map(p => (p.name || 'Survivor').slice(0, 12))
+                .sort((a, b) => a.localeCompare(b));
+              let joined = names.join(', ');
+              if (joined.length > 48) joined = joined.slice(0, 45) + '...';
+              name = joined;
+            } else {
+              name = (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+            }
             try {
               netcode.callSubmitHighScore({
                 name, round: endedRound, points: endedPoints, kills: endedKills,

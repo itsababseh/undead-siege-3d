@@ -265,6 +265,18 @@ function rebuildRemotePlayers() {
     _remotePlayersProxy.set(hex, p);
   }
 }
+// All players in our lobby INCLUDING the local player. Used when we
+// need a complete roster (e.g. naming the squad on a high-score submit).
+export function getLobbyPlayers() {
+  const out = [];
+  const myLobby = getMyLobbyId();
+  if (!myLobby || myLobby === 0n) return out;
+  for (const p of _players.values()) {
+    if (p.lobbyId === myLobby) out.push(p);
+  }
+  return out;
+}
+
 export function getRemotePlayers() {
   rebuildRemotePlayers();
   return _remotePlayersProxy;
