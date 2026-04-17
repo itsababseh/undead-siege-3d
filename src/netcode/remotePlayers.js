@@ -10,7 +10,6 @@
 import * as THREE from 'three';
 
 let _scene = null;
-let _camera = null;
 
 const _meshes = new Map();
 
@@ -23,6 +22,7 @@ const _gloveMat = new THREE.MeshLambertMaterial({ color: 0x2a1a08 });
 const _weaponMetalMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
 const _weaponDarkMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
 const _weaponWoodMat = new THREE.MeshLambertMaterial({ color: 0x5a3010 });
+const _eyeMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
 
 // Shared geometries (reused across all player instances)
 const _geo = {
@@ -40,6 +40,8 @@ const _geo = {
   rifleBody:   new THREE.BoxGeometry(0.08, 0.08, 0.55),
   rifleBarrel: new THREE.CylinderGeometry(0.02, 0.025, 0.35, 6),
   rifleStock:  new THREE.BoxGeometry(0.07, 0.06, 0.18),
+  torsoSide: new THREE.BoxGeometry(0.12, 0.48, 0.29),
+  eye:       new THREE.BoxGeometry(0.06, 0.04, 0.04),
 };
 
 // ─── Color helpers ───────────────────────────────────────────────────────────
@@ -133,17 +135,11 @@ function buildSoldier(teamColor) {
   bodyGroup.add(torso);
 
   // Torso side shading (darker panels on left and right)
-  const torsoSideL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.48, 0.29),
-    teamMidMat
-  );
+  const torsoSideL = new THREE.Mesh(_geo.torsoSide, teamMidMat);
   torsoSideL.position.set(-0.27, 0.95, 0);
   bodyGroup.add(torsoSideL);
 
-  const torsoSideR = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.48, 0.29),
-    teamMidMat
-  );
+  const torsoSideR = new THREE.Mesh(_geo.torsoSide, teamMidMat);
   torsoSideR.position.set(0.27, 0.95, 0);
   bodyGroup.add(torsoSideR);
 
@@ -185,15 +181,11 @@ function buildSoldier(teamColor) {
   bodyGroup.add(head);
 
   // Eyes (small dark boxes on front of head)
-  const eyeGeo = new THREE.BoxGeometry(0.06, 0.04, 0.04);
-  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
-  perPlayerMats.push(eyeMat);
-
-  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  const leftEye = new THREE.Mesh(_geo.eye, _eyeMat);
   leftEye.position.set(-0.07, 1.47, -0.14);
   bodyGroup.add(leftEye);
 
-  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+  const rightEye = new THREE.Mesh(_geo.eye, _eyeMat);
   rightEye.position.set(0.07, 1.47, -0.14);
   bodyGroup.add(rightEye);
 
@@ -231,13 +223,6 @@ function buildSoldier(teamColor) {
   downedLight.position.set(0, 1.0, 0);
   bodyGroup.add(downedLight);
 
-  // Store per-player geometries that need disposal (only non-shared ones)
-  const perPlayerGeos = [
-    torsoSideL.geometry,
-    torsoSideR.geometry,
-    eyeGeo,
-  ];
-
   return {
     bodyGroup,
     parts: {
@@ -248,7 +233,6 @@ function buildSoldier(teamColor) {
       torso,
       downedLight,
       perPlayerMats,
-      perPlayerGeos,
     },
   };
 }
@@ -279,9 +263,6 @@ function createMesh(hex, name) {
     _downedLerp: 0, // 0 = upright, 1 = fully fallen
     _animTime: Math.random() * 100, // offset so soldiers don't animate in sync
     _torsoBaseY: 0.95, // base torso Y for breathing/bob
-    _prevWx: 0,
-    _prevWz: 0,
-    _isMoving: false,
   };
 }
 
@@ -292,11 +273,6 @@ function disposeMesh(rec) {
   // Dispose per-player materials
   for (const mat of rec.parts.perPlayerMats) {
     mat.dispose();
-  }
-
-  // Dispose per-player geometries (non-shared)
-  for (const geo of rec.parts.perPlayerGeos) {
-    geo.dispose();
   }
 
   // Dispose name sprite resources
@@ -365,7 +341,6 @@ function animateSoldier(rec, dt) {
 
 export function initRemotePlayers(scene, camera) {
   _scene = scene;
-  _camera = camera;
 }
 
 export function updateRemotePlayers(dt, remoteMap) {
@@ -381,8 +356,6 @@ export function updateRemotePlayers(dt, remoteMap) {
       rec.renderWx = data.wx;
       rec.renderWz = data.wz;
       rec.renderRy = data.ry;
-      rec._prevWx = data.wx;
-      rec._prevWz = data.wz;
       _meshes.set(hex, rec);
     }
     rec.targetWx = data.wx;
@@ -400,9 +373,6 @@ export function updateRemotePlayers(dt, remoteMap) {
   // 2. Interpolate position + rotation
   const lerp = Math.min(1, dt * 12);
   for (const rec of _meshes.values()) {
-    rec._prevWx = rec.renderWx;
-    rec._prevWz = rec.renderWz;
-
     rec.renderWx += (rec.targetWx - rec.renderWx) * lerp;
     rec.renderWz += (rec.targetWz - rec.renderWz) * lerp;
 
