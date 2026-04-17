@@ -684,6 +684,14 @@ function _spawnTargets() {
 // distance from the nearest player (3 tiles) so zombies don't
 // pop in your face, and a max distance (14 tiles) so they don't
 // spawn somewhere they physically can't reach.
+// Which sealed zone is this tile in? Returns 'west' | 'east' | null.
+// Zombies must not spawn inside a sealed zone before its door is opened.
+function _tileZone(tx, tz) {
+  if (tx >= 1 && tx <= 8 && tz >= 1 && tz <= 8) return 'west';
+  if (tx >= 20 && tx <= 22 && tz >= 11 && tz <= 18) return 'east';
+  return null;
+}
+
 function _findRandomSpawnTile() {
   const targets = _spawnTargets();
   const minDist = TILE * 3;
@@ -694,6 +702,12 @@ function _findRandomSpawnTile() {
     const wx = tx * TILE + TILE * 0.5;
     const wz = tz * TILE + TILE * 0.5;
     if (mapAt(wx, wz) !== 0) continue;
+    // Reject tiles inside a sealed zone whose door hasn't been opened.
+    const zone = _tileZone(tx, tz);
+    if (zone) {
+      const door = doors.find(d => d.id === zone);
+      if (!door || !door.opened) continue;
+    }
     let minD = Infinity;
     for (const t of targets) {
       const dx = wx - t.x, dz = wz - t.z;
