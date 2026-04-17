@@ -381,8 +381,10 @@ const perks = [
   { id:'quickrevive', name:'Quick Revive', desc:'HP Regen + Fast Revive', cost:1500, color:'#4af', minRound:1,
     apply() { player.hpRegen = true; player.reviveSpeedMult = 4; },
     unapply() { player.hpRegen = false; player.reviveSpeedMult = 1; }},
-  // New perk — was the old Juggernog behavior.
-  { id:'health', name:'Health', desc:'+75 Max HP', cost:2500, color:'#e84', minRound:1,
+  // New perk — was the old Juggernog behavior. Permanent for the run
+  // (no timer), so it doesn't show a countdown pill in the HUD — the
+  // bigger HP bar is its own feedback.
+  { id:'health', name:'Health', desc:'+75 Max HP (permanent)', cost:2500, color:'#e84', minRound:1, permanent: true,
     apply() { player.maxHp = 175; player.hp = Math.min(player.hp + 75, 175); },
     unapply() { player.maxHp = 100; player.hp = Math.min(player.hp, 100); }},
 ];
@@ -684,6 +686,7 @@ function getDifficultyTier() { return Math.floor((round - 1) / 5); }
 // wouldn't make sense carrying over through a down.
 function clearAllTimedPerks() {
   for (const p of perks) {
+    if (p.permanent) continue; // Health & other permanent perks survive a down
     if (player.perksOwned[p.id] > 0) {
       player.perksOwned[p.id] = 0;
       try { p.unapply(); } catch (e) {}
@@ -1325,8 +1328,9 @@ function _update(dt) {
       if (player.hpRegenTimer >= 2) { player.hp = Math.min(player.hp + 5, player.maxHp); player.hpRegenTimer = 0; }
     }
 
-    // Perk expiration timers
+    // Perk expiration timers — permanent perks skip decrement
     for (const perk of perks) {
+      if (perk.permanent) continue;
       if (player.perksOwned[perk.id] > 0) {
         player.perksOwned[perk.id] -= dt;
         if (player.perksOwned[perk.id] <= 0) {

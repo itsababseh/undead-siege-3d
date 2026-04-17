@@ -75,10 +75,14 @@ export function tryBuy() {
         addFloatText(`${perk.name} unlocks round ${perk.minRound}`, '#888');
       } else if (getPoints() >= perk.cost) {
         setPoints(getPoints() - perk.cost);
-        player.perksOwned[perk.id] = PERK_DURATION;
+        // Permanent perks (e.g. Health) don't run a countdown — we still
+        // set a positive sentinel so 'owned' checks pass, but use a very
+        // large number the decrement loop will never consume.
+        player.perksOwned[perk.id] = perk.permanent ? 1e9 : PERK_DURATION;
         perk.apply();
         sfxBuyPerk();
-        addFloatText(`${perk.name} ACTIVE! (${PERK_DURATION}s)`, perk.color, 2.5);
+        const msg = perk.permanent ? `${perk.name} ACTIVE!` : `${perk.name} ACTIVE! (${PERK_DURATION}s)`;
+        addFloatText(msg, perk.color, 2.5);
       } else {
         addFloatText(`Need $${perk.cost} for ${perk.name}`, '#f88');
       }

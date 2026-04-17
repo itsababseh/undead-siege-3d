@@ -122,6 +122,9 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   let perkHTML = '';
   for (const p of _perks) {
     if (_player.perksOwned[p.id] > 0) {
+      // Permanent perks (Health) don't show a pill — the bigger HP bar
+      // speaks for itself. No countdown, no icon noise.
+      if (p.permanent) continue;
       const icon = PERK_ICONS[p.id] || '✦';
       const label = p.name.substring(0, 3).toUpperCase();
       // Juggernog: show remaining shield hits instead of only the timer
