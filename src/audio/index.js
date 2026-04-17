@@ -539,6 +539,74 @@ function playDistantScream() {
   } catch(e) {}
 }
 
+function playDrip() {
+  // Slow dripping water — horror ambience during quiet moments
+  if (!actx || !masterGain) return;
+  try {
+    const count = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const delay = i * (0.18 + Math.random() * 0.25);
+      const t = actx.currentTime + delay;
+      // Plonk: short sine blip with fast decay
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine';
+      const pitch = 900 + Math.random() * 600; // each drip slightly different
+      o.frequency.setValueAtTime(pitch * 1.4, t);
+      o.frequency.exponentialRampToValueAtTime(pitch, t + 0.04);
+      g.gain.setValueAtTime(0.022, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      const filt = actx.createBiquadFilter();
+      filt.type = 'peaking'; filt.frequency.value = pitch; filt.gain.value = 8; filt.Q.value = 6;
+      o.connect(filt); filt.connect(g); g.connect(masterGain);
+      o.start(t); o.stop(t + 0.2);
+      // Tiny splash tail
+      const splashLen = Math.floor(actx.sampleRate * 0.06);
+      const splashBuf = actx.createBuffer(1, splashLen, actx.sampleRate);
+      const sd = splashBuf.getChannelData(0);
+      for (let j = 0; j < splashLen; j++) sd[j] = (Math.random() * 2 - 1) * Math.exp(-j / (splashLen * 0.12));
+      const splash = actx.createBufferSource(); splash.buffer = splashBuf;
+      const splashHP = actx.createBiquadFilter(); splashHP.type = 'highpass'; splashHP.frequency.value = 2000;
+      const splashG = actx.createGain(); splashG.gain.setValueAtTime(0.012, t + 0.03);
+      splashG.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+      splash.connect(splashHP); splashHP.connect(splashG); splashG.connect(masterGain); splash.start(t + 0.03);
+    }
+  } catch(e) {}
+}
+
+function playDistantHorde() {
+  // A crowd of distant zombies moaning — layered detuned oscillators
+  if (!actx || !masterGain) return;
+  try {
+    const t = actx.currentTime;
+    const layers = 4 + Math.floor(Math.random() * 3); // 4–6 voices
+    for (let i = 0; i < layers; i++) {
+      const baseF = 55 + Math.random() * 50;
+      const dur = 1.2 + Math.random() * 1.5;
+      const startOff = Math.random() * 0.4;
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(baseF + Math.random() * 15, t + startOff);
+      o.frequency.linearRampToValueAtTime(baseF - 8 + Math.random() * 20, t + startOff + dur * 0.6);
+      o.frequency.linearRampToValueAtTime(baseF + Math.random() * 10, t + startOff + dur);
+      g.gain.setValueAtTime(0, t + startOff);
+      g.gain.linearRampToValueAtTime(0.008 + Math.random() * 0.006, t + startOff + 0.15);
+      g.gain.setValueAtTime(0.007, t + startOff + dur * 0.7);
+      g.gain.exponentialRampToValueAtTime(0.001, t + startOff + dur);
+      const filt = actx.createBiquadFilter();
+      filt.type = 'lowpass'; filt.frequency.value = 280 + Math.random() * 180; filt.Q.value = 2 + Math.random() * 3;
+      // Heavy lowpass + gentle reverb via delay
+      const delay = actx.createDelay(0.5);
+      delay.delayTime.value = 0.22 + Math.random() * 0.15;
+      const fbG = actx.createGain(); fbG.gain.value = 0.25;
+      const wetG = actx.createGain(); wetG.gain.value = 0.35;
+      o.connect(filt); filt.connect(g); g.connect(masterGain);
+      g.connect(delay); delay.connect(fbG); fbG.connect(delay);
+      delay.connect(wetG); wetG.connect(masterGain);
+      o.start(t + startOff); o.stop(t + startOff + dur + 0.3);
+    }
+  } catch(e) {}
+}
+
 function playMetalCreak() {
   if (!actx || !masterGain) return;
   try {
@@ -561,31 +629,39 @@ function playMetalCreak() {
 
 function updateAmbientSounds(dt, zombies, state, paused) {
   if (!actx || !masterGain || state === 'menu' || state === 'dead' || paused) return;
-  
-  // Random ambient events
+
+  const isBetweenRounds = state === 'roundIntro';
+
+  // Random ambient events — drips more frequent between rounds
   ambientTimer -= dt;
   if (ambientTimer <= 0) {
     const roll = Math.random();
-    if (roll < 0.35) playAmbientWind();
-    else if (roll < 0.55) playDistantScream();
-    else if (roll < 0.7) playMetalCreak();
-    ambientTimer = 4 + Math.random() * 8; // 4-12 seconds between ambient sounds
+    if (isBetweenRounds) {
+      // Between rounds: eerie quiet — drips, creaks, distant horde
+      if (roll < 0.40) playDrip();
+      else if (roll < 0.65) playMetalCreak();
+      else if (roll < 0.85) playDistantHorde();
+      else playAmbientWind();
+      ambientTimer = 2.5 + Math.random() * 5; // slightly more frequent in silence
+    } else {
+      // During combat: wind, distant horde, metal creaks (no drips — too quiet)
+      if (roll < 0.35) playAmbientWind();
+      else if (roll < 0.60) playDistantHorde();
+      else if (roll < 0.75) playMetalCreak();
+      // else: silence — adds unpredictability
+      ambientTimer = 4 + Math.random() * 8;
+    }
   }
-  
-  // Zombie groans (proximity-based - nearby zombies groan more)
+
+  // Zombie groans (proximity-based — nearby zombies groan more)
   zombieGroanTimer -= dt;
   if (zombieGroanTimer <= 0 && zombies && zombies.length > 0) {
-    // Find closest zombie
     let closestDist = Infinity;
     for (const z of zombies) {
       const d = Math.hypot(z.wx - _camera.position.x, z.wz - _camera.position.z);
       if (d < closestDist) closestDist = d;
     }
-    // Closer zombies = more frequent groans
-    if (closestDist < 20) {
-      sfxZombieGrunt();
-    }
-    // Timer scales with distance: close = 1-3s, far = 4-8s
+    if (closestDist < 20) sfxZombieGrunt();
     const distFactor = Math.min(closestDist / 15, 1);
     zombieGroanTimer = 1.5 + distFactor * 5 + Math.random() * 3;
   }
@@ -924,5 +1000,5 @@ export {
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
-  playAmbientWind, playDistantScream, playMetalCreak
+  playAmbientWind, playDistantScream, playDistantHorde, playMetalCreak, playDrip
 };
