@@ -21,6 +21,7 @@ export function tryBuy() {
     getPoints, setPoints, getRound,
     tryActivateGenerator, tryCatalyst, tryMysteryBox,
     collectMysteryBoxWeapon, tryPackAPunch,
+    switchWeapon,
   } = _ctx;
 
   const px = camera.position.x, pz = camera.position.z;
@@ -35,13 +36,18 @@ export function tryBuy() {
       }
       if (!player.owned[wb.wi] && getPoints() >= wb.cost) {
         setPoints(getPoints() - wb.cost);
-        weaponMags[player.curWeapon] = player.mag;
+        // Mark owned + give full ammo BEFORE switching so switchWeapon's
+        // owned[idx] check passes. Pre-seed mag for the new weapon.
         player.owned[wb.wi] = true;
-        player.curWeapon = wb.wi;
-        player.mag = weapons[wb.wi].mag;
         player.ammo[wb.wi] = weapons[wb.wi].maxAmmo;
-        player.reloading = false;
-        player.reloadTimer = 0;
+        weaponMags[wb.wi] = weapons[wb.wi].mag;
+        if (wb.wi !== player.curWeapon && switchWeapon) {
+          switchWeapon(wb.wi);
+        } else {
+          player.mag = weapons[wb.wi].mag;
+          player.reloading = false;
+          player.reloadTimer = 0;
+        }
         sfxBuyWeapon(weapons[wb.wi].isRayGun);
         if (weapons[wb.wi].isRayGun) { addFloatText(`⚡ RAY GUN ⚡`, '#0f0', 2.5); }
         else { addFloatText(`${weapons[wb.wi].name}!`, '#6f6', 1.5); }

@@ -4,9 +4,9 @@ import * as THREE from 'three';
 import { beep, sfxBuyWeapon } from '../audio/index.js';
 import { addFloatText } from '../effects/index.js';
 
-let _scene, _camera, _TILE, _weapons, _player, _weaponMags, _getPoints, _setPoints;
+let _scene, _camera, _TILE, _weapons, _player, _weaponMags, _getPoints, _setPoints, _switchWeapon;
 
-export function setMysteryBoxDeps(scene, camera, TILE, weapons, player, weaponMags, pointsAccessor) {
+export function setMysteryBoxDeps(scene, camera, TILE, weapons, player, weaponMags, pointsAccessor, switchWeapon) {
   _scene = scene;
   _camera = camera;
   _TILE = TILE;
@@ -15,6 +15,7 @@ export function setMysteryBoxDeps(scene, camera, TILE, weapons, player, weaponMa
   _weaponMags = weaponMags;
   _getPoints = pointsAccessor.get;
   _setPoints = pointsAccessor.set;
+  _switchWeapon = switchWeapon;
 }
 
 export const mysteryBox = {
@@ -117,14 +118,21 @@ export function collectMysteryBoxWeapon() {
   if (d > _TILE * 2.5) return false;
   
   const wi = mysteryBox.resultWeaponIdx;
-  _weaponMags[_player.curWeapon] = _player.mag;
+  // Mark owned + give full ammo BEFORE switching, so switchWeapon's
+  // owned[idx] check passes.
   _player.owned[wi] = true;
-  _player.curWeapon = wi;
-  _player.mag = _weapons[wi].mag;
   _player.ammo[wi] = _weapons[wi].maxAmmo;
-  _player.reloading = false;
-  _player.reloadTimer = 0;
-  
+  // Pre-seed mag for the new weapon so switchWeapon reads the right value
+  _weaponMags[wi] = _weapons[wi].mag;
+  if (wi !== _player.curWeapon && _switchWeapon) {
+    _switchWeapon(wi);
+  } else {
+    // Same weapon as currently equipped — just refresh mag
+    _player.mag = _weapons[wi].mag;
+    _player.reloading = false;
+    _player.reloadTimer = 0;
+  }
+
   sfxBuyWeapon(_weapons[wi].isRayGun);
   const wName = _weapons[wi].name;
   addFloatText(_weapons[wi].isRayGun ? `⚡ ${wName} ⚡` : `${wName}!`, _weapons[wi].color, 2);

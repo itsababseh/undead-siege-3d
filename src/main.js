@@ -332,7 +332,7 @@ setStoryDeps(scene, camera, TILE, gameState, addFloatText);
 
 // Points accessor for gameplay modules
 const pointsAccessor = { get: () => points, set: (v) => { points = v; } };
-setMysteryBoxDeps(scene, camera, TILE, weapons, player, weaponMags, pointsAccessor);
+setMysteryBoxDeps(scene, camera, TILE, weapons, player, weaponMags, pointsAccessor, switchWeapon);
 setPackAPunchDeps(scene, camera, TILE, weapons, player, pointsAccessor);
 
 // Zombies array (shared mutable reference)
@@ -460,6 +460,7 @@ initBuying({
   tryMysteryBox,
   collectMysteryBoxWeapon,
   tryPackAPunch,
+  switchWeapon,
 });
 initShooting({
   player, weapons, zombies, camera, muzzleLight, TILE,
