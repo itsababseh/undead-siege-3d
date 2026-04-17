@@ -21,7 +21,7 @@
 - **Knife System** — Dedicated melee attack with swing animation, cooldown, and satisfying slash SFX
 - **Weapon Quick-Swap** — Press Q to instantly toggle between your last two weapons
 - **Per-Weapon Recoil** — Every gun has hand-tuned kick, barrel rise, and settle behavior
-- **Sprint** — Hold **Shift** while moving forward to run at 1.45× speed. Faster head-bob cadence, subtle FOV widen, and the gun lowers CoD-style to signal you're in motion (release to raise and fire)
+- **Sprint** — Hold Shift while moving forward to run at 1.45× speed. Faster head-bob cadence, subtle FOV widen, and the gun lowers CoD-style to signal you're in motion (release to raise and fire)
 
 ### Perks (90s timed duration, CoD-style)
 - **🛡️ Juggernog** — 3-hit absorbing shield. Zombies eat the shield before your HP (2500 pts)
@@ -87,7 +87,7 @@
 | Action | Desktop | Mobile |
 |--------|---------|--------|
 | Move | WASD | Virtual Joystick |
-| **Sprint** | **Shift + W** | — |
+| Sprint | Shift | — |
 | Look | Mouse | Touch Drag |
 | Shoot | Left Click | Fire Button |
 | Reload | R | R Button |
