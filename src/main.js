@@ -42,7 +42,7 @@ import { initBuying, tryBuy, openDoorLocal } from './gameplay/buying.js';
 import {
   initShooting, tryShoot, doReload, finishReload, switchWeapon,
 } from './gameplay/shooting.js';
-import { initChat, tickChat, isChatInputActive } from './netcode/chat.js';
+import { initChat, tickChat, isChatInputActive, closeChatInput } from './netcode/chat.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
   initMenuBackground, stopMenuBackground, restartMenuBackground,
@@ -319,7 +319,7 @@ initReviveMp({
   setPlayerHp: (hp) => { player.hp = hp; },
   getReviveSpeedMult: () => player.reviveSpeedMult || 1,
 });
-initChat();
+initChat(() => state);
 // NOTE: initBuying + initShooting are wired up AFTER the declarations of
 // `zombies`, `doors`, `wallBuys`, `PERK_DURATION` etc. Calling them here
 // would trip a temporal dead zone on those `const`s.
@@ -2342,6 +2342,9 @@ function leaveMpCompletely() {
 // ── Match lifecycle — invoked by hostSync when lobby.status flips ─
 function _onMatchStarted() {
   hideAllMpPanels();
+  // Make sure a stale open chat input from the lobby doesn't steal
+  // keyboard focus into gameplay
+  closeChatInput();
   if (typeof window._startGame === 'function') window._startGame();
 }
 

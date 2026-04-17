@@ -24,7 +24,12 @@ let _lastRenderedCount = -1;
 let _lastNewMsgTime = 0;
 
 /** Call once on startup with the host page. Creates the HUD DOM. */
-export function initChat() {
+let _getState = null;
+export function initChat(getState) {
+  _getState = typeof getState === 'function' ? getState : null;
+  _initChat();
+}
+function _initChat() {
   if (_windowEl) return; // idempotent
 
   const style = document.createElement('style');
@@ -93,8 +98,13 @@ export function initChat() {
       // Let other keys fall through to the input element.
       return;
     }
-    // Open on T when not typing elsewhere.
+    // Open on T when not typing elsewhere — but ONLY during active
+    // gameplay. Without this check, pressing T in the lobby screen
+    // opens chat and the input focus then blocks keyboard gameplay
+    // once the match starts.
     if ((e.key === 't' || e.key === 'T') && document.activeElement?.tagName !== 'INPUT') {
+      const state = _getState ? _getState() : null;
+      if (state !== 'playing' && state !== 'roundIntro') return;
       openInput();
       e.preventDefault();
     }
@@ -125,6 +135,13 @@ function closeInput() {
 
 export function isChatInputActive() { return _inputActive; }
 
+// Force the chat input to close. Called by main.js when leaving
+// gameplay (match end, death, going back to lobby) so a stale open
+// input doesn't persist across state transitions.
+export function closeChatInput() {
+  if (_inputActive) closeInput();
+}
+
 function renderWindow() {
   if (!_windowEl) return;
   const msgs = netcode.getChatMessages();
@@ -148,9 +165,15 @@ function escapeHtml(s) {
 export function tickChat() {
   if (!_windowEl) return;
   const connected = netcode.isConnected();
-  _hintEl.classList.toggle('visible', connected && !_inputActive);
-  if (!connected) {
+  const state = _getState ? _getState() : null;
+  const inGameplay = state === 'playing' || state === 'roundIntro';
+  // Only advertise "Press T to chat" during actual gameplay so the
+  // hint doesn't appear in the lobby / menu / death screens.
+  _hintEl.classList.toggle('visible', connected && inGameplay && !_inputActive);
+  if (!connected || !inGameplay) {
     _windowEl.classList.remove('visible');
+    // Safety: if the state left gameplay while input was open, close it
+    if (_inputActive) closeInput();
     return;
   }
   renderWindow();
