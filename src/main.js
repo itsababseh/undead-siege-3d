@@ -2114,13 +2114,20 @@ document.getElementById('startBtn').addEventListener('click', window._startGame)
 
   function renderLb() {
     lbWrap.style.display = 'block';
+    const status = netcode.getStatus();
     if (!netcode.isConnected()) {
-      lbList.innerHTML = '<div style="color:#555;text-align:center">Connecting to global leaderboard…</div>';
+      // Don't leave 'Connecting...' up forever if the server is down
+      // or the connection errored. Users should know when the board
+      // is unreachable vs. genuinely empty.
+      const msg = (status === 'error' || status === 'disconnected')
+        ? 'Leaderboard offline — try again later'
+        : 'Connecting to global leaderboard…';
+      lbList.innerHTML = `<div style="color:#555;text-align:center">${msg}</div>`;
       return;
     }
     const scores = netcode.getHighScores();
     if (!scores || scores.length === 0) {
-      lbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first.</div>';
+      lbList.innerHTML = '<div style="color:#555;text-align:center">No scores yet — be the first to post one!</div>';
       return;
     }
     const top = scores.slice(0, 5);

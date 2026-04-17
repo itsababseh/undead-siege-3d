@@ -2,7 +2,7 @@
 
 ### A love letter to Call of Duty Zombies — built entirely through AI conversation
 
-<img width="1280" height="633" alt="Undead Siege 3D" src="https://github.com/user-attachments/assets/59c37f07-25ee-47b7-97e4-c9102db291cb" />
+<img width="1280" height="633" alt="Undead Siege 3D" src="og-image.png" />
 
 <div align="center">
 
@@ -15,48 +15,69 @@
 ## 🔫 Features
 
 ### Combat & Weapons
-- **4 Iconic Weapons** — M1911 (starter), MP40, Trench Gun, Ray Gun
-- **Mystery Box** — Spend 950 points for a random weapon drop with animated reveal
+- **4 Iconic Weapons** — M1911 (starter), MP40, Trench Gun, Ray Gun — each with unique recoil profile, muzzle flash, and tracer
+- **Mystery Box** — Spend 950 points for a random weapon drop with animated spin reveal; 8-second collect window
 - **Pack-a-Punch** — Upgrade any weapon for 5000 points: boosted damage, bigger mags, animated camo & graffiti overlay
-- **Knife System** — Melee attack with dedicated animation and satisfying slash SFX
+- **Knife System** — Dedicated melee attack with swing animation, cooldown, and satisfying slash SFX
 - **Weapon Quick-Swap** — Press Q to instantly toggle between your last two weapons
+- **Per-Weapon Recoil** — Every gun has hand-tuned kick, barrel rise, and settle behavior
 
-### Perks
-- **Juggernog** — +75 HP (2500 pts)
-- **Speed Cola** — Faster reload (3000 pts)
-- **Double Tap** — 2× fire rate (2000 pts)
-- **Quick Revive** — HP regeneration (1500 pts)
-- **Timed Expiration** — All perks last 90 seconds with countdown HUD + blinking warning at 15s
+### Perks (90s timed duration, CoD-style)
+- **🛡️ Juggernog** — 3-hit absorbing shield. Zombies eat the shield before your HP (2500 pts)
+- **❤️ Health** — Permanent +75 max HP boost while active (2500 pts)
+- **⚡ Speed Cola** — 2× faster reload (3000 pts)
+- **🔥 Double Tap** — 2× fire rate (2000 pts)
+- **💉 Quick Revive** — HP regen + 4× faster ally revives (1500 pts)
+- **Stylized HUD Pills** — Each perk appears as a pill-shaped button with emoji, label, time-drain fill, and pulsing warning when <5s remain
+- **Down = Wipe** — All timed buffs clear when you go down; re-buy after revive to stack again
 
-### Enemies
-- **Dynamic Zombie AI** — Pathfinding with wall avoidance, separation forces, and stuck detection
-- **Boss Zombies** — Every 5th round features a boss + 15% elite zombie chance
+### Enemies & AI
+- **Dynamic Pathfinding** — Wall collision with body-radius margin so zombies never clip through geometry
+- **Separation Forces** — Boid-like horde behavior so zombies don't stack on top of each other
+- **Stuck Detection + Nudge** — Line-of-sight checked teleport that never tunnels through walls
+- **Boss Zombies** — Every 5th round spawns a boss with ground pound, zigzag, and phase-based abilities
+- **Elite Zombies** — 15% chance past round 3: 2.5× HP, 1.15× speed, 1.8× damage
+- **Limping System** — Damaged zombies develop randomized limps that affect their stride
 - **Tier System** — CoD-style difficulty jumps every 5 rounds (speed, HP, damage scaling)
-- **Limping System** — Damaged zombies develop randomized limps affecting movement
+- **Zone-Aware Spawning** — Zombies never spawn in sealed rooms (West Wing / East Chamber) before their doors are bought
 
 ### World & Exploration
-- **Full 3D Environment** — Three.js powered with textured walls, floors, dynamic lighting, and fog
-- **Buyable Doors** — West Wing & East Chamber unlock new areas with more zombie spawns
+- **Full 3D Environment** — Three.js-powered with textured walls, floors, cinematic fog, and atmospheric lighting
+- **Buyable Doors** — West Wing (1250 pts) & East Chamber (2000 pts) unlock new areas with fresh spawn points
 - **Easter Egg Quest** — Activate generators in the correct sequence, collect the catalyst, complete the ritual
-- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo, Carpenter
-- **Vibe Jam Portals** — Interdimensional portals that transport you to other Vibe Jam 2026 games
+- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo, Carpenter — with stylized animated pill UI showing remaining duration
+- **Vibe Jam Portals** — Interdimensional caution-tape portal built into the wall that transports you to other Vibe Jam 2026 games
+- **Subtle Cinematic Vignette** — Always-on film-style edge falloff that doesn't darken gameplay
 
-### Multiplayer
-- **Online Co-op** — Up to 5 players via SpacetimeDB netcode
-- **Lobby System** — Create, join by code, browse public lobbies
-- **Downed & Revive** — Go down when HP hits 0, teammates can revive you
-- **Spectator Mode** — Watch teammates when joining mid-match
-- **In-Game Chat** — Press T to type, real-time messaging
-- **Global Leaderboard** — Compete for the highest round worldwide
+### Multiplayer (real-time up to 5 players)
+- **Lobby System** — Create public/private, join by invite code, or browse the public lobby list
+- **Host Authority** — One client per lobby runs zombie AI and streams positions at 20 Hz; HP is server-authoritative via SpacetimeDB
+- **Synced Weapon Models** — Remote players' soldier models show the actual weapon they're holding (pistol, SMG, shotgun, ray gun)
+- **Downed & Revive** — Go down when HP hits 0, teammates hold E within 3 units to revive; 2-second post-revive grace window
+- **Spectator Mode** — Mid-match joiners spectate until the next round starts
+- **In-Game Chat** — Press T to type, filtered UI, per-lobby scoped
+- **Squad Wipe Summary** — Full run stats + global leaderboard placement shown when the whole squad goes down
+- **Global MP Leaderboard** — Squad rosters with all player names stored together; top 5 shown on main menu with 👥 prefix for multi-player runs
 
 ### Quality of Life
-- **Minimap** — Real-time tactical overview with zombie positions
-- **Mobile Support** — Full touch controls with virtual joystick
-- **Procedural Audio** — All SFX synthesized via Web Audio API (no audio files needed)
-- **Ambient Soundscape** — Dynamic eerie atmosphere that adapts to gameplay
-- **Radio Transmissions** — Story-driven audio logs throughout the map
-- **Local + Global Leaderboards** — Track your personal bests and global rankings
-- **Player Ranks** — Earn military-style ranks based on cumulative performance
+- **Redesigned Reload UI** — Spinning indicator + countdown + shimmering gradient bar embedded in the ammo box (no more overlapping HUD elements)
+- **Minimap** — Real-time tactical overview with zombie positions, doors, perks, and interactable icons
+- **Player Ranks** — Earn military ranks (Recruit → Corporal → Sergeant → …) based on cumulative performance
+- **Local + Global Leaderboards** — Personal top-5 cached in localStorage; global top-5 streamed from SpacetimeDB
+- **Mobile Support** — Full touch controls with virtual joystick, fire button, reload button, and weapon switcher
+- **Procedural Audio** — Every SFX synthesized via Web Audio API (no audio files needed, instant load)
+- **Ambient Soundscape** — Dynamic eerie atmosphere that adapts to proximity and gameplay state
+- **Radio Transmissions** — Story-driven audio logs triggered on specific rounds
+- **Theme-Aware Branding** — Logo auto-switches between light and dark versions to match GitHub reader's theme
+
+### Recently Polished (April 2026)
+- **Brightness tuned for production** — Playable in any lighting condition while preserving the spooky zombie atmosphere
+- **Boss round distinction** — Every 5th round now shows a distinctive `⚠ BOSS ROUND N` banner with brighter red glow
+- **Gun recoil state fix** — No more stuck-forward gun after the last shot of a round
+- **Mystery box pickup** — Weapon swap is now bulletproof and works regardless of game state
+- **Last zombie spawn acceleration** — Final 1–2 zombies always spawn within 0.8s and bypass the maxAlive cap
+- **Zero zombie auto-kills** — Zombies now only die when shot or knifed; stuck ones get progressively stronger nudges toward the player
+- **MP death pointer unlock** — Cursor is properly freed on squad wipe so overlay buttons are clickable
 
 ---
 
@@ -70,7 +91,7 @@
 | Reload | R | R Button |
 | Buy / Interact | E | E Button |
 | Knife / Melee | F | F Button |
-| Switch Weapons | 1-4 / Scroll | Weapon Buttons |
+| Switch Weapons | 1-4 | Weapon Buttons |
 | Quick Swap | Q | — |
 | Chat (MP) | T | — |
 | Pause | ESC | — |
@@ -81,14 +102,37 @@
 
 | Layer | Technology |
 |-------|-----------|
-| 3D Engine | Three.js (ES6 modules) |
-| Camera | Custom PointerLock FPS controller |
-| Audio | Web Audio API — fully procedural, zero audio files |
-| Networking | SpacetimeDB (real-time multiplayer + global leaderboard) |
-| Textures | Procedurally generated (no external image assets) |
-| Build | Vanilla ES6 modules — no bundler, no build step |
-| Deployment | GitHub Pages with CI/CD |
-| Code | 100% AI-generated through conversation |
+| 3D Engine | Three.js 0.162 (ES6 modules via CDN importmap) |
+| Camera | Custom FPS controller (no PointerLockControls — avoids roll drift) |
+| Audio | Web Audio API — 100% procedural, zero audio files |
+| Networking | SpacetimeDB real-time multiplayer (Rust backend, WASM reducers) |
+| Textures | Procedurally generated canvas textures (no external image assets) |
+| Build | esbuild bundler — single inlined HTML, no runtime bundler cost |
+| Deployment | GitHub Pages with auto-deploy workflow on push |
+| Code | 100% AI-generated through continuous conversation |
+
+---
+
+## 📁 Project Structure
+
+```
+undead-siege-3d/
+├── index.html                     # Single-file entry point
+├── styles/main.css                # All HUD & UI styling
+├── src/
+│   ├── main.js                    # Game loop, scene init, wiring
+│   ├── core/state.js              # Mutable shared state (player, game, entities)
+│   ├── audio/index.js             # Web Audio SFX synthesizer
+│   ├── entities/zombies.js        # Zombie sprites, AI, animations
+│   ├── models/guns.js             # First-person gun meshes + recoil
+│   ├── effects/                   # VFX, atmosphere, damage numbers
+│   ├── gameplay/                  # Mystery box, Pack-a-Punch, power-ups, buying, shooting
+│   ├── world/                     # Map, textures, props, story, portal
+│   ├── ui/                        # HUD, menu, minimap, loading, ranks
+│   └── netcode/                   # SpacetimeDB client, host sync, revive, remote players
+├── server/                        # Rust SpacetimeDB module (multiplayer backend)
+└── scripts/build.mjs              # esbuild bundler → dist/index.html
+```
 
 ---
 
