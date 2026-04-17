@@ -551,6 +551,8 @@ setMinimapDeps({
 let _deathShown = false;
 function initGame() {
   _deathShown = false;
+  // Clear any leftover MP refocus hint from a previous session
+  if (typeof hideMpUnlockHint === 'function') hideMpUnlockHint();
   player.hp = 100; player.maxHp = 100;
   player.curWeapon = 0; player.mag = weapons[0].mag;
   player.ammo = [999, 0, 0, 0];
@@ -1019,22 +1021,25 @@ document.addEventListener('wheel', e => {
 
 document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked) {
-    // Don't show the pause overlay while locally downed — the downed
-    // overlay is already on screen and stacking the pause overlay on
-    // top confuses the revive flow (clicking to "resume" shouldn't
-    // touch the downed state).
+    // Don't show any overlay while locally downed — the downed overlay
+    // is already on screen.
     if (isLocallyDowned()) return;
     if ((state === 'playing' || state === 'roundIntro') && !paused && !_startingGame) {
-      // In multiplayer the world is shared — pausing would only stop YOUR
-      // local view while other players and the server keep running, which
-      // is confusing. Unlock the cursor but keep the game simulating.
+      // SINGLE PLAYER: real pause. Game freezes, full overlay shown.
+      // MULTIPLAYER: NO pause — the world is shared and the server keeps
+      // ticking even if you walk away. Show a small unobtrusive
+      // "click to refocus" hint instead so the player can re-engage
+      // without obscuring gameplay (or dying behind a fake pause screen).
       if (netcode.isConnected()) {
-        showPause();
+        showMpUnlockHint();
       } else {
         paused = true;
         showPause();
       }
     }
+  } else {
+    // Pointer just got locked — hide the MP unlock hint if it was up.
+    hideMpUnlockHint();
   }
 });
 renderer.domElement.addEventListener('click', () => {
@@ -1058,6 +1063,32 @@ document.getElementById('pauseOverlay').addEventListener('click', () => {
     controls.lock();
   }
 });
+
+// ===== MP "click to refocus" hint =====
+// Small, non-blocking element shown when the cursor is unlocked during
+// multiplayer gameplay. Replaces the full pause overlay (MP can't pause
+// because the server keeps simulating). Click anywhere on the canvas
+// to relock the cursor.
+let _mpHintEl = null;
+function showMpUnlockHint() {
+  if (!_mpHintEl) {
+    _mpHintEl = document.createElement('div');
+    _mpHintEl.id = 'mpUnlockHint';
+    _mpHintEl.style.cssText = `
+      position:fixed;top:16px;left:50%;transform:translateX(-50%);
+      z-index:48;pointer-events:none;
+      background:rgba(0,0,0,0.78);border:1px solid #4af;border-radius:4px;
+      padding:8px 18px;font:bold 12px monospace;color:#cfe9ff;
+      letter-spacing:2px;text-shadow:0 0 6px rgba(68,170,255,0.6);
+      box-shadow:0 0 14px rgba(68,170,255,0.25)`;
+    _mpHintEl.innerHTML = '⚠ MULTIPLAYER — game still running &nbsp;·&nbsp; CLICK TO REFOCUS';
+    document.body.appendChild(_mpHintEl);
+  }
+  _mpHintEl.style.display = 'block';
+}
+function hideMpUnlockHint() {
+  if (_mpHintEl) _mpHintEl.style.display = 'none';
+}
 
 function keyPressed(k) { return keys[k] && !prevKeys[k]; }
 
@@ -2488,6 +2519,7 @@ function _onMatchEnded() {
   state = 'dead';
   paused = false;
   hidePause();
+  hideMpUnlockHint();
   // Release the mouse so the user can actually click the overlay
   // buttons. Without this the pointer stays locked to the canvas from
   // the moment the squad wipes, blocking PLAY AGAIN / BACK TO LOBBY.

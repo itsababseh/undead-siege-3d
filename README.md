@@ -86,6 +86,7 @@
 - **Sprint** — Hold Shift to run. Gun lowers, FOV widens, bob quickens
 - **MP Last Stand** — Downed teammates drop to a prone crawl with a pistol; they can return fire while waiting for a revive (solo death stays final — no one to revive you)
 - **Downed-state safeguards** — Portal, weapon swaps, and shop purchases are blocked while downed so a revivable player can't accidentally escape or grief
+- **Pause is single-player only** — In MP the world is shared and the server keeps simulating. ESC unlocks the cursor and shows a small "click to refocus" hint at the top of the screen instead of a full pause overlay; you keep taking damage if zombies are on you. SP still pauses fully on ESC
 
 ---
 
@@ -103,7 +104,7 @@
 | Switch Weapons | 1-4 | Weapon Buttons |
 | Quick Swap | Q | — |
 | Chat (MP) | T | — |
-| Pause | ESC | — |
+| Pause (SP only) | ESC | — |
 
 ---
 
