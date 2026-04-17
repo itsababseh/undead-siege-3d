@@ -171,8 +171,6 @@
     <div class="hm hm-bl"></div>
     <div class="hm hm-br"></div>
   </div>
-  <div id="reloadTime">RELOADING 1.5s</div>
-  <div id="reloadBarWrap"><div id="reloadFill"></div></div>
   <div id="ammoBox">
     <div class="wname-wrap"><div class="wname" id="wnameCur">M1911</div><div class="wname wname-old" id="wnameOld"></div></div>
     <div class="ammo-wrap">
@@ -180,7 +178,14 @@
       <span class="ammo-sep">/</span>
       <span class="ammo-reserve" id="ammoReserve">∞</span>
     </div>
-    <div class="ammo ammo-reload" id="ammoReload" style="display:none">RELOADING</div>
+    <div id="reloadWidget" style="display:none">
+      <div class="rl-top">
+        <span class="rl-icon">↻</span>
+        <span class="rl-label">RELOADING</span>
+        <span class="rl-time" id="reloadTime">1.5s</span>
+      </div>
+      <div class="rl-bar"><div id="reloadFill"></div></div>
+    </div>
   </div>
   <div id="pointsBox"><div class="label">POINTS</div><div class="val">500</div></div>
   <div id="roundBox"><div class="label">ROUND</div><div class="val">1</div></div>

@@ -65,21 +65,18 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
   const ammoMag = document.getElementById('ammoMag');
   const ammoReserve = document.getElementById('ammoReserve');
   const ammoWrap = document.querySelector('.ammo-wrap');
-  const ammoReload = document.getElementById('ammoReload');
-  const reloadBarWrap = document.getElementById('reloadBarWrap');
+  const reloadWidget = document.getElementById('reloadWidget');
   const reloadFill = document.getElementById('reloadFill');
   const reloadTimeEl = document.getElementById('reloadTime');
   if (_player.reloading) {
     ammoWrap.style.display = 'none';
-    ammoReload.style.display = 'block';
+    reloadWidget.style.display = 'block';
     const pct = Math.max(0, Math.min(100, ((_player.reloadTotal - _player.reloadTimer) / _player.reloadTotal) * 100));
-    reloadBarWrap.style.display = 'block';
     reloadFill.style.width = pct + '%';
-    reloadTimeEl.style.display = 'block';
-    reloadTimeEl.textContent = 'RELOADING';
+    if (reloadTimeEl) reloadTimeEl.textContent = Math.max(0, _player.reloadTimer).toFixed(1) + 's';
   } else {
     ammoWrap.style.display = 'flex';
-    ammoReload.style.display = 'none';
+    reloadWidget.style.display = 'none';
     ammoMag.textContent = _player.mag;
     const reserve = _player.ammo[_player.curWeapon];
     ammoReserve.textContent = reserve === 999 ? '\u221E' : reserve;
@@ -88,8 +85,6 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
     const isLow = _player.mag <= Math.ceil(magCap * 0.25) && _player.mag > 0;
     const isEmpty = _player.mag === 0;
     ammoMag.classList.toggle('low-ammo', isLow || isEmpty);
-    reloadBarWrap.style.display = 'none';
-    reloadTimeEl.style.display = 'none';
   }
   
   document.querySelector('#pointsBox .val').textContent = points;
