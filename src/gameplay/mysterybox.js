@@ -131,12 +131,16 @@ export function collectMysteryBoxWeapon() {
   if (d > _TILE * 3.0) return false;
   
   const wi = mysteryBox.resultWeaponIdx;
+  // "Same gun re-roll" — if the box gives you back the weapon you're
+  // currently holding, treat it as a free max-ammo refill instead of
+  // a swap. Matches player expectation (it's effectively a Max Ammo
+  // drop for that weapon).
+  const sameAsCurrent = (wi === _player.curWeapon);
   // Perform the switch inline. We DON'T call shooting.js's switchWeapon
   // because that has guard clauses (state check, early returns) that
   // can silently reject the switch — the user then "collects" the gun
   // but nothing changes. Doing it here guarantees the swap lands.
-  if (wi !== _player.curWeapon) {
-    // Save the mag count of the weapon we're leaving
+  if (!sameAsCurrent) {
     _weaponMags[_player.curWeapon] = _player.mag;
     _player.curWeapon = wi;
   }
@@ -150,7 +154,11 @@ export function collectMysteryBoxWeapon() {
 
   sfxBuyWeapon(_weapons[wi].isRayGun);
   const wName = _weapons[wi].name;
-  addFloatText(_weapons[wi].isRayGun ? `⚡ ${wName} ⚡` : `${wName}!`, _weapons[wi].color, 2);
+  if (sameAsCurrent) {
+    addFloatText(`${wName} — AMMO REFILL`, '#44ff44', 2);
+  } else {
+    addFloatText(_weapons[wi].isRayGun ? `⚡ ${wName} ⚡` : `${wName}!`, _weapons[wi].color, 2);
+  }
   
   mysteryBox.collectTimer = 0;
   mysteryBox.resultWeaponIdx = -1;
