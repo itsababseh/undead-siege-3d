@@ -1182,9 +1182,14 @@ function createZombieMesh(z) {
   z._frameSpeed = z._hasLimp ? (0.22 + Math.random() * 0.12) : (0.08 + (1 - Math.min(spdRatio, 1.5) / 1.5) * 0.12 + Math.random() * 0.04);
 
   // Spawn rising state — zombie emerges from the ground
-  z._spawnRising = true;
-  z._spawnTimer = 0;
-  z._spawnDur = SPAWN_RISE_DUR * (0.85 + Math.random() * 0.3); // slight variety
+  z._spawnDur = Math.min(SPAWN_RISE_DUR * (0.85 + Math.random() * 0.3), SPAWN_RISE_DUR); // capped at audio duration
+  // For remote zombies, fast-forward the timer by network latency so they
+  // don't appear underground for longer than the round-trip time
+  const elapsedSec = z._remoteSpawnMs
+    ? Math.min((Date.now() - z._remoteSpawnMs) / 1000, z._spawnDur)
+    : 0;
+  z._spawnTimer = elapsedSec;
+  z._spawnRising = elapsedSec < z._spawnDur;
 
   const spriteSheet = sheets[z._spriteVariant];
 

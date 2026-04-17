@@ -47,6 +47,10 @@ function makeLocalZombieFromRow(row, PI2) {
     _limpPhase: 0,
     _limpSeverity: 0,
     _baseSpd: 0,
+    _spawnRising: false, // set true by createZombieMesh; safe default for early access
+    // Fast-forward spawn timer using server createdAt so remote clients
+    // don't show zombies underground for longer than their latency
+    _remoteSpawnMs: row.createdAt ? Number(row.createdAt) : Date.now(),
     stuckCheck: null,
     _remote: true, // marks this as server-driven — main.js interpolates
   };

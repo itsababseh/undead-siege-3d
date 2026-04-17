@@ -754,6 +754,7 @@ function spawnZombie() {
     _limpPhase: Math.random() * Math.PI * 2,
     _limpSeverity: hasLimp ? (0.3 + Math.random() * 0.5) : 0,
     _baseSpd: spd,
+    _spawnRising: false, // set true by createZombieMesh; safe default for early access
     stuckCheck: null,
   };
   const offX = (Math.random()-0.5)*1.5;
@@ -766,7 +767,12 @@ function spawnZombie() {
   createZombieMesh(z);
 
   // Spawn emergence effects — dirt burst + underground rumble sound
-  sfxZombieSpawn();
+  // Throttle: max one sound per 200ms to avoid audio node explosion on mass spawns
+  const _now = performance.now();
+  if (!spawnZombie._lastSfx || _now - spawnZombie._lastSfx > 200) {
+    sfxZombieSpawn();
+    spawnZombie._lastSfx = _now;
+  }
   spawnDirtParticles(z.wx, z.wz);
 
   // Multiplayer: if we're host, tell the server about this new zombie.

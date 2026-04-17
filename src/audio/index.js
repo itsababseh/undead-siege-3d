@@ -910,7 +910,7 @@ function sfxZombieSpawn() {
     moanFilter.connect(moanGain);
     moanGain.connect(masterGain);
     moanOsc.start(t + 0.4); moanOsc.stop(t + 1.3);
-  } catch(e) {}
+  } catch(e) { console.warn('sfxZombieSpawn:', e); }
 }
 
 // Export all audio functions and state

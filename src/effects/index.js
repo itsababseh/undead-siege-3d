@@ -508,11 +508,15 @@ function spawnBloodParticles(x, y, z, count = 5) {
   }
 }
 
+// Pre-allocated dirt materials — shared across particles to avoid per-spawn alloc
+const _dirtMats = [0x5a3a1a, 0x6b4423, 0x4a2f12, 0x7a5533, 0x3d2b10].map(
+  c => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 1 })
+);
+
 function spawnDirtParticles(x, z, count = 12) {
-  const browns = [0x5a3a1a, 0x6b4423, 0x4a2f12, 0x7a5533, 0x3d2b10];
   for (let i = 0; i < count; i++) {
-    const color = browns[Math.floor(Math.random() * browns.length)];
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+    // Clone from pool so each particle can fade independently
+    const mat = _dirtMats[Math.floor(Math.random() * _dirtMats.length)].clone();
     const size = 0.6 + Math.random() * 0.8;
     const mesh = new THREE.Mesh(particleGeo, mat);
     mesh.position.set(x + (Math.random()-0.5)*1.2, 0.05, z + (Math.random()-0.5)*1.2);
