@@ -811,6 +811,31 @@ function sfxPlayerDeath() {
   } catch(e) {}
 }
 
+function sfxFootstep() {
+  // Concrete footstep — low thud + scuff
+  if (!actx || !masterGain) return;
+  try {
+    const t = actx.currentTime;
+    // Layer 1: Impact thud — short sine punch
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(90 + Math.random() * 20, t);
+    o.frequency.exponentialRampToValueAtTime(35, t + 0.07);
+    g.gain.setValueAtTime(0.08 + Math.random() * 0.02, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.1);
+    // Layer 2: Scuff — brief bandpass noise burst
+    const bufLen = Math.floor(actx.sampleRate * 0.055);
+    const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.25));
+    const src = actx.createBufferSource(); src.buffer = buf;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 400 + Math.random() * 200; f.Q.value = 2;
+    const gN = actx.createGain(); gN.gain.setValueAtTime(0.035, t + 0.01); gN.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    src.connect(f); f.connect(gN); gN.connect(masterGain); src.start(t + 0.01);
+  } catch(e) {}
+}
+
 function sfxWeaponSwitch() {
   if (!actx || !masterGain) return;
   beep(500, 'square', 0.02, 0.05);
@@ -999,7 +1024,7 @@ export {
   beep, sfxShoot, sfxReload, sfxHit, sfxKill, sfxHurt, sfxEmpty,
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
-  sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,

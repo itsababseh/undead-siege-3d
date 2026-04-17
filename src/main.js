@@ -5,7 +5,7 @@ import {
   beep, sfxShoot, sfxReload, sfxHit, sfxKill, sfxHurt, sfxEmpty,
   sfxShootM1911, sfxShootMP40, sfxShootTrenchGun, sfxRayGun,
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
-  sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
+  sfxFootstep, sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
@@ -1521,7 +1521,10 @@ function updateMovement(dt) {
     const nz = camera.position.z + mz;
     if (mapAt(nx + margin * Math.sign(mx), camera.position.z) === 0) camera.position.x = nx;
     if (mapAt(camera.position.x, nz + margin * Math.sign(mz)) === 0) camera.position.z = nz;
+    const prevBobSin = Math.sin(player.bobPhase);
     player.bobPhase += dt * 10;
+    // Fire footstep on each downward zero-crossing of sin(bobPhase) — one step per stride
+    if (prevBobSin > 0 && Math.sin(player.bobPhase) <= 0) sfxFootstep();
   }
   
   if (!isMobile) {
