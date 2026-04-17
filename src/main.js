@@ -148,8 +148,8 @@ const wallColors = [0x666666, 0x6B4226, 0x4A6B3A, 0x8B3520, 0x8B3520];
 
 // ===== SCENE SETUP =====
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1a24);
-scene.fog = new THREE.FogExp2(0x1a1a24, 0.010);
+scene.background = new THREE.Color(0x2d2d3d);
+scene.fog = new THREE.FogExp2(0x2d2d3d, 0.003);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(12 * TILE, 1.6, 12 * TILE);
@@ -160,7 +160,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.7;
+renderer.toneMappingExposure = 2.5;
 document.body.appendChild(renderer.domElement);
 
 // ===== POST-PROCESSING =====
@@ -226,9 +226,9 @@ window.addEventListener('focus', () => suppressMouse(200));
 window.addEventListener('blur', () => suppressMouse(200));
 
 // ===== LIGHTING =====
-const ambientLight = new THREE.AmbientLight(0x556677, 1.8);
+const ambientLight = new THREE.AmbientLight(0x8899aa, 3.5);
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xaabbcc, 1.0);
+const dirLight = new THREE.DirectionalLight(0xccddee, 2.0);
 dirLight.position.set(50, 30, 50);
 scene.add(dirLight);
 
@@ -254,7 +254,7 @@ addLight(6, 18, 0xffaa77, 2.5, 25);
 addLight(18, 18, 0xffbb88, 2.5, 25);
 addLight(12, 12, 0xffeedd, 3, 30);
 
-const playerLight = new THREE.PointLight(0xffeedd, 1.8, 20);
+const playerLight = new THREE.PointLight(0xffeedd, 3.0, 32);
 playerLight.position.copy(camera.position);
 scene.add(playerLight);
 
@@ -1842,35 +1842,31 @@ function updateLights(dt) {
     l._flickTimer -= dt;
 
     if (l._flickTimer <= 0) {
-      // Pick next mode: mostly normal drift, occasional struggle/blackout
+      // Mostly normal drift now, with very occasional brief struggle.
+      // Blackouts removed entirely — too dark for gameplay.
       const roll = Math.random();
-      if (roll < 0.65) {
+      if (roll < 0.9) {
         l._flickMode  = 0; // normal drift
-        l._flickTimer = 2 + Math.random() * 6;
-      } else if (roll < 0.88) {
-        l._flickMode  = 1; // struggling bulb
-        l._flickTimer = 0.15 + Math.random() * 0.45;
+        l._flickTimer = 3 + Math.random() * 6;
+      } else {
+        l._flickMode  = 1; // struggling bulb (rare, brief)
+        l._flickTimer = 0.1 + Math.random() * 0.25;
         l._stutterSpeed = 14 + Math.random() * 28;
         l._stutterT = 0;
-      } else {
-        l._flickMode  = 2; // full blackout
-        l._flickTimer = 0.05 + Math.random() * 0.18;
       }
     }
 
     if (l._flickMode === 0) {
       // Smooth horror drift: slow sine + small high-freq noise jitter
+      // Range raised to ~[0.85, 1.0] so rooms stay bright enough to see.
       const t = performance.now() / 1000;
-      const slow = Math.sin(t * 1.1 + l._phaseOffset) * 0.18;
-      const fast = Math.sin(t * 9.3 + l._phaseOffset * 2.1) * 0.06;
-      l._flickVal = 0.76 + slow + fast; // range ~[0.52, 1.00]
-    } else if (l._flickMode === 1) {
-      // Struggling: square-ish wave at stutter frequency
-      l._stutterT += dt * l._stutterSpeed;
-      l._flickVal = (Math.sin(l._stutterT * 6.2832) > 0) ? (0.55 + Math.random() * 0.3) : (0.05 + Math.random() * 0.12);
+      const slow = Math.sin(t * 1.1 + l._phaseOffset) * 0.06;
+      const fast = Math.sin(t * 9.3 + l._phaseOffset * 2.1) * 0.03;
+      l._flickVal = 0.93 + slow + fast;
     } else {
-      // Blackout
-      l._flickVal = 0;
+      // Struggling: stays between ~0.55 and 1.0 (no dark flickers)
+      l._stutterT += dt * l._stutterSpeed;
+      l._flickVal = (Math.sin(l._stutterT * 6.2832) > 0) ? (0.75 + Math.random() * 0.25) : (0.55 + Math.random() * 0.15);
     }
 
     l.intensity = l._baseIntensity * Math.max(0, l._flickVal);
