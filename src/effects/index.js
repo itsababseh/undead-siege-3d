@@ -234,6 +234,16 @@ function startZombieDeathAnim(z) {
   // Mark the zombie as dying so the shared eye-light pool skips it
   z._dying = true;
   if (hpSprite) hpSprite.visible = false;
+
+  // S4.2: Capture boss light + shadow refs for death animation & cleanup
+  const bossLight = data.bossLight || null;
+  const bossShadow = data.bossShadow || null;
+
+  // S4.2: Boss death — flash the attached light bright white briefly
+  if (z.isBoss && bossLight) {
+    bossLight.color.setHex(0xffffff);
+    bossLight.intensity = 3.0;
+  }
   
   dyingZombies.push({
     mesh: group,        // the Group (contains plane + lights)
@@ -242,11 +252,12 @@ function startZombieDeathAnim(z) {
     hpTex,              // for disposal
     frameCanvas,        // for disposal
     timer: 0,
-    duration: 0.6 + Math.random() * 0.3,
+    duration: z.isBoss ? 1.0 + Math.random() * 0.3 : 0.6 + Math.random() * 0.3,
     startY: group.position.y,
     fallDir: (Math.random() - 0.5) * 0.5,
     isBoss: z.isBoss,
     wx: z.wx, wz: z.wz,
+    bossLight, bossShadow,
   });
   
   // Detach from Map so removeZombieMesh won't double-remove
@@ -270,6 +281,8 @@ function updateDyingZombies(dt) {
         }
       });
       if (dz.hpTex) dz.hpTex.dispose();
+      // S4.2: Boss light + shadow are children of group — already removed
+      // by _scene.remove(dz.mesh) and disposed by traverse above.
       dyingZombies.splice(i, 1);
       continue;
     }
@@ -284,6 +297,15 @@ function updateDyingZombies(dt) {
     if (dz.planeMat) {
       dz.planeMat.transparent = true;
       dz.planeMat.opacity = 1 - t;
+    }
+
+    // S4.2: Boss death light — fade from bright white flash to zero
+    if (dz.isBoss && dz.bossLight) {
+      dz.bossLight.intensity = Math.max(0, 3.0 * (1 - t * 2)); // fade out in first half
+    }
+    // S4.2: Boss shadow fade
+    if (dz.isBoss && dz.bossShadow) {
+      dz.bossShadow.material.opacity = 0.35 * (1 - t);
     }
   }
 }

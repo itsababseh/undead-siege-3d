@@ -468,7 +468,7 @@ initShooting({
   mapAt,
   sfxShoot, sfxEmpty, sfxHit, sfxKill, sfxBossKill, sfxReload, sfxWeaponSwitch,
   setGunKick: (v) => { gunKick = v; },
-  spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles,
+  spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles, spawnDirtParticles,
   spawnDmgNumber, spawnBloodSplatter, spawnPowerUp,
   showHitmarker, addFloatText,
   startZombieDeathAnim, removeZombieMesh,
@@ -1129,7 +1129,8 @@ function tryKnife() {
           sfxKill();
           showHitmarker(true);
           spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, dmg, true);
-          spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+          // S4.2: Boss death — double blood particles
+          spawnBloodParticles(bestZ.wx, 1, bestZ.wz, bestZ.isBoss ? 16 : 8);
           const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
           addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
           startZombieDeathAnim(bestZ);
@@ -1140,7 +1141,9 @@ function tryKnife() {
           zombies.splice(idx, 1);
           if (bestZ.isBoss) {
             sfxBossKill();
-            triggerScreenShake(2.5, 5);
+            // S4.2: Longer, more intense screen shake on boss death
+            triggerScreenShake(4, 4);
+            spawnDirtParticles(bestZ.wx, bestZ.wz, 16);
           }
         }
       }

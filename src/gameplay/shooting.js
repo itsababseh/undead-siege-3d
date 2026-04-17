@@ -23,7 +23,7 @@ export function tryShoot() {
     player, weapons, zombies, camera, muzzleLight, TILE,
     mapAt, sfxShoot, sfxEmpty, sfxHit, sfxKill, sfxBossKill,
     setGunKick,
-    spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles,
+    spawnMuzzleSparks, spawnBloodParticles, spawnEnergyParticles, spawnDirtParticles,
     spawnDmgNumber, spawnBloodSplatter, spawnPowerUp,
     showHitmarker, addFloatText,
     startZombieDeathAnim, removeZombieMesh,
@@ -130,8 +130,9 @@ export function tryShoot() {
             sfxKill();
             showHitmarker(true);
             spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
-            if (w.isRayGun) spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, 15);
-            else spawnBloodParticles(bestZ.wx, 1, bestZ.wz, 8);
+            // S4.2: Boss death — double blood particles
+            if (w.isRayGun) spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, bestZ.isBoss ? 30 : 15);
+            else spawnBloodParticles(bestZ.wx, 1, bestZ.wz, bestZ.isBoss ? 16 : 8);
             const c = bestZ.isBoss ? '#f44' : bestZ.isElite ? '#ff8' : '#fc0';
             addFloatText(bestZ.isBoss ? `BOSS KILLED! +${pts}` : `+${pts}`, c, bestZ.isBoss ? 2.5 : 1);
             startZombieDeathAnim(bestZ);
@@ -142,7 +143,9 @@ export function tryShoot() {
             zombies.splice(idx, 1);
             if (bestZ.isBoss) {
               sfxBossKill();
-              triggerScreenShake(2.5, 5);
+              // S4.2: Longer, more intense screen shake on boss death
+              triggerScreenShake(4, 4);
+              spawnDirtParticles(bestZ.wx, bestZ.wz, 16);
             }
           }
         }
