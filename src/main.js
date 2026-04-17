@@ -1390,6 +1390,14 @@ function _update(dt) {
       }
     }
 
+    // Local distance — used by the attack check, extrapolation, and some
+    // FX. Always the local camera, because each client applies attacks to
+    // its own player. Computed BEFORE the remote-lerp block so the
+    // extrapolation below has valid values (fixes TDZ crash on non-host).
+    const localDx = camera.position.x - z.wx;
+    const localDz = camera.position.z - z.wz;
+    const localD = Math.hypot(localDx, localDz);
+
     // Non-host zombies (server-driven) smoothly track their target wx/wz
     // toward the last-received server position. Lerp factor 15 gives
     // snappy catch-up (~65ms). Also extrapolate using the delta between
@@ -1418,12 +1426,6 @@ function _update(dt) {
         }
       }
     }
-
-    // Local distance — used by the attack check and some FX. Always the
-    // local camera, because each client applies attacks to its own player.
-    const localDx = camera.position.x - z.wx;
-    const localDz = camera.position.z - z.wz;
-    const localD = Math.hypot(localDx, localDz);
 
     // AI distance — used by the movement loop. On host, this is the
     // NEAREST player (local or remote) so zombies don't all chase one
