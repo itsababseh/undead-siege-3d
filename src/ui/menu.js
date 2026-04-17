@@ -1,6 +1,7 @@
 // Menu background animation, leaderboard, and enhanced scores display
-// Self-contained — only uses localStorage and DOM
 // Extracted from main.js
+
+import { getPlayerRank } from '../world/story.js';
 
 // ===== MENU BACKGROUND ANIMATION =====
 let menuBgActive = false;
