@@ -7,6 +7,7 @@ import {
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
+  sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playMetalCreak,
   setAudioDeps
@@ -63,7 +64,8 @@ import {
   updateParticles, particles,
   addFloatText, floatTexts,
   resetEffects,
-  setEffectsDeps
+  setEffectsDeps,
+  spawnDirtParticles
 } from './effects/index.js';
 import {
   gunGroup, gunModels, muzzleMesh, knifeModel,
@@ -763,6 +765,10 @@ function spawnZombie() {
   zSpawned++;
   createZombieMesh(z);
 
+  // Spawn emergence effects — dirt burst + underground rumble sound
+  sfxZombieSpawn();
+  spawnDirtParticles(z.wx, z.wz);
+
   // Multiplayer: if we're host, tell the server about this new zombie.
   // Non-hosts don't get here because the spawn loop is gated earlier.
   if (netcode.isConnected() && netcode.isHost()) {
@@ -1035,6 +1041,7 @@ function tryKnife() {
   camera.getWorldDirection(dir);
   let bestZ = null, bestD = Infinity;
   for (const z of zombies) {
+    if (z._spawnRising) continue; // invulnerable while emerging from ground
     const dx = z.wx - camera.position.x;
     const dz = z.wz - camera.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -1271,6 +1278,9 @@ function _update(dt) {
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     z.flash = Math.max(0, z.flash - dt * 5);
+
+    // Skip movement + attack while zombie is still emerging from the ground
+    if (z._spawnRising) { updateZombieMesh(z, dt); continue; }
 
     // Non-host zombies (server-driven) smoothly track their target wx/wz
     // toward the last-received server position. Lerp factor 15 gives

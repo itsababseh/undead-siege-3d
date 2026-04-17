@@ -850,6 +850,69 @@ function sfxKnifeMiss() {
 }
 
 
+// ===== ZOMBIE SPAWN SOUND (rising from ground) =====
+function sfxZombieSpawn() {
+  if (!actx || !masterGain) return;
+  try {
+    const t = actx.currentTime;
+
+    // Layer 1: Deep earth rumble — sub bass rising
+    const rumbleOsc = actx.createOscillator();
+    const rumbleGain = actx.createGain();
+    rumbleOsc.type = 'sine';
+    rumbleOsc.frequency.setValueAtTime(25, t);
+    rumbleOsc.frequency.linearRampToValueAtTime(60, t + 1.0);
+    rumbleGain.gain.setValueAtTime(0, t);
+    rumbleGain.gain.linearRampToValueAtTime(0.08, t + 0.3);
+    rumbleGain.gain.setValueAtTime(0.06, t + 0.8);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+    rumbleOsc.connect(rumbleGain);
+    rumbleGain.connect(masterGain);
+    rumbleOsc.start(t); rumbleOsc.stop(t + 1.4);
+
+    // Layer 2: Dirt crumble — filtered noise burst
+    const bufLen = actx.sampleRate * 1.2;
+    const noiseBuf = actx.createBuffer(1, bufLen, actx.sampleRate);
+    const noiseData = noiseBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) noiseData[i] = (Math.random() * 2 - 1) * 0.5;
+    const noiseSrc = actx.createBufferSource();
+    noiseSrc.buffer = noiseBuf;
+    const noiseFilter = actx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(200, t);
+    noiseFilter.frequency.linearRampToValueAtTime(800, t + 0.6);
+    noiseFilter.Q.value = 1.5;
+    const noiseGain = actx.createGain();
+    noiseGain.gain.setValueAtTime(0, t);
+    noiseGain.gain.linearRampToValueAtTime(0.06, t + 0.15);
+    noiseGain.gain.setValueAtTime(0.04, t + 0.7);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+    noiseSrc.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noiseSrc.start(t); noiseSrc.stop(t + 1.2);
+
+    // Layer 3: Rising moan — zombie's first groan as it emerges
+    const moanOsc = actx.createOscillator();
+    const moanGain = actx.createGain();
+    const moanFilter = actx.createBiquadFilter();
+    moanOsc.type = 'sawtooth';
+    moanOsc.frequency.setValueAtTime(50 + Math.random() * 20, t + 0.4);
+    moanOsc.frequency.linearRampToValueAtTime(90 + Math.random() * 40, t + 1.2);
+    moanFilter.type = 'lowpass';
+    moanFilter.frequency.setValueAtTime(200, t + 0.4);
+    moanFilter.frequency.linearRampToValueAtTime(500, t + 1.0);
+    moanFilter.Q.value = 4;
+    moanGain.gain.setValueAtTime(0, t + 0.4);
+    moanGain.gain.linearRampToValueAtTime(0.04 + Math.random() * 0.02, t + 0.7);
+    moanGain.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+    moanOsc.connect(moanFilter);
+    moanFilter.connect(moanGain);
+    moanGain.connect(masterGain);
+    moanOsc.start(t + 0.4); moanOsc.stop(t + 1.3);
+  } catch(e) {}
+}
+
 // Export all audio functions and state
 export {
   actx, masterGain, muted,
@@ -859,6 +922,7 @@ export {
   sfxRound, sfxRoundEnd, sfxBuyWeapon, sfxBuyPerk, sfxDoorOpen,
   sfxWeaponSwitch, sfxZombieAttack, sfxZombieGrunt, sfxBossKill,
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
+  sfxZombieSpawn,
   startBackgroundMusic, updateAmbientSounds,
   playAmbientWind, playDistantScream, playMetalCreak
 };

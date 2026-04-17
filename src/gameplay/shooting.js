@@ -63,6 +63,7 @@ export function tryShoot() {
 
     let bestZ = null, bestD = Infinity;
     for (const z of zombies) {
+      if (z._spawnRising) continue; // invulnerable while emerging from ground
       const zScale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
       const zHeight = 2.2 * zScale;
       const hitRadius = z.isBoss ? 1.4 : z.isElite ? 1.0 : 0.8;
@@ -142,7 +143,7 @@ export function tryShoot() {
           const sx = bestZ.wx, sz = bestZ.wz;
           for (let si = zombies.length - 1; si >= 0; si--) {
             const sz2 = zombies[si];
-            if (sz2 === bestZ) continue;
+            if (sz2 === bestZ || sz2._spawnRising) continue;
             const sd = Math.hypot(sz2.wx - sx, sz2.wz - sz);
             if (sd > w.splashRadius) continue;
             const falloff = 1 - (sd / w.splashRadius);

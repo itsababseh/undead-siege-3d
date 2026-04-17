@@ -1167,6 +1167,9 @@ initZombieSprites();
 // ===== ZOMBIE MESHES (Billboard Sprites) =====
 const zombieMeshes = new Map();
 
+const SPAWN_RISE_DUR = 1.4; // seconds to fully emerge from ground
+const SPAWN_RISE_DEPTH = 2.4; // how far below ground they start
+
 function createZombieMesh(z) {
   const group = new THREE.Group();
   const scale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
@@ -1177,6 +1180,11 @@ function createZombieMesh(z) {
   z._frameTimer = 0;
   const spdRatio = z._baseSpd ? (z.spd / z._baseSpd) : 1;
   z._frameSpeed = z._hasLimp ? (0.22 + Math.random() * 0.12) : (0.08 + (1 - Math.min(spdRatio, 1.5) / 1.5) * 0.12 + Math.random() * 0.04);
+
+  // Spawn rising state — zombie emerges from the ground
+  z._spawnRising = true;
+  z._spawnTimer = 0;
+  z._spawnDur = SPAWN_RISE_DUR * (0.85 + Math.random() * 0.3); // slight variety
 
   const spriteSheet = sheets[z._spriteVariant];
 
@@ -1240,9 +1248,22 @@ function updateZombieMesh(z, dt) {
   const { group, mesh, planeMat, tex, frameCanvas,
     hpSprite, hpCanvas, hpTex, spriteSheet } = data;
 
-  // Position — firmly on the floor (y=0), smooth interpolation
+  // === SPAWN RISING ANIMATION ===
   let yOff = 0;
-  if (z._hasLimp) {
+  if (z._spawnRising) {
+    z._spawnTimer += dt;
+    const progress = Math.min(z._spawnTimer / z._spawnDur, 1);
+    // Ease-out cubic for natural "pulling free from earth" feel
+    const ease = 1 - Math.pow(1 - progress, 3);
+    yOff = -SPAWN_RISE_DEPTH * (1 - ease);
+    // Slight wobble as they struggle to emerge
+    const wobble = Math.sin(z._spawnTimer * 12) * 0.03 * (1 - progress);
+    mesh.rotation.z = wobble;
+    if (progress >= 1) {
+      z._spawnRising = false;
+      yOff = 0;
+    }
+  } else if (z._hasLimp) {
     yOff = Math.abs(Math.sin(z._limpPhase)) * 0.08 * z._limpSeverity;
     mesh.rotation.z = Math.sin(z._limpPhase) * 0.04 * z._limpSeverity;
   } else {
