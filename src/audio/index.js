@@ -388,7 +388,32 @@ function sfxReload() {
   } catch(e) {}
 }
 
-function sfxHit() { beep(300,'sine',0.06,0.1); }
+function sfxHit() {
+  if (!actx || !masterGain) return;
+  try {
+    const t = actx.currentTime;
+    // 1) Flesh impact thud — sine with fast pitch drop
+    const o1 = actx.createOscillator(), g1 = actx.createGain();
+    o1.type = 'sine';
+    const baseF = 240 + Math.random() * 80;
+    o1.frequency.setValueAtTime(baseF, t);
+    o1.frequency.exponentialRampToValueAtTime(60, t + 0.07);
+    g1.gain.setValueAtTime(0.11, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t + 0.09);
+
+    // 2) Wet snap — narrow bandpass noise burst
+    _metalClick(t, 1800 + Math.random() * 600, 5, 0.025, 0.08);
+
+    // 3) Subtle confirmation ping — high sine (CoD-style hit tick)
+    const o2 = actx.createOscillator(), g2 = actx.createGain();
+    o2.type = 'sine';
+    o2.frequency.value = 1650 + Math.random() * 200;
+    g2.gain.setValueAtTime(0.04, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+    o2.connect(g2); g2.connect(masterGain); o2.start(t); o2.stop(t + 0.045);
+  } catch(e) {}
+}
 function sfxKill() {
   if (!actx || !masterGain) return;
   try {
@@ -998,8 +1023,17 @@ function sfxFootstep() {
 
 function sfxWeaponSwitch() {
   if (!actx || !masterGain) return;
-  beep(500, 'square', 0.02, 0.05);
-  setTimeout(() => beep(700, 'square', 0.02, 0.05), 60);
+  try {
+    const t = actx.currentTime;
+    // Holster click
+    _metalClick(t, 1200, 4, 0.025, 0.06);
+    // Draw scrape
+    _metalClick(t + 0.08, 800, 2, 0.04, 0.05);
+    // Weapon seat click
+    _metalClick(t + 0.15, 2000, 6, 0.02, 0.07);
+    // Subtle low thud (hand grip)
+    _mechThud(t + 0.16, 150, 0.03, 0.03);
+  } catch(e) {}
 }
 
 function sfxKnife() {
