@@ -811,19 +811,26 @@ function sfxPlayerDeath() {
   } catch(e) {}
 }
 
+// Pre-allocated shuffle noise buffer — created once on first use, reused every call
+let _shuffleBuf = null;
+function _getShuffleBuf() {
+  if (_shuffleBuf && _shuffleBuf.sampleRate === actx.sampleRate) return _shuffleBuf;
+  const bufLen = Math.floor(actx.sampleRate * 0.12);
+  _shuffleBuf = actx.createBuffer(1, bufLen, actx.sampleRate);
+  const d = _shuffleBuf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.4));
+  return _shuffleBuf;
+}
+
 function sfxZombieShuffle(distFrac) {
   // Dragging foot shuffle — quieter at distance (distFrac 0=close, 1=far)
   if (!actx || !masterGain) return;
   try {
-    const vol = (1 - distFrac * 0.85) * 0.045; // 0.045 close → 0.007 far
-    if (vol < 0.005) return;
+    const vol = (1 - distFrac * 0.85) * 0.045; // 0.045 close → 0.00675 at distFrac=1
+    if (vol < 0.008) return; // effective cutoff at ~distFrac > 0.86 (~d > 19 units)
     const t = actx.currentTime;
-    // Drag scrape — low bandpass noise
-    const bufLen = Math.floor(actx.sampleRate * 0.12);
-    const buf = actx.createBuffer(1, bufLen, actx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.4));
-    const src = actx.createBufferSource(); src.buffer = buf;
+    // Drag scrape — low bandpass noise (reused pre-allocated buffer)
+    const src = actx.createBufferSource(); src.buffer = _getShuffleBuf();
     const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 180 + Math.random() * 120; f.Q.value = 1.5;
     const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
     src.connect(f); f.connect(g); g.connect(masterGain); src.start(t);

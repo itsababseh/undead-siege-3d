@@ -1427,11 +1427,11 @@ function _update(dt) {
     }
     
     // Zombie shuffle footstep — proximity-gated, distance-scaled volume
-    if (!z._spawnRising && d < 22) {
+    if (!z._spawnRising && d < 18) {
       if (!z._stepTimer) z._stepTimer = Math.random() * 0.5; // stagger on spawn
       z._stepTimer -= dt;
       if (z._stepTimer <= 0) {
-        const distFrac = Math.min(d / 22, 1);
+        const distFrac = Math.min(d / 18, 1);
         sfxZombieShuffle(distFrac);
         // Step interval: ~0.45s close, ~0.7s far, randomised ±15%
         z._stepTimer = (0.45 + distFrac * 0.25) * (0.85 + Math.random() * 0.3);
