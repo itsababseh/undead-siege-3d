@@ -677,6 +677,22 @@ function nextRound() {
 
 function getDifficultyTier() { return Math.floor((round - 1) / 5); }
 
+// Wipe all active, duration-based perks. Called when the local player
+// goes down (or dies in SP) so timed buffs don't survive a revive.
+// Power-ups (insta-kill, double points) are also cleared because they
+// wouldn't make sense carrying over through a down.
+function clearAllTimedPerks() {
+  for (const p of perks) {
+    if (player.perksOwned[p.id] > 0) {
+      player.perksOwned[p.id] = 0;
+      try { p.unapply(); } catch (e) {}
+    }
+  }
+  player._instaKill = false; player._instaKillTimer = 0;
+  player._doublePoints = false; player._doublePointsTimer = 0;
+  player.shieldHits = 0;
+}
+
 // Collision radius for zombies so they don't visually clip walls when
 // their center is a few pixels from the tile edge.
 const ZOMBIE_RADIUS = 0.6;
@@ -1433,6 +1449,7 @@ function _update(dt) {
               triggerHitIndicator(z.wx, z.wz);
               if (player.hp <= 0) {
                 player.hp = 0;
+                clearAllTimedPerks();
                 if (!onLocalHpZero()) {
                   state = 'dead';
                   sfxPlayerDeath();
@@ -1721,6 +1738,7 @@ function _update(dt) {
         z.atkTimer = 1;
         if (player.hp <= 0) {
           player.hp = 0;
+          clearAllTimedPerks();
           // onLocalHpZero handles the MP-downed path and returns true
           // when it took over. If we're in SP it returns false and we
           // fall through to the old permanent-death flow.
