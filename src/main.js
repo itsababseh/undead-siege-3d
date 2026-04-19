@@ -834,11 +834,65 @@ function resetKnifeState() {
   gunModels.forEach((m, i) => { m.visible = (i === player.curWeapon); });
 }
 
+// Milestone rank banners per 5 rounds. CoD-style wave-survived power
+// fantasy: bigger glow + shake + sustained float text as you hit each
+// 5x tier. Keyed by round number that was just CLEARED (so showing
+// after round++ makes sense: round === 5 means just survived 4 rounds
+// and is about to enter round 5's wave).
+const _MILESTONE_RANKS = {
+  5:  { title: 'VETERAN',   color: '#ffc266' },
+  10: { title: 'HARDENED',  color: '#ff8833' },
+  15: { title: 'ELITE',     color: '#ff4466' },
+  20: { title: 'LEGEND',    color: '#cc44ff' },
+  25: { title: 'MYTHIC',    color: '#66ffcc' },
+  30: { title: 'IMMORTAL',  color: '#ffff66' },
+};
+function _triggerMilestoneFanfare(rank) {
+  // Screen shake (moderate — not enough to disorient)
+  triggerScreenShake(0.9, 4);
+  // Quick bright white flash using the existing round-flash element
+  const flash = document.getElementById('roundFlash');
+  if (flash) {
+    flash.style.background = 'rgba(255, 240, 210, 0.6)';
+    flash.style.display = 'block';
+    flash.style.opacity = '1';
+    setTimeout(() => {
+      flash.style.opacity = '0';
+      setTimeout(() => {
+        flash.style.display = 'none';
+        flash.style.background = 'rgba(255,255,255,0.3)';
+      }, 260);
+    }, 140);
+  }
+  // Announcer-ish SFX — quick rising two-tone chime stack
+  try {
+    beep(520, 'sine', 0.35, 0.15);
+    setTimeout(() => beep(780, 'sine', 0.35, 0.18), 110);
+    setTimeout(() => beep(1040, 'sine', 0.5, 0.20), 240);
+  } catch (e) {}
+  // Big center message. Uses existing showCenterMsg; extra float text
+  // for glow stacking so this reads as more eventful than a normal
+  // round intro.
+  showCenterMsg(`WAVE SURVIVED`, `— ${rank.title} —`, rank.color, 3.2);
+  addFloatText(`★ ${rank.title} ★`, rank.color, 4);
+}
+
 function nextRound() {
   round++;
+  const roundEntering = round;
   // Instantly clean up any in-progress knife animation so there's no
   // ghost shank lingering into the new round.
   resetKnifeState();
+  // Fire milestone fanfare AFTER knife reset / before the rest of
+  // nextRound so the banner visually lands before the ROUND X intro.
+  // "WAVE SURVIVED — VETERAN" shows as round 5 begins (meaning you
+  // just cleared round 4 and are about to enter round 5).
+  if (_MILESTONE_RANKS[roundEntering]) {
+    _triggerMilestoneFanfare(_MILESTONE_RANKS[roundEntering]);
+  } else if (roundEntering > 30 && roundEntering % 5 === 0) {
+    // Beyond round 30 keep rewarding persistence with generic fanfare
+    _triggerMilestoneFanfare({ title: `SURVIVOR ${roundEntering}`, color: '#ffaaff' });
+  }
   // Scale the wave by the number of active players in MP so a four-
   // player squad doesn't breeze through a solo-tuned wave count.
   // Treat everyone who's online as contributing to the scale whether

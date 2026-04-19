@@ -21,6 +21,9 @@ export const packAPunch = {
   tx: 7, tz: 18,
   cost: 5000,
   upgraded: {},
+  // True after the first successful PaP this run — gates the
+  // enhanced-fanfare effect so it only fires once per game.
+  hasFiredFirstFanfare: false,
 };
 
 export const papMeshes = {};
@@ -89,13 +92,43 @@ export function tryPackAPunch() {
   const origName = _weapons[wi].name;
   _weapons[wi].name = papNames[origName] || _weapons[wi].name + ' PaP';
   
-  triggerScreenShake(1.0, 6);
-  beep(200, 'sine', 0.2, 0.12);
-  setTimeout(() => beep(400, 'sine', 0.2, 0.12), 200);
-  setTimeout(() => beep(800, 'sine', 0.3, 0.15), 400);
-  setTimeout(() => beep(1200, 'sine', 0.2, 0.1), 600);
-  
-  addFloatText(`⚡ PACK-A-PUNCHED! ⚡`, '#a0f', 3);
+  // First-ever PaP this run gets an enhanced fanfare — bigger shake,
+  // lightning flash, sustained announcer message. Later PaPs just
+  // play the standard beep stack so it stays snappy.
+  const isFirstEverPaP = !packAPunch.hasFiredFirstFanfare;
+  packAPunch.hasFiredFirstFanfare = true;
+
+  if (isFirstEverPaP) {
+    triggerScreenShake(2.4, 3);
+    // Full white lightning flash via #roundFlash
+    const flash = document.getElementById('roundFlash');
+    if (flash) {
+      flash.style.background = 'rgba(200, 160, 255, 0.7)';
+      flash.style.display = 'block';
+      flash.style.opacity = '1';
+      setTimeout(() => {
+        flash.style.opacity = '0';
+        setTimeout(() => {
+          flash.style.display = 'none';
+          flash.style.background = 'rgba(255,255,255,0.3)';
+        }, 300);
+      }, 200);
+    }
+    // Announcer tones — deeper / longer than normal PaP
+    beep(160, 'sawtooth', 0.45, 0.18);
+    setTimeout(() => beep(320, 'sawtooth', 0.45, 0.18), 130);
+    setTimeout(() => beep(640, 'sine', 0.55, 0.22), 290);
+    setTimeout(() => beep(1280, 'sine', 0.5, 0.2), 480);
+    setTimeout(() => beep(960, 'sine', 0.4, 0.22), 700);
+  } else {
+    triggerScreenShake(1.0, 6);
+    beep(200, 'sine', 0.2, 0.12);
+    setTimeout(() => beep(400, 'sine', 0.2, 0.12), 200);
+    setTimeout(() => beep(800, 'sine', 0.3, 0.15), 400);
+    setTimeout(() => beep(1200, 'sine', 0.2, 0.1), 600);
+  }
+
+  addFloatText(isFirstEverPaP ? `🔥 PACK-A-PUNCHED 🔥` : `⚡ PACK-A-PUNCHED! ⚡`, '#a0f', isFirstEverPaP ? 4 : 3);
   addFloatText(`${_weapons[wi].name} - 2x DMG`, '#fc0', 2.5);
   
   return true;
@@ -103,4 +136,5 @@ export function tryPackAPunch() {
 
 export function resetPackAPunch() {
   packAPunch.upgraded = {};
+  packAPunch.hasFiredFirstFanfare = false;
 }
