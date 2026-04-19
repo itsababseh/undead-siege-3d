@@ -139,6 +139,12 @@ export function tryShoot() {
             spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
             spawnPowerUp(bestZ.wx, bestZ.wz);
             triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
+            // Detach from window attacker list if this zombie was
+            // pounding planks when it died.
+            if (bestZ._targetWindow && bestZ._targetWindow.attackers) {
+              const ai = bestZ._targetWindow.attackers.indexOf(bestZ);
+              if (ai >= 0) bestZ._targetWindow.attackers.splice(ai, 1);
+            }
             removeZombieMesh(bestZ);
             zombies.splice(idx, 1);
             if (bestZ.isBoss) {
@@ -175,6 +181,10 @@ export function tryShoot() {
               addFloatText(`+${sPts}`, '#0f0', 1);
               startZombieDeathAnim(sz2);
               spawnPowerUp(sz2.wx, sz2.wz);
+              if (sz2._targetWindow && sz2._targetWindow.attackers) {
+                const ai = sz2._targetWindow.attackers.indexOf(sz2);
+                if (ai >= 0) sz2._targetWindow.attackers.splice(ai, 1);
+              }
               removeZombieMesh(sz2);
               zombies.splice(si, 1);
             }

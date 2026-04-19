@@ -985,11 +985,33 @@ function _findRandomSpawnTile() {
 }
 
 function spawnZombie() {
+  // Window spawns take priority over random tile spawns once windows
+  // are built and at least one has intact planks to pound on. Boss
+  // zombies always use the random tile path so they don't get stuck
+  // beating a window.
+  let targetWindow = null;
+  let pick = null;
+  const _isBossRound = round % 5 === 0 && zSpawned === zToSpawn - 1;
+  if (windows.length > 0 && !_isBossRound && Math.random() < 0.55) {
+    // Only pick windows that still have at least one intact plank — zombies
+    // at a fully-broken window just walk through, no reason to queue more
+    // zombies on the outside.
+    const candidateWindows = windows.filter(w => intactPlanks(w) > 0);
+    if (candidateWindows.length > 0) {
+      // Use pickSpawnWindow's "least busy" distribution, but restricted
+      // to candidates with planks still up.
+      const minAttackers = Math.min(...candidateWindows.map(w => w.attackers.length));
+      const tied = candidateWindows.filter(w => w.attackers.length === minAttackers);
+      targetWindow = tied[Math.floor(Math.random() * tied.length)];
+      const pos = outsideSpawnPosition(targetWindow);
+      if (pos) pick = { wx: pos.x, wz: pos.z };
+    }
+  }
   // M4: truly random spawn locations across the whole accessible
   // floor. Falls back to the hardcoded spawnPts list if the random
   // picker can't find a suitable tile after 40 tries (rare — usually
   // happens only when the player is in a tiny sealed area).
-  let pick = _findRandomSpawnTile();
+  if (!pick) pick = _findRandomSpawnTile();
   if (!pick) {
     const candidates = [];
     for (const s of spawnPts) {
@@ -1063,7 +1085,14 @@ function spawnZombie() {
     _lungeTimer: 0,
     _lungeWindup: false,
     _lungeCooldown: 0,
+    // Window AI — set if spawned outside a barricaded window. Zombie
+    // walks to the window, breaks planks one by one, then walks inside
+    // and clears _targetWindow to switch to normal chase AI.
+    _targetWindow: targetWindow,
+    _atWindow: false,
+    _plankBreakTimer: 1.2 + Math.random() * 0.6,
   };
+  if (targetWindow) targetWindow.attackers.push(z);
   // S4.2: Boss phase properties
   if (isBoss) {
     z._bossPhase = 1;
@@ -1471,6 +1500,10 @@ function tryKnife() {
           spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
           spawnPowerUp(bestZ.wx, bestZ.wz);
           triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
+          if (bestZ._targetWindow && bestZ._targetWindow.attackers) {
+            const ai = bestZ._targetWindow.attackers.indexOf(bestZ);
+            if (ai >= 0) bestZ._targetWindow.attackers.splice(ai, 1);
+          }
           removeZombieMesh(bestZ);
           zombies.splice(idx, 1);
           if (bestZ.isBoss) {
@@ -1686,6 +1719,59 @@ function _update(dt) {
 
     // Skip movement + attack while zombie is still emerging from the ground
     if (z._spawnRising) { updateZombieMesh(z, dt); continue; }
+
+    // === WINDOW AI (zombies targeting a barricaded window) ===
+    // This runs on host/SP only — non-host clients get authoritative
+    // positions via netcode and don't simulate zombie behavior.
+    if (_isHostOrSP && z._targetWindow) {
+      const w = z._targetWindow;
+      // If the window has been fully breached (no planks left), stop
+      // targeting it — walk inward and join the normal chase AI.
+      if (intactPlanks(w) === 0) {
+        // Nudge the zombie slightly inside (away from the outside normal)
+        z.wx -= w.normalX * 0.3;
+        z.wz -= w.normalZ * 0.3;
+        const atkIdx = w.attackers.indexOf(z);
+        if (atkIdx >= 0) w.attackers.splice(atkIdx, 1);
+        z._targetWindow = null;
+        z._atWindow = false;
+      } else {
+        // Otherwise move toward the window center (outside face) until
+        // we're at the window, then start breaking planks.
+        const dx = w.centerX - z.wx;
+        const dz = w.centerZ - z.wz;
+        const d = Math.hypot(dx, dz);
+        if (d > 1.4) {
+          // Walk toward the window's outside face. Use zombie's own
+          // speed + stagger so this matches the normal movement feel.
+          const step = z.spd * dt * (z._speedMult || 1);
+          z.wx += (dx / d) * step;
+          z.wz += (dz / d) * step;
+          z._atWindow = false;
+        } else {
+          // We're at the window — beat a plank off every N seconds,
+          // scaling slightly with round so late-game windows fall faster
+          z._atWindow = true;
+          z._plankBreakTimer -= dt;
+          if (z._plankBreakTimer <= 0) {
+            const brokenIdx = breakNextPlank(w);
+            if (brokenIdx >= 0) {
+              // Sharp wood-crack SFX via beep stack
+              try {
+                beep(180, 'sawtooth', 0.35, 0.09);
+                setTimeout(() => beep(90, 'square', 0.2, 0.08), 30);
+              } catch (e) {}
+              triggerScreenShake(0.3, 6);
+            }
+            z._plankBreakTimer = Math.max(0.8, 1.8 - round * 0.05) + Math.random() * 0.3;
+          }
+        }
+      }
+      // Still let the zombie mesh animate + take the usual per-frame
+      // cleanup path. Skip the rest of the AI (boss phases, chase, etc.)
+      updateZombieMesh(z, dt);
+      continue;
+    }
 
     // === S4.2: BOSS HEALTH PHASES ===
     if (z.isBoss && _isHostOrSP) {
