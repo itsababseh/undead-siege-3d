@@ -1156,17 +1156,25 @@ if (isMobile) {
       }
     }
   });
-  document.getElementById('joystickArea').addEventListener('touchend', e => {
+  // Joystick release handler — also wired to touchcancel so the knob
+  // recenters if the OS interrupts the touch (phone call, system modal).
+  const joystickRelease = e => {
     for (const t of e.changedTouches) {
       if (t.identifier === jTouch) {
         jTouch = null; joystickX = 0; joystickY = 0;
         jKnob.style.transform = 'translate(-50%,-50%)';
       }
     }
-  });
-  
+  };
+  document.getElementById('joystickArea').addEventListener('touchend', joystickRelease);
+  document.getElementById('joystickArea').addEventListener('touchcancel', joystickRelease);
+
   document.getElementById('fireBtn').addEventListener('touchstart', e => { e.preventDefault(); mobileFiring = true; initAudio(); startBackgroundMusic(); });
-  document.getElementById('fireBtn').addEventListener('touchend', e => { e.preventDefault(); mobileFiring = false; });
+  // Fire release — also touchcancel so a system interruption doesn't
+  // leave the fire button latched and the player auto-shooting forever.
+  const fireRelease = e => { e.preventDefault(); mobileFiring = false; };
+  document.getElementById('fireBtn').addEventListener('touchend', fireRelease);
+  document.getElementById('fireBtn').addEventListener('touchcancel', fireRelease);
   document.getElementById('reloadBtn').addEventListener('touchstart', e => { e.preventDefault(); doReload(); });
   document.getElementById('buyBtn').addEventListener('touchstart', e => {
     e.preventDefault();
