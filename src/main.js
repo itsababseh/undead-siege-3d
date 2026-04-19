@@ -10,7 +10,7 @@ import {
   sfxPlayerDeath, sfxKnife, sfxKnifeMiss,
   sfxZombieSpawn, sfxZombieIdle,
   startBackgroundMusic, updateAmbientSounds,
-  playAmbientWind, playDistantScream, playMetalCreak,
+  playAmbientWind, playDistantScream, playDistantHorde, playMetalCreak,
   setAudioDeps
 } from './audio/index.js';
 import {
@@ -287,6 +287,143 @@ let paused = false;
 const DOWNED_SPEED_MULT = 0.28;     // crawl crawl
 const DOWNED_CAM_Y = 0.55;          // near-ground view
 let mpDownedPrevWeapon = 0;         // remembered so we can restore on revive
+
+// ===== INTRO CINEMATIC =====
+// 5-second opening: camera dolly through the bunker with radio static
+// + building zombie groans + subtitle. Plays only on fresh SP starts.
+// Players can skip with any key or click once >0.4s has elapsed
+// (small grace so accidental key presses from menu don't insta-skip).
+const INTRO_DURATION = 5.0;
+let introTimer = 0;
+let introStartYaw = 0;
+let introStartPitch = 0;
+// Spline points: camera dolly through the bunker. Stays BELOW the
+// ceiling (at world y=3.2) so we never render through the roof.
+// Lands at the SP spawn pose (50, 1.6, 50) looking along +Z into the
+// main arena. x/y/z/yaw/pitch eased via smoothstep between keyframes.
+const INTRO_KEYFRAMES = [
+  // t=0    : near ceiling, offset to one side, looking inward
+  { t: 0.00, x: 40, y: 2.9, z: 38, yaw: 0.55, pitch: -0.22 },
+  // t=0.25 : slide toward spawn, tilt up a bit
+  { t: 0.25, x: 45, y: 2.5, z: 42, yaw: 0.35, pitch: -0.15 },
+  // t=0.65 : mid-trek, almost player height
+  { t: 0.65, x: 49, y: 1.9, z: 47, yaw: 0.12, pitch: -0.05 },
+  // t=1    : lands on normal FP spawn pose
+  { t: 1.00, x: 50, y: 1.6, z: 50, yaw: 0.0, pitch: 0.0 },
+];
+// Procedural cubic ease between keyframes
+function _introLerp(tNorm) {
+  for (let i = 0; i < INTRO_KEYFRAMES.length - 1; i++) {
+    const a = INTRO_KEYFRAMES[i], b = INTRO_KEYFRAMES[i + 1];
+    if (tNorm >= a.t && tNorm <= b.t) {
+      const localT = (tNorm - a.t) / (b.t - a.t);
+      // smoothstep
+      const k = localT * localT * (3 - 2 * localT);
+      return {
+        x: a.x + (b.x - a.x) * k,
+        y: a.y + (b.y - a.y) * k,
+        z: a.z + (b.z - a.z) * k,
+        yaw: a.yaw + (b.yaw - a.yaw) * k,
+        pitch: a.pitch + (b.pitch - a.pitch) * k,
+      };
+    }
+  }
+  return INTRO_KEYFRAMES[INTRO_KEYFRAMES.length - 1];
+}
+let _introSubtitleEl = null;
+let _introPrevHudHidden = false;
+function _buildIntroSubtitle() {
+  if (_introSubtitleEl) return;
+  _introSubtitleEl = document.createElement('div');
+  _introSubtitleEl.id = 'introSubtitle';
+  _introSubtitleEl.style.cssText = `
+    position:fixed;left:50%;bottom:20%;transform:translateX(-50%);
+    z-index:120;pointer-events:none;font-family:'Courier New',monospace;
+    color:#cfe9ff;letter-spacing:3px;font-size:clamp(12px,2vw,18px);
+    text-align:center;text-shadow:0 0 10px rgba(68,170,255,0.7),0 0 20px rgba(0,0,0,0.9);
+    opacity:0;transition:opacity 0.5s ease-in-out;max-width:90vw`;
+  document.body.appendChild(_introSubtitleEl);
+}
+let _introGroanTimer = 0;
+function _startIntroCinematic() {
+  state = 'intro';
+  introTimer = 0;
+  _introGroanTimer = 0;
+  _buildIntroSubtitle();
+  // Hide HUD during intro
+  const hud = document.getElementById('hud');
+  _introPrevHudHidden = hud.classList.contains('hidden');
+  hud.classList.add('hidden');
+  // Position camera at first keyframe immediately
+  const kf0 = INTRO_KEYFRAMES[0];
+  camera.position.set(kf0.x, kf0.y, kf0.z);
+  introStartYaw = controls._yaw;
+  introStartPitch = controls._pitch;
+  controls._yaw = kf0.yaw;
+  controls._pitch = kf0.pitch;
+  controls._applyRotation();
+  // Hide gun during intro (restored on end)
+  if (gunGroup) gunGroup.visible = false;
+}
+function _endIntroCinematic() {
+  if (state !== 'intro') return;
+  // Clear subtitle
+  if (_introSubtitleEl) _introSubtitleEl.style.opacity = '0';
+  // Restore HUD visibility
+  if (!_introPrevHudHidden) document.getElementById('hud').classList.remove('hidden');
+  // Restore gun visibility (updateGunModel will re-toggle individual models)
+  if (gunGroup) gunGroup.visible = true;
+  // Snap camera to final pose — nextRound will hand off to playing state
+  const kfEnd = INTRO_KEYFRAMES[INTRO_KEYFRAMES.length - 1];
+  camera.position.set(kfEnd.x, kfEnd.y, kfEnd.z);
+  controls._yaw = kfEnd.yaw;
+  controls._pitch = kfEnd.pitch;
+  controls._applyRotation();
+  nextRound();
+}
+function _updateIntroCinematic(dt) {
+  introTimer += dt;
+  const tNorm = Math.min(1, introTimer / INTRO_DURATION);
+  const pose = _introLerp(tNorm);
+  camera.position.set(pose.x, pose.y, pose.z);
+  controls._yaw = pose.yaw;
+  controls._pitch = pose.pitch;
+  controls._applyRotation();
+  // Subtitle timeline
+  if (_introSubtitleEl) {
+    if (introTimer < 1.0) {
+      _introSubtitleEl.textContent = '[ RADIO ] ...static...';
+      _introSubtitleEl.style.opacity = '0.5';
+    } else if (introTimer < 3.0) {
+      _introSubtitleEl.textContent = '[ COMMAND ] We have a situation.';
+      _introSubtitleEl.style.opacity = '1';
+    } else if (introTimer < 4.5) {
+      _introSubtitleEl.textContent = 'Survivor, you are our last hope.';
+      _introSubtitleEl.style.opacity = '1';
+    } else {
+      _introSubtitleEl.style.opacity = '0';
+    }
+  }
+  // Distant zombie idle sounds build in frequency over the 5 seconds.
+  // sfxZombieIdle is a positional SFX that takes (wx, wz, camX, camZ).
+  // Simulate a zombie ~15 units away from the camera by seeding with
+  // a random offset each fire.
+  _introGroanTimer -= dt;
+  if (_introGroanTimer <= 0) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 15;
+    const zx = camera.position.x + Math.cos(angle) * dist;
+    const zz = camera.position.z + Math.sin(angle) * dist;
+    try { sfxZombieIdle(zx, zz, camera.position.x, camera.position.z); } catch (e) {}
+    _introGroanTimer = 1.0 - introTimer * 0.08; // accelerates
+    if (_introGroanTimer < 0.35) _introGroanTimer = 0.35;
+  }
+  // One distant horde swell halfway through for atmosphere
+  if (introTimer > 2.0 && introTimer - dt <= 2.0) {
+    try { playDistantHorde && playDistantHorde(); } catch (e) {}
+  }
+  if (introTimer >= INTRO_DURATION) _endIntroCinematic();
+}
 // MP revive + downed state lives in src/netcode/reviveMp.js. main.js
 // just calls onLocalHpZero / tickDowned / tickRevive from its update
 // loop and doesn't track the downed flag itself.
@@ -653,8 +790,23 @@ function initGame() {
     try { netcode.callReportPlayerAlive(true); } catch (e) {}
   }
 
-  nextRound();
+  // Intro cinematic — plays ONCE per page load (SP only). MP, portal
+  // resume, and FIGHT AGAIN after death all skip to avoid annoying
+  // the player with a re-run.
+  if (!_skipIntro && !_introPlayedThisSession && !netcode.isConnected()) {
+    _introPlayedThisSession = true;
+    _startIntroCinematic();
+  } else {
+    _skipIntro = false;
+    nextRound();
+  }
 }
+
+let _skipIntro = false;
+let _introPlayedThisSession = false;
+// Set by resume / rejoin paths so the cinematic only plays on a fresh
+// single-player run. Reset at end of initGame.
+function markSkipIntro() { _skipIntro = true; }
 
 function resetKnifeState() {
   knifeAnimTimer = 0;
@@ -1010,6 +1162,9 @@ document.addEventListener('keydown', e => {
     for (const kk of Object.keys(keys)) keys[kk] = false;
     return;
   }
+  // Skip intro cinematic on any key (after small grace to prevent
+  // accidental-skip from menu clicks lingering)
+  if (state === 'intro' && introTimer > 0.4) { _endIntroCinematic(); return; }
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (gameKeys.includes(k)) e.preventDefault();
@@ -1064,6 +1219,8 @@ renderer.domElement.addEventListener('click', () => {
   // Clicks while downed do nothing — you can't resume yourself, you
   // need a teammate revive (or a session reset).
   if (isLocallyDowned()) return;
+  // Clicks during the intro cinematic skip it (after small grace)
+  if (state === 'intro' && introTimer > 0.4) { _endIntroCinematic(); return; }
   if ((state === 'playing' || state === 'roundIntro') && paused) {
     paused = false; hidePause();
     controls.lock();
@@ -2189,6 +2346,16 @@ function gameLoop(time) {
 
   if (state === 'menu' || state === 'mpLobby') return;
 
+  // Intro cinematic: camera-only path. Game logic + HUD disabled until
+  // the 5-second dolly ends. Lights and atmosphere still render so the
+  // scene is visible.
+  if (state === 'intro') {
+    _updateIntroCinematic(dt);
+    // Still render the scene to the screen
+    renderer.render(scene, camera);
+    return;
+  }
+
   update(dt);
   controls._applyRotation();
   updateCenterMsg(dt);
@@ -3012,6 +3179,9 @@ function _clearPortalSnapshot() {
 // Resume a Single-Player run. Restore state, show a paused overlay;
 // clicking anywhere resumes. Uses the existing pause infrastructure.
 function _resumeSinglePlayerRun(snap) {
+  // Don't play the intro cinematic when resuming from a portal — the
+  // player already saw it in their original session.
+  markSkipIntro();
   state = 'playing';
   paused = true;
   round = snap.round | 0;

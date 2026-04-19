@@ -3,6 +3,9 @@ body{background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-a
 canvas{display:block}
 #blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s}
 #blocker.hidden{opacity:0 !important;pointer-events:none !important}
+/* When the HUD root has .hidden (during intro cinematic, death, etc.) fade out instantly */
+#hud.hidden{opacity:0 !important;pointer-events:none !important}
+#hud{transition:opacity 0.4s ease-in}
 #blocker h1{font-size:clamp(28px,6vw,56px);color:#c00;text-shadow:0 0 40px #c00,0 0 80px rgba(200,0,0,0.4);letter-spacing:8px;margin-bottom:4px}
 #blocker .sub{color:#aaa;font-size:clamp(10px,2vw,14px);letter-spacing:4px;margin-bottom:12px}
 #blocker button{background:none;border:2px solid #c00;color:#c00;padding:14px 50px;font:bold clamp(12px,2vw,16px) 'Courier New';cursor:pointer;letter-spacing:4px;transition:all 0.3s;text-transform:uppercase}
