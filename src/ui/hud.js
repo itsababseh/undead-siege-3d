@@ -239,7 +239,19 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
       }
     }
   }
-  
+  // Window repair prompt — appears when near a damaged window
+  if (!buyText && typeof window !== 'undefined' && window.__siegeWindows) {
+    const hooks = window.__siegeWindows;
+    const near = hooks.nearestWindow(px, pz);
+    if (near && near.distance < _TILE * 1.8) {
+      const intact = hooks.intactPlanks(near.window);
+      if (intact < hooks.PLANKS_PER_WINDOW) {
+        const missing = hooks.PLANKS_PER_WINDOW - intact;
+        buyText = `${keyLabel} Repair board (${missing} left) - +10 pts`;
+      }
+    }
+  }
+
   buyEl.style.display = buyText ? 'block' : 'none';
   buyEl.textContent = buyText;
   if (buyBtnEl) buyBtnEl.style.display = buyText && _isMobile ? 'flex' : 'none';

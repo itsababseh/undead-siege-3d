@@ -497,6 +497,15 @@ setPortalDeps(scene, camera, TILE);
 setMapDeps(scene, TILE, MAP_W, MAP_H, map);
 setPropDeps(scene, TILE, MAP_W, MAP_H, map);
 setWindowDeps(scene, TILE);
+// Expose window helpers + the beep SFX to the buying module so it can
+// run the repair interaction without creating a circular import.
+window.__siegeWindows = {
+  nearestWindow,
+  intactPlanks,
+  repairNextPlank,
+  PLANKS_PER_WINDOW,
+  beep,
+};
 setStoryDeps(scene, camera, TILE, gameState, addFloatText);
 
 // Points accessor for gameplay modules

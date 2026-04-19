@@ -103,7 +103,32 @@ export function tryBuy() {
   if (collectMysteryBoxWeapon()) return;
   if (tryMysteryBox()) return;
   if (tryPackAPunch()) return;
+  if (tryRepairWindow()) return;
   tryBuyDoor();
+}
+
+// Window board repair — tap E once per plank for 10 points each.
+// Checks the nearest window within 1.8 tiles and restores one plank
+// from the top down. Returns true if a plank was repaired.
+export function tryRepairWindow() {
+  const { camera, TILE, addFloatText, getPoints, setPoints } = _ctx;
+  // windows + helpers live on window globals so buying.js doesn't
+  // have to import circular-ly from world/windows.js
+  const hooks = (typeof window !== 'undefined') ? window.__siegeWindows : null;
+  if (!hooks) return false;
+  const near = hooks.nearestWindow(camera.position.x, camera.position.z);
+  if (!near) return false;
+  if (near.distance > TILE * 1.8) return false;
+  const intact = hooks.intactPlanks(near.window);
+  if (intact >= hooks.PLANKS_PER_WINDOW) return false; // already full
+  const idx = hooks.repairNextPlank(near.window);
+  if (idx < 0) return false;
+  setPoints(getPoints() + 10);
+  addFloatText('+10 BOARD', '#9c6', 1.3);
+  // Hammer SFX — two quick low thuds
+  try { hooks.beep && hooks.beep(260, 'square', 0.3, 0.06); } catch (e) {}
+  try { setTimeout(() => hooks.beep && hooks.beep(210, 'square', 0.25, 0.05), 80); } catch (e) {}
+  return true;
 }
 
 export function tryBuyDoor() {
