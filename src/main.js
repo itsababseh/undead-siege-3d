@@ -221,9 +221,21 @@ document.addEventListener('pointerlockchange', () => {
   if (!controls.isLocked && wasLocked) { suppressMouse(200); }
 });
 
-document.addEventListener('visibilitychange', () => suppressMouse(200));
+// On focus loss / tab switch / minimize, clear any held gameplay keys.
+// Without this, holding Shift (or W) while alt-tabbing leaves the key
+// latched in our `keys` map — you return and the player is still
+// "sprinting" or "moving forward" until you press+release the key.
+function _clearHeldKeys() {
+  for (const k of Object.keys(keys)) keys[k] = false;
+  // Also reset any derived movement state that relies on held keys
+  player.sprinting = false;
+}
+document.addEventListener('visibilitychange', () => {
+  suppressMouse(200);
+  if (document.hidden) _clearHeldKeys();
+});
 window.addEventListener('focus', () => suppressMouse(200));
-window.addEventListener('blur', () => suppressMouse(200));
+window.addEventListener('blur', () => { suppressMouse(200); _clearHeldKeys(); });
 
 // ===== LIGHTING =====
 const ambientLight = new THREE.AmbientLight(0x8899bb, 2.8);
