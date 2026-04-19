@@ -696,13 +696,35 @@ export function callSendChat(text) {
 
 // Broadcast our current weapon idx via a hidden chat marker so remote
 // clients can render the correct gun model on our soldier.
+// Rate-limited to 1 broadcast per 500ms — without this, quick-swap
+// spam (mashing Q) writes a row per swap to the chat table, polluting
+// the DB. We coalesce rapid changes and broadcast the final weapon
+// after the throttle window.
+const WEAPON_MARKER_MIN_INTERVAL_MS = 500;
 let _lastSentWeapon = -1;
+let _lastSentWeaponAt = 0;
+let _pendingWeaponTimer = null;
 export function broadcastLocalWeapon(idx) {
   if (!_conn || !isConnected()) return;
   if (idx === _lastSentWeapon) return;
-  _lastSentWeapon = idx;
-  try { _conn.reducers.sendChat({ text: WEAPON_MSG_PREFIX + idx }); }
-  catch (e) { console.warn('[netcode] broadcastLocalWeapon failed', e); }
+  const now = performance.now();
+  const sinceLast = now - _lastSentWeaponAt;
+  const doSend = () => {
+    if (idx === _lastSentWeapon) return; // may have changed again after debounce
+    _lastSentWeapon = idx;
+    _lastSentWeaponAt = performance.now();
+    try { _conn.reducers.sendChat({ text: WEAPON_MSG_PREFIX + idx }); }
+    catch (e) { console.warn('[netcode] broadcastLocalWeapon failed', e); }
+  };
+  // Clear any pending debounce — we always want to broadcast the LAST
+  // weapon the player settled on, so replace in-flight timers.
+  if (_pendingWeaponTimer) { clearTimeout(_pendingWeaponTimer); _pendingWeaponTimer = null; }
+  if (sinceLast >= WEAPON_MARKER_MIN_INTERVAL_MS) {
+    doSend();
+  } else {
+    const wait = WEAPON_MARKER_MIN_INTERVAL_MS - sinceLast;
+    _pendingWeaponTimer = setTimeout(() => { _pendingWeaponTimer = null; doSend(); }, wait);
+  }
 }
 
 export function callSetPlayerName(name) {
