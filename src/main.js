@@ -719,6 +719,11 @@ window.__onMpRevived = () => {
   addFloatText('REVIVED!', '#4f4', 2.5);
 };
 
+// If the MP refocus hint is up when we go down, hide it — the red
+// DOWNED overlay should be the only thing on screen. The downed
+// overlay is larger than the hint and the hint would peek out above it.
+window.__onMpDownedStart = () => { hideMpUnlockHint(); };
+
 function clearAllTimedPerks() {
   for (const p of perks) {
     if (p.permanent) continue; // Health & other permanent perks survive a down

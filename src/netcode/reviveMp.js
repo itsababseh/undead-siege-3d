@@ -79,6 +79,10 @@ export function onLocalHpZero() {
   _downed = true;
   _downedAckedByServer = false;
   _ctx.sfxPlayerDeath();
+  // Hide any lingering UI that shouldn't stack on the downed overlay
+  // (e.g. the MP 'click to refocus' hint when the player was away
+  // from the screen at the moment of down).
+  try { window.__onMpDownedStart && window.__onMpDownedStart(); } catch (e) {}
   // Deliberately DO NOT unlock the pointer here. Unlocking fires
   // pointerlockchange → showPause() which would stack the pause
   // overlay on top of the downed overlay. Keep the pointer locked;
