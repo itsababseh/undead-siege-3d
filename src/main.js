@@ -3009,10 +3009,18 @@ function _resumeSinglePlayerRun(snap) {
   round = snap.round | 0;
   points = snap.points | 0;
   totalKills = snap.totalKills | 0;
+  // Zombies are not snapshotted — on bfcache restore the array could
+  // still hold the pre-portal zombies (desynced from zSpawned), on
+  // fresh reload it's empty. Either way, restart the wave cleanly:
+  // clear alive zombies and reset progression counters so the round
+  // respawns from scratch. Points + round + loadout are preserved;
+  // only the in-flight wave is reset. Consistent UX in both paths.
+  zombies.forEach(z => { try { removeZombieMesh(z); } catch (e) {} });
+  zombies.length = 0;
   zToSpawn = snap.zToSpawn | 0;
-  zSpawned = snap.zSpawned | 0;
+  zSpawned = 0;
+  spawnTimer = 0;
   maxAlive = snap.maxAlive | 0;
-  spawnTimer = snap.spawnTimer || 0;
   doorsOpenedCount = snap.doorsOpenedCount | 0;
   // Camera + look direction
   camera.position.set(snap.cam.x, snap.cam.y, snap.cam.z);
