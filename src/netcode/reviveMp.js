@@ -44,6 +44,22 @@ function getTargetName() { return document.getElementById('reviveTargetName'); }
 
 export function isLocallyDowned() { return _downed; }
 
+// Reset the downed state. Called by main.js when a match ends (squad
+// wipe) or when a new game starts. Without this, _downed can persist
+// from the last match and briefly flash the downed overlay on the
+// first frame of a new match before tickDowned's server sync kicks in.
+export function resetDownedState() {
+  _downed = false;
+  _downedAckedByServer = false;
+  _reviveGraceUntil = 0;
+  _reviveProgress = 0;
+  _reviveTargetHex = null;
+  const ov = getOverlay();
+  if (ov) ov.style.display = 'none';
+  const hud = getHud();
+  if (hud) hud.style.display = 'none';
+}
+
 /**
  * True while the local player is in their post-revive grace window.
  * Zombie damage should be ignored while this is true.

@@ -23,7 +23,7 @@ import * as netcode from './netcode/connection.js';
 import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './netcode/remotePlayers.js';
 import { makeHostZid, createHostSync } from './netcode/hostSync.js';
 import {
-  initReviveMp, isLocallyDowned, onLocalHpZero,
+  initReviveMp, isLocallyDowned, onLocalHpZero, resetDownedState,
   tickDowned, tickRevive, hasReviveGrace,
 } from './netcode/reviveMp.js';
 
@@ -551,8 +551,9 @@ setMinimapDeps({
 let _deathShown = false;
 function initGame() {
   _deathShown = false;
-  // Clear any leftover MP refocus hint from a previous session
+  // Clear any leftover MP state from a previous session
   if (typeof hideMpUnlockHint === 'function') hideMpUnlockHint();
+  resetDownedState();
   player.hp = 100; player.maxHp = 100;
   player.curWeapon = 0; player.mag = weapons[0].mag;
   player.ammo = [999, 0, 0, 0];
@@ -2520,6 +2521,9 @@ function _onMatchEnded() {
   paused = false;
   hidePause();
   hideMpUnlockHint();
+  // Clear the downed flag so the next match doesn't start with a stale
+  // prone overlay flashing for the first few frames.
+  resetDownedState();
   // Release the mouse so the user can actually click the overlay
   // buttons. Without this the pointer stays locked to the canvas from
   // the moment the squad wipes, blocking PLAY AGAIN / BACK TO LOBBY.
