@@ -2,7 +2,7 @@
 
 ### A love letter to Call of Duty Zombies — built entirely through AI conversation
 
-<img width="1280" height="633" alt="Undead Siege 3D" src="og-image.png" />
+<img width="1280" alt="Undead Siege 3D" src="UndeadSiege.png" />
 
 <div align="center">
 
