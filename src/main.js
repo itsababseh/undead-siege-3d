@@ -2107,6 +2107,10 @@ function _update(dt) {
         // Reset render lerp so the warp doesn't show a slide
         z._renderX = z.wx; z._renderZ = z.wz;
         updateZombieMesh(z, dt);
+        // Match the profBegin('ai:window') above before we `continue`
+        // — otherwise the profiler's section stack leaks one entry
+        // per shortcut hit per frame (no-op when profiler disabled).
+        profEnd();
         continue;
       }
       // If the window has been fully breached (no planks left), stop
