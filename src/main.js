@@ -1083,13 +1083,20 @@ function _findRandomSpawnTile() {
 
 function spawnZombie() {
   // Window spawns take priority over random tile spawns once windows
-  // are built and at least one has intact planks to pound on. Boss
-  // zombies always use the random tile path so they don't get stuck
-  // beating a window.
+  // are built and at least one has intact planks. Several gates keep
+  // window-spawning from causing 'stuck zombie' end-of-round hangs:
+  //  - Boss zombies always use the random tile path (don't waste boss
+  //    on a window).
+  //  - The LAST 2 zombies of any round always use random tile spawn
+  //    so the round-end condition isn't gated on a slow plank-break.
+  //  - Spawn rate scales with round (15% on round 1, 25% on round 2,
+  //    35% from round 3 onward) so early rounds don't feel sluggish.
   let targetWindow = null;
   let pick = null;
   const _isBossRound = round % 5 === 0 && zSpawned === zToSpawn - 1;
-  if (windows.length > 0 && !_isBossRound && Math.random() < 0.55) {
+  const _isLastFewSpawns = (zToSpawn - zSpawned) <= 2;
+  const _windowSpawnChance = round <= 1 ? 0.15 : round === 2 ? 0.25 : 0.35;
+  if (windows.length > 0 && !_isBossRound && !_isLastFewSpawns && Math.random() < _windowSpawnChance) {
     // Only pick windows that still have at least one intact plank — zombies
     // at a fully-broken window just walk through, no reason to queue more
     // zombies on the outside.
@@ -1894,8 +1901,20 @@ function _update(dt) {
           // We're at the window — beat a plank off every N seconds,
           // scaling slightly with round so late-game windows fall faster
           z._atWindow = true;
+          z._atWindowTime = (z._atWindowTime || 0) + dt;
           z._plankBreakTimer -= dt;
-          if (z._plankBreakTimer <= 0) {
+          // SAFETY NET: if this zombie is one of the last 2 alive AND all
+          // outstanding spawns are done, force-accelerate plank breaking so
+          // the round can end. Prevents 'stuck zombie' hangs reported on r1.
+          const _allSpawned = zSpawned >= zToSpawn;
+          const _lastFew = zombies.length <= 2;
+          if (_allSpawned && _lastFew && z._atWindowTime > 6) {
+            // Rage mode: smash a plank every frame until clear
+            const brokenIdx = breakNextPlank(w);
+            if (brokenIdx >= 0) {
+              try { beep(180, 'sawtooth', 0.35, 0.09); } catch (e) {}
+            }
+          } else if (z._plankBreakTimer <= 0) {
             const brokenIdx = breakNextPlank(w);
             if (brokenIdx >= 0) {
               // Sharp wood-crack SFX via beep stack
