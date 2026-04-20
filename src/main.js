@@ -96,8 +96,13 @@ import {
 import {
   gunGroup, gunModels, muzzleMesh, knifeModel,
   buildM1911, buildMP40, buildTrenchGun, buildRayGun, buildKnife,
-  updateGunModel, setGunDeps, initGunModels, updatePaPCamo, resetPaPCamo
+  updateGunModel, setGunDeps, initGunModels, updatePaPCamo, resetPaPCamo,
+  forceGunMeshRefresh
 } from './models/guns.js';
+// Expose to gameplay modules that mutate player.curWeapon outside the
+// official switchWeapon() path (mystery box collect, wall-buy) — they
+// call this so the held FP mesh swap is guaranteed to land same-frame.
+window._forceGunMeshRefresh = forceGunMeshRefresh;
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
 import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';

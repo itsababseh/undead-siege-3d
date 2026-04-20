@@ -318,6 +318,19 @@ const RECOIL_PROFILES = [
 ];
 
 let _prevWeapon = -1;
+// Hook for callers that mutate _player.curWeapon outside the normal
+// switchWeapon() path (mystery box collect, wall-buy, MP revive). They
+// can call this to force the next updateGunModel to re-evaluate which
+// model should be visible — guards against any stale state where the
+// held FP mesh doesn't refresh after an inline curWeapon assignment.
+export function forceGunMeshRefresh() {
+  _prevWeapon = -1;
+  // Also do the swap immediately so it's visible THIS frame, not next.
+  if (_player) {
+    gunModels.forEach((m, i) => { m.visible = (i === _player.curWeapon); });
+    if (knifeModel) knifeModel.visible = false;
+  }
+}
 function updateGunModel(dt, gunKick) {
   // Show correct gun model
   if (_prevWeapon !== _player.curWeapon) {

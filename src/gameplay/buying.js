@@ -55,6 +55,12 @@ export function tryBuy() {
         player.reloadTimer = 0;
         player.fireTimer = 0;
         sfxBuyWeapon(weapons[wb.wi].isRayGun);
+        // Same defensive refresh as the mystery box collect path —
+        // guarantees the held FP mesh swaps the same frame as the
+        // wall-buy completes, no waiting on the next updateGunModel.
+        if (typeof window !== 'undefined' && window._forceGunMeshRefresh) {
+          window._forceGunMeshRefresh();
+        }
         if (weapons[wb.wi].isRayGun) { addFloatText(`⚡ RAY GUN ⚡`, '#0f0', 2.5); }
         else { addFloatText(`${weapons[wb.wi].name}!`, '#6f6', 1.5); }
       } else if (player.owned[wb.wi] && getPoints() >= Math.floor(wb.cost / 2)) {

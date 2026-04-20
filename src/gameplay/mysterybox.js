@@ -404,6 +404,13 @@ export function collectMysteryBoxWeapon() {
   _player.reloading = false;
   _player.reloadTimer = 0;
   _player.fireTimer = 0;
+  // Force the held FP mesh to refresh THIS frame. Without this the
+  // visible model occasionally lags a frame (or stays on the prior
+  // gun entirely if updateGunModel ran earlier in the same tick),
+  // making it look like the swap silently failed.
+  if (!sameAsCurrent && typeof window !== 'undefined' && window._forceGunMeshRefresh) {
+    window._forceGunMeshRefresh();
+  }
 
   sfxBuyWeapon(_weapons[wi].isRayGun);
   const wName = _weapons[wi].name;
