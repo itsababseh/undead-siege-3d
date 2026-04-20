@@ -139,20 +139,42 @@ export function spawnPowerUp(wx, wz) {
   
   let typeIdx;
   const available = [];
+  // Build weighted pool. Nukes are excluded in rounds 1-2 (too powerful
+  // when the zombie count is tiny — feels unfair and trivialises those rounds).
+  // From round 3 onward nuke weight scales up with round so they're
+  // genuinely exciting mid-game without being a guaranteed cleanup tool early.
+  const weights = [];
   for (let ti = 0; ti < POWERUP_TYPES.length; ti++) {
     if (ti === _lastPowerUpIdx) continue;
     const pid = POWERUP_TYPES[ti].id;
     if (pid === 'instakill' && _player._instaKill) continue;
     if (pid === 'doublepoints' && _player._doublePoints) continue;
+    // Nukes: locked out rounds 1-2; weight 0.5 round 3-4, scales to 1.0 by round 6+
+    if (pid === 'nuke') {
+      if (round < 3) continue;
+      const nukeWeight = Math.min(1.0, 0.3 + (round - 3) * 0.175);
+      weights.push({ ti, w: nukeWeight });
+    } else {
+      weights.push({ ti, w: 1.0 });
+    }
     available.push(ti);
   }
   if (available.length === 0) {
     for (let ti = 0; ti < POWERUP_TYPES.length; ti++) {
       if (ti !== _lastPowerUpIdx) available.push(ti);
     }
+    weights.length = 0;
+    for (const ti of available) weights.push({ ti, w: 1.0 });
   }
-  if (available.length === 0) available.push(0);
-  typeIdx = available[Math.floor(Math.random() * available.length)];
+  if (available.length === 0) { available.push(0); weights.push({ ti: 0, w: 1.0 }); }
+  // Weighted random selection
+  const totalW = weights.reduce((s, e) => s + e.w, 0);
+  let roll = Math.random() * totalW;
+  typeIdx = weights[weights.length - 1].ti;
+  for (const entry of weights) {
+    roll -= entry.w;
+    if (roll <= 0) { typeIdx = entry.ti; break; }
+  }
   _lastPowerUpIdx = typeIdx;
   const type = POWERUP_TYPES[typeIdx];
   

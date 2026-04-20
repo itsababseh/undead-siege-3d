@@ -74,8 +74,8 @@ export const windowSpecs = [
   { id: 's-18', tx: 18, tz: 23, dir: 'S' },
   { id: 's-21', tx: 21, tz: 23, dir: 'S' },
   // East wall (col 23). Outside is to the right.
-  { id: 'e-12', tx: 23, tz: 12, dir: 'E' },
-  { id: 'e-14', tx: 23, tz: 14, dir: 'E' },
+  { id: 'e-12', tx: 23, tz: 12, dir: 'E', doorId: 'east' },
+  { id: 'e-14', tx: 23, tz: 14, dir: 'E', doorId: 'east' },
   // NOTE: 'e-17' deliberately removed — the BLUE generator at (22,16)
   // sits one tile from this window, which crowded the repair prompt
   // and made the generator un-interactable. Closest E window is now

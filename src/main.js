@@ -1104,7 +1104,11 @@ function _spawnTargets() {
 // Which sealed zone is this tile in? Returns 'west' | 'east' | null.
 // Zombies must not spawn inside a sealed zone before its door is opened.
 function _tileZone(tx, tz) {
-  if (tx >= 1 && tx <= 8 && tz >= 1 && tz <= 8) return 'west';
+  // West wing: tiles enclosed by the sealed inner-room walls.
+  // Columns 1-8, rows 1-9 (row 9 is the bottom window row of the west
+  // bunker — cell=3 tiles that are inside the sealed zone).
+  if (tx >= 1 && tx <= 8 && tz >= 1 && tz <= 9) return 'west';
+  // East chamber: columns 20-22, rows 11-18, sealed behind the east door.
   if (tx >= 20 && tx <= 22 && tz >= 11 && tz <= 18) return 'east';
   return null;
 }
@@ -1166,7 +1170,13 @@ function spawnZombie() {
   if (_isVeryLastSpawn && windows.length > 0 && !_isBossSpawn) {
     const targets = _spawnTargets();
     let best = null, bestD = Infinity;
-    for (const w of windows) {
+    // Only consider windows that don't lead into a locked zone.
+    const eligibleWindows = windows.filter(w => {
+      if (!w.doorId) return true;
+      const d = doors.find(dd => dd.id === w.doorId);
+      return d && d.opened;
+    });
+    for (const w of eligibleWindows) {
       let nearest = Infinity;
       for (const t of targets) {
         const d = Math.hypot(w.centerX - t.x, w.centerZ - t.z);
@@ -1189,9 +1199,16 @@ function spawnZombie() {
     // Score = attackerCount * 8 + tilesToNearestPlayer; lower is better.
     // Adding 8x weight on attackers keeps a single window from getting
     // monopolized even when the player camps right next to it.
-    const candidateWindows = windows.filter(w =>
-      intactPlanks(w) > 0 && w.attackers.length < PER_WINDOW_ATTACKER_CAP
-    );
+    const candidateWindows = windows.filter(w => {
+      // Exclude windows that feed into a locked zone (e.g. east wall windows
+      // e-12 / e-14 lead directly into the east wing — if that door is closed
+      // a zombie spawned there is immediately trapped and can never reach the player).
+      if (w.doorId) {
+        const d = doors.find(dd => dd.id === w.doorId);
+        if (!d || !d.opened) return false;
+      }
+      return intactPlanks(w) > 0 && w.attackers.length < PER_WINDOW_ATTACKER_CAP;
+    });
     if (candidateWindows.length > 0) {
       const targets = _spawnTargets();
       const scored = candidateWindows.map(w => {
@@ -1250,10 +1267,18 @@ function spawnZombie() {
   // zombie below, so the round-end check is never stranded by a
   // silent return.
   if (!pick && windows.length > 0) {
-    // Pick any window — even fully-breached or dogpiled — and spawn
-    // the zombie at its inside-bunker position so it can immediately
-    // chase. Skip the plank-break choreography for this fallback.
-    const w = windows[Math.floor(Math.random() * windows.length)];
+    // Pick any window — even fully-breached or dogpiled — but NEVER
+    // a window that leads into a locked zone (those would trap the zombie).
+    const eligibleFallbackWindows = windows.filter(w => {
+      if (!w.doorId) return true;
+      const d = doors.find(dd => dd.id === w.doorId);
+      return d && d.opened;
+    });
+    const fallbackPool = eligibleFallbackWindows.length > 0 ? eligibleFallbackWindows : [];
+    if (fallbackPool.length === 0) { /* fall through to tile scan below */ }
+    const w = fallbackPool.length > 0 ? fallbackPool[Math.floor(Math.random() * fallbackPool.length)] : null;
+    if (!w) { /* no eligible windows — skip to tile scan */ }
+    else
     pick = {
       wx: w.centerX - w.normalX * TILE * 1.6,
       wz: w.centerZ - w.normalZ * TILE * 1.6,
@@ -2037,16 +2062,9 @@ function _update(dt) {
           _veryLastSpawnFailCount = 0;
           spawnTimer = 0.25;
         } else {
-          // Silent fail on very last spawn — count it.
-          // After 10 consecutive failures force-increment zSpawned so the
-          // round-end check can fire (a watchdog cull will clean up any
-          // ghost zombie that was never actually created).
-          _veryLastSpawnFailCount++;
-          if (_veryLastSpawnFailCount >= 10) {
-            console.warn('[spawnZombie] last-spawn force-skip after', _veryLastSpawnFailCount, 'failures');
-            zSpawned++;
-            _veryLastSpawnFailCount = 0;
-          }
+          // Silent fail on very last spawn — retry quickly.
+          // spawnZombie() respects all door/zone guards so a silent fail
+          // means the map had no valid tile this frame — just retry.
           spawnTimer = 0.15;
         }
       } else {
@@ -2769,28 +2787,7 @@ function _update(dt) {
     } // end !_spawnRising guard
   }
 
-  // ── ROUND STALL SAFETY NET ──────────────────────────────────────────────
-  // If all zombies are spawned AND zombies still remain AND we've been
-  // waiting more than 90 seconds since round start, force-clear all
-  // remaining zombies. This is the absolute last resort — every other
-  // fix (watchdog RAGE/WARP/CULL) should handle it first.
-  if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length > 0 &&
-      _roundStartTime > 0 && (performance.now() - _roundStartTime) > 90000) {
-    console.warn('[roundStall] 90s timeout — force-clearing', zombies.length, 'remaining zombies');
-    for (const z of [...zombies]) {
-      totalKills++;
-      const basePts = z.isBoss ? 500 : z.isElite ? 120 : 60;
-      points += basePts;
-      if (z.isBoss) { try { sfxBossKill(); } catch(e){} try { triggerScreenShake(4,4); } catch(e){} }
-      if (z._targetWindow && z._targetWindow.attackers) {
-        const ai = z._targetWindow.attackers.indexOf(z);
-        if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
-      }
-      try { removeZombieMesh(z); } catch(e){}
-    }
-    zombies.length = 0;
-    _roundStartTime = 0; // prevent double-fire
-  }
+  // (90s force-clear removed — fix spawn-behind-doors instead)
   if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length === 0) {
     // Clean up knife immediately so no ghost shank on round transition
     resetKnifeState();
