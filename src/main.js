@@ -2508,26 +2508,50 @@ function _update(dt) {
   updateRadioTransmission(dt);
   updateGenerators(dt);
   
-  // ── STUCK-ZOMBIE WATCHDOG (escalating) ──────────────────────────────
-  // If the round is on its tail end (all spawned, ≤3 alive) and no
-  // kill has happened in N seconds, escalate to clear out unreachable
-  // survivors so the round can advance. Three escalation levels — each
-  // tries the gentlest fix first, then resets the watchdog clock so
-  // the next level kicks in if the player still doesn't kill.
+  // ── STUCK-ZOMBIE WATCHDOG (per-zombie staleness) ────────────────────
+  // Watchdog only acts on zombies that demonstrably aren't moving — NOT
+  // on a global "no-kill" timer (that approach culled actively-pursued
+  // zombies if the player took >12s between kills). Each frame we
+  // record where each zombie was; if a zombie hasn't moved more than
+  // half a tile in 25 seconds AND it's the round's tail end (all
+  // spawned, ≤3 alive), we escalate ONLY that zombie:
   //
-  //   T+4s : RAGE — clear planks, teleport window-zombies inside,
-  //          teleport non-window zombies near the player, speed boost.
-  //   T+8s : WARP — pick any open tile within 6 tiles of the player
-  //          and hard-teleport every survivor there. No more pathing.
-  //   T+12s: CULL — last resort. Remove the survivor outright (the
-  //          player gets the kill credit + points). Round ends now.
+  //   T+25s on z : RAGE — clear planks if window zombie / teleport
+  //                non-window zombie near a player + speed boost.
+  //   T+40s on z : WARP — hard-teleport into a tile within 6 of player.
+  //   T+60s on z : CULL — remove that one zombie, credit player.
   //
-  // Only runs on host/SP — clients mirror via subscription.
+  // The thresholds are deliberately huge — any zombie that's actively
+  // chasing or breaking planks resets its own staleness clock every
+  // frame and never trips the watchdog.
+  for (const z of zombies) {
+    if (!z._stallProbe) {
+      z._stallProbe = { x: z.wx, z: z.wz, sinceMs: performance.now() };
+    } else {
+      const moved = Math.hypot(z.wx - z._stallProbe.x, z.wz - z._stallProbe.z);
+      if (moved > TILE * 0.5) {
+        z._stallProbe.x = z.wx;
+        z._stallProbe.z = z.wz;
+        z._stallProbe.sinceMs = performance.now();
+      }
+    }
+  }
   if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length > 0 && zombies.length <= 3) {
-    const _stallMs = performance.now() - _lastZombieDeathTime;
-    const _runRage = _stallMs > 4000 && _stallMs <= 8000;
-    const _runWarp = _stallMs > 8000 && _stallMs <= 12000;
-    const _runCull = _stallMs > 12000;
+    // Find the most-stale zombie. If it's been still long enough,
+    // escalate. We only act on ONE zombie per frame so a casual
+    // player isn't punished by mass culls.
+    let stalest = null, stalestSinceMs = performance.now();
+    for (const z of zombies) {
+      if (z.isBoss) continue;
+      if (z._stallProbe && z._stallProbe.sinceMs < stalestSinceMs) {
+        stalest = z;
+        stalestSinceMs = z._stallProbe.sinceMs;
+      }
+    }
+    const _stallMs = stalest ? (performance.now() - stalestSinceMs) : 0;
+    const _runRage = stalest && _stallMs > 25000 && _stallMs <= 40000;
+    const _runWarp = stalest && _stallMs > 40000 && _stallMs <= 60000;
+    const _runCull = stalest && _stallMs > 60000;
     if (_runRage || _runWarp || _runCull) {
       // Pick a tile near the player to teleport stuck zombies onto.
       // Used by RAGE (for non-window zombies) and WARP (for everyone).
@@ -2549,40 +2573,36 @@ function _update(dt) {
         }
         return null;
       };
-      for (let i = zombies.length - 1; i >= 0; i--) {
-        const z = zombies[i];
-        if (z.isBoss) continue; // Bosses are the objective; never auto-clear.
-        if (_runCull) {
-          // Final resort — credit the player and remove the zombie.
-          totalKills++;
-          const basePts = z.isElite ? 120 : 60;
-          points += basePts;
-          if (z._targetWindow && z._targetWindow.attackers) {
-            const ai = z._targetWindow.attackers.indexOf(z);
-            if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
-          }
-          try { removeZombieMesh(z); } catch (e) {}
-          zombies.splice(i, 1);
-          if (netcode.isConnected() && netcode.isHost()) {
-            try { netcode.callRemoveZombie(z.hostZid); } catch (e) {}
-          }
-          continue;
+      // Operate on the single stalest zombie, not the whole array.
+      const z = stalest;
+      const idx = zombies.indexOf(z);
+      if (_runCull && idx >= 0) {
+        totalKills++;
+        const basePts = z.isElite ? 120 : 60;
+        points += basePts;
+        if (z._targetWindow && z._targetWindow.attackers) {
+          const ai = z._targetWindow.attackers.indexOf(z);
+          if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
         }
-        if (_runWarp) {
-          // Hard-teleport into a tile within 6 of the player.
-          const tile = _findTeleTile(6);
-          if (tile) { z.wx = tile.x; z.wz = tile.z; }
-          if (z._targetWindow) {
-            const ai = z._targetWindow.attackers.indexOf(z);
-            if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
-            z._targetWindow = null;
-            z._atWindow = false;
-          }
-          z._speedMult = Math.max(z._speedMult || 1, 1.6);
-          z.stuckCheck = null;
-          continue;
+        try { removeZombieMesh(z); } catch (e) {}
+        zombies.splice(idx, 1);
+        if (netcode.isConnected() && netcode.isHost()) {
+          try { netcode.callRemoveZombie(z.hostZid); } catch (e) {}
         }
-        // RAGE branch
+      } else if (_runWarp) {
+        const tile = _findTeleTile(6);
+        if (tile) { z.wx = tile.x; z.wz = tile.z; }
+        if (z._targetWindow) {
+          const ai = z._targetWindow.attackers.indexOf(z);
+          if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
+          z._targetWindow = null;
+          z._atWindow = false;
+        }
+        z._speedMult = Math.max(z._speedMult || 1, 1.6);
+        z.stuckCheck = null;
+        z._stallProbe = { x: z.wx, z: z.wz, sinceMs: performance.now() };
+      } else {
+        // RAGE
         if (z._targetWindow) {
           const w = z._targetWindow;
           while (intactPlanks(w) > 0) breakNextPlank(w);
@@ -2593,18 +2613,13 @@ function _update(dt) {
           z._targetWindow = null;
           z._atWindow = false;
         } else {
-          // Non-window zombie: probably spawned in a corner / sealed
-          // area / behind props. Teleport closer to the player so the
-          // chase AI has line-of-sight.
           const tile = _findTeleTile(8);
           if (tile) { z.wx = tile.x; z.wz = tile.z; }
         }
         z._speedMult = Math.max(z._speedMult || 1, 1.4);
         z.stuckCheck = null;
+        z._stallProbe = { x: z.wx, z: z.wz, sinceMs: performance.now() };
       }
-      // Reset the timer so each escalation only fires once per cycle.
-      // (RAGE → 4s later WARP → 4s later CULL.)
-      _lastZombieDeathTime = performance.now();
     }
   }
 
