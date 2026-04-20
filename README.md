@@ -16,7 +16,7 @@
 
 ### Combat & Weapons
 - **4 Iconic Weapons** — M1911 (starter), MP40, Trench Gun, Ray Gun — each with unique recoil profile, muzzle flash, and tracer
-- **Mystery Box** — Spend 950 points for a random weapon drop with animated spin reveal; 8-second collect window; rolling the gun you already hold gives you a free max-ammo refill instead
+- **Mystery Box** — Spend 950 points for a random weapon drop with animated spin reveal; 8-second collect window; rolling the gun you already hold gives you a free max-ammo refill instead. Each weapon has a recognizable procedural mini-mesh preview (M1911 grip, MP40 silhouette, Trench Gun stock, glowing Ray Gun coil). 8% chance the box refuses with an **octopus jump-scare** that screams, lunges at the camera, then teleports the box elsewhere — classic "teddy bear" homage
 - **Pack-a-Punch** — Upgrade any weapon for 5000 points: boosted damage, bigger mags, animated camo & graffiti overlay
 - **Knife System** — Dedicated melee attack with swing animation, cooldown, and satisfying slash SFX
 - **Weapon Quick-Swap** — Press Q to instantly toggle between your last two weapons
@@ -34,9 +34,14 @@
 - **Down = Wipe** — Timed buffs clear when you go down. Permanent perks (Health) survive
 
 ### Enemies & AI
+- **Boarded-Up Windows** — 14 barricaded windows around the bunker perimeter (N/S/E/W walls). Zombies pour in through them, beating the planks off one at a time before climbing through with a sine-arc vault tween. A loud low **BANG** plays when the first attacker reaches a quiet window so you know which board is under attack; a brown dust-puff bursts when the last plank falls
+- **Window Repair** — Stand near a damaged window and hold E to nail the planks back on (10 pts each). Zombies will tear them right back down, classic CoD flow
+- **Player-Aware Spawn Bias** — Window picker scores by `attackerCount × 8 + tilesToNearestPlayer + jitter` so the horde visibly crashes through whichever boards your squad is defending
 - **Dynamic Pathfinding** — Wall collision with body-radius margin so zombies never clip through geometry
 - **Separation Forces** — Boid-like horde behavior so zombies don't stack on top of each other
 - **Stuck Detection + Nudge** — Line-of-sight checked teleport that never tunnels through walls
+- **Per-Zombie Staleness Watchdog** — Genuinely unreachable zombies (corner-stuck, sealed-area edge cases) get progressively rescued at 25 / 40 / 60s of zero movement: rage (boost speed + warp near player), warp (hard-teleport within 6 tiles), cull (delete + credit). Only triggers on demonstrably stuck zombies — actively chasing ones reset their own probe every frame
+- **No-Wait End of Round** — When zombies.length hits 0 with spawns still owed, spawnTimer is forced to 0; the very last zombie of every round spawns at the closest window's inside-bunker landing AND sprints (1.15-1.35× speed) so you engage within ~2 seconds of the previous kill, regardless of slow-shamble RNG
 - **Boss Zombies** — Every 5th round spawns a boss with ground pound, zigzag, and phase-based abilities
 - **Elite Zombies** — 15% chance past round 3: 2.5× HP, 1.15× speed, 1.8× damage
 - **Limping System** — Damaged zombies develop randomized limps that affect their stride
@@ -63,6 +68,9 @@
 - **Global MP Leaderboard** — Squad rosters with all player names stored together; top 5 shown on main menu with 👥 prefix for multi-player runs
 
 ### Quality of Life
+- **5-Second Intro Cinematic** — Plays once per session: letterbox bars, atmospheric subtitle, "ANY KEY SKIP" hint. Multiplayer + portal resume + FIGHT AGAIN all skip to avoid annoying re-plays
+- **SP Pause Menu** — Hit ESC in solo to pause + see two extra buttons: **END RUN** (submits your score and shows the death screen) and **MAIN MENU** (abandons and returns to title)
+- **Dev-Mode Profiler Overlay** — Toggle with `?profile=1` URL param or `localStorage.undead.profile=1`, then press backtick to show/hide. Lists FPS, frame ms, and per-subsystem timing (spawnZombie, ai:window, ai:chase, eyeLights, particles, render). No-op when disabled — zero overhead for normal play
 - **Redesigned Reload UI** — Spinning indicator + countdown + shimmering gradient bar embedded in the ammo box (no more overlapping HUD elements)
 - **Minimap** — Real-time tactical overview with zombie positions, doors, perks, and interactable icons
 - **Player Ranks** — Earn military ranks (Recruit → Corporal → Sergeant → …) based on cumulative performance
@@ -74,12 +82,16 @@
 - **Theme-Aware Branding** — Logo auto-switches between light and dark versions to match GitHub reader's theme
 
 ### Recently Polished (April 2026)
+- **Boarded windows + climb-through tween** — 14 barricaded windows around the bunker, each with 6 individually-shattering planks. Zombies now visibly clamber through with a 0.55s sine-arc vault tween, dust puff on breach, and a low BANG when the first attacker reaches a quiet window
+- **No more "waiting for the last zombie"** — Layered fixes guarantee the gap between killing one zombie and engaging the next is ≤ ~3 seconds, on every round. Pressure boost (spawnTimer = 0 when nobody's alive), closest-window-inside spawn for the final zombie, sprint speed for the final two spawns, and a critical-end shortcut that warps any window-zombie inside when ≤2 alive
+- **Per-zombie staleness watchdog** — Replaced the over-aggressive "no kill in 12s → cull all" logic that was ending rounds when the player took >12s between kills. New version only acts on zombies that haven't actually moved in 25/40/60s, one zombie per frame
+- **Particle system → 3 InstancedMesh draw calls** — Pooled blood/dirt/energy particles share three instanced meshes (220 slots each) instead of allocating per-particle Mesh + cloned material. Zero GC churn during boss deaths or simultaneous breaches
+- **Static walls merged per color** — buildMap now produces one merged BufferGeometry per material family instead of hundreds of per-tile draw calls. Geometry + material are properly disposed on game restart
+- **Mystery box pickup** — Weapon swap is now bulletproof; E presses during spin are buffered so "first time nothing happens" is gone; rolling your current gun is an ammo refill. Held FP gun mesh refresh is forced same-frame so the swap visibly lands
+- **Solo → FIGHT AGAIN stays solo** — Death-screen auto-connect (for high-score submission) was leaking SP runs into MP mode (chat HUD, no pause, downed-flow softlock). New `isInActiveMatch()` test gates MP behavior on real lobby presence
 - **Brightness tuned for production** — Playable in any lighting condition while preserving the spooky zombie atmosphere
 - **Boss round distinction** — Every 5th round now shows a distinctive `⚠ BOSS ROUND N` banner with brighter red glow
 - **Gun recoil state fix** — No more stuck-forward gun after the last shot of a round
-- **Mystery box pickup** — Weapon swap is now bulletproof; E presses during spin are buffered so "first time nothing happens" is gone; rolling your current gun is an ammo refill
-- **Last zombie spawn acceleration** — Final 1–2 zombies always spawn within 0.8s and bypass the maxAlive cap
-- **Zero zombie auto-kills** — Zombies now only die when shot or knifed; stuck ones get progressively stronger nudges toward the player
 - **MP death pointer unlock** — Cursor is properly freed on squad wipe so overlay buttons are clickable
 - **Chat gating** — T only opens chat during gameplay; lobby presses no longer steal keyboard focus
 - **Portal resume** — Hit browser back after using the in-game portal and your run resumes (SP paused at the same round, MP rejoins the lobby if squad's still alive)
@@ -133,13 +145,27 @@ undead-siege-3d/
 │   ├── main.js                    # Game loop, scene init, wiring
 │   ├── core/state.js              # Mutable shared state (player, game, entities)
 │   ├── audio/index.js             # Web Audio SFX synthesizer
-│   ├── entities/zombies.js        # Zombie sprites, AI, animations
-│   ├── models/guns.js             # First-person gun meshes + recoil
-│   ├── effects/                   # VFX, atmosphere, damage numbers
+│   ├── entities/zombies.js        # Zombie sprites, AI, animations, eye-light pool
+│   ├── models/guns.js             # First-person gun meshes + recoil + PaP camo
+│   ├── effects/
+│   │   ├── index.js               # InstancedMesh particle pools, float texts, VFX
+│   │   ├── atmosphere.js          # Ambient fog/lighting
+│   │   └── postprocessing.js      # Bloom + film vignette
 │   ├── gameplay/                  # Mystery box, Pack-a-Punch, power-ups, buying, shooting
-│   ├── world/                     # Map, textures, props, story, portal
-│   ├── ui/                        # HUD, menu, minimap, loading, ranks
-│   └── netcode/                   # SpacetimeDB client, host sync, revive, remote players
+│   ├── world/
+│   │   ├── map.js                 # Per-color merged wall meshes + floor/ceiling
+│   │   ├── windows.js             # 14 barricaded windows + plank state + repair
+│   │   ├── textures.js            # Procedural canvas textures
+│   │   ├── props.js               # Crates, barrels, ambient props
+│   │   ├── story.js               # Generators + radio-transmission script
+│   │   └── portal.js              # Vibe Jam interdimensional portals
+│   ├── ui/
+│   │   ├── hud.js                 # Ammo box, HP bar, perk pills, float text
+│   │   ├── menu.js                # Main menu + MP lobby UI
+│   │   ├── minimap.js             # Real-time tactical map
+│   │   ├── loading.js             # Boot loader + tips
+│   │   └── profiler.js            # Dev-mode FPS + per-subsystem timing overlay
+│   └── netcode/                   # SpacetimeDB client, host sync, revive, remote players, chat
 ├── server/                        # Rust SpacetimeDB module (multiplayer backend)
 └── scripts/build.mjs              # esbuild bundler → dist/index.html
 ```
