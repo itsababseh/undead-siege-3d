@@ -507,6 +507,8 @@ const gameState = { get points() { return points; }, set points(v) { points = v;
                     get totalKills() { return totalKills; }, set totalKills(v) { totalKills = v; },
                     player: null };
 let zToSpawn = 0, zSpawned = 0, maxAlive = 0, spawnTimer = 0;
+let _veryLastSpawnFailCount = 0; // consecutive failures on last-zombie spawn
+let _roundStartTime = 0; // performance.now() when the round started
 let roundIntroTimer = 0;
 let doorsOpenedCount = 0;
 const keys = {};
@@ -975,6 +977,8 @@ function nextRound() {
   }
   zToSpawn = Math.floor((6 + round * 3 + doorsOpenedCount * 2) * (0.6 + playerScale * 0.4));
   zSpawned = 0;
+  _veryLastSpawnFailCount = 0;
+  _roundStartTime = performance.now();
   resetRoundPowerUps();
   maxAlive = Math.min(
     Math.floor((6 + round * 2 + doorsOpenedCount * 2) * (0.7 + playerScale * 0.3)),
@@ -2028,8 +2032,26 @@ function _update(dt) {
       // even if the first attempt silently bailed (no walkable tile),
       // the round doesn't stall waiting on the next regular tick.
       // Other final-2 spawns cap at 0.6s to keep the wave snappy.
-      if (isVeryLast) spawnTimer = (zSpawned > beforeSpawned) ? 0.25 : 0.15;
-      else spawnTimer = isFinalSpawn ? Math.min(baseRate, 0.6) : baseRate;
+      if (isVeryLast) {
+        if (zSpawned > beforeSpawned) {
+          _veryLastSpawnFailCount = 0;
+          spawnTimer = 0.25;
+        } else {
+          // Silent fail on very last spawn — count it.
+          // After 10 consecutive failures force-increment zSpawned so the
+          // round-end check can fire (a watchdog cull will clean up any
+          // ghost zombie that was never actually created).
+          _veryLastSpawnFailCount++;
+          if (_veryLastSpawnFailCount >= 10) {
+            console.warn('[spawnZombie] last-spawn force-skip after', _veryLastSpawnFailCount, 'failures');
+            zSpawned++;
+            _veryLastSpawnFailCount = 0;
+          }
+          spawnTimer = 0.15;
+        }
+      } else {
+        spawnTimer = isFinalSpawn ? Math.min(baseRate, 0.6) : baseRate;
+      }
     }
   }
 
@@ -2657,6 +2679,11 @@ function _update(dt) {
         stalestSinceMs = z._stallProbe.sinceMs;
       }
     }
+    // Skip if the stalest zombie is still rising from the ground — it
+    // physically can't move yet and shouldn't trip the stuck-zombie alarm.
+    if (stalest && stalest._spawnRising) {
+      // It's rising — not actually stuck. Just wait.
+    } else {
     const _stallMs = stalest ? (performance.now() - stalestSinceMs) : 0;
     const _isLastStandingZombie = zombies.length === 1 && zSpawned >= zToSpawn;
     const _stallThreshMult = _isLastStandingZombie ? 0.3 : 1.0;
@@ -2731,7 +2758,7 @@ function _update(dt) {
           z._targetWindow = null;
           z._atWindow = false;
         } else {
-          const tile = _findTeleTile(8);
+          const tile = _findTeleTile(6); // tighter radius so zombie can't land in unreachable area
           if (tile) { z.wx = tile.x; z.wz = tile.z; }
         }
         z._speedMult = Math.max(z._speedMult || 1, 1.4);
@@ -2739,8 +2766,31 @@ function _update(dt) {
         z._stallProbe = { x: z.wx, z: z.wz, sinceMs: performance.now() };
       }
     }
+    } // end !_spawnRising guard
   }
 
+  // ── ROUND STALL SAFETY NET ──────────────────────────────────────────────
+  // If all zombies are spawned AND zombies still remain AND we've been
+  // waiting more than 90 seconds since round start, force-clear all
+  // remaining zombies. This is the absolute last resort — every other
+  // fix (watchdog RAGE/WARP/CULL) should handle it first.
+  if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length > 0 &&
+      _roundStartTime > 0 && (performance.now() - _roundStartTime) > 90000) {
+    console.warn('[roundStall] 90s timeout — force-clearing', zombies.length, 'remaining zombies');
+    for (const z of [...zombies]) {
+      totalKills++;
+      const basePts = z.isBoss ? 500 : z.isElite ? 120 : 60;
+      points += basePts;
+      if (z.isBoss) { try { sfxBossKill(); } catch(e){} try { triggerScreenShake(4,4); } catch(e){} }
+      if (z._targetWindow && z._targetWindow.attackers) {
+        const ai = z._targetWindow.attackers.indexOf(z);
+        if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);
+      }
+      try { removeZombieMesh(z); } catch(e){}
+    }
+    zombies.length = 0;
+    _roundStartTime = 0; // prevent double-fire
+  }
   if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length === 0) {
     // Clean up knife immediately so no ghost shank on round transition
     resetKnifeState();
