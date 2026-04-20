@@ -1105,10 +1105,10 @@ function _tileZone(tx, tz) {
   return null;
 }
 
-function _findRandomSpawnTile() {
+function _findRandomSpawnTile(opts) {
   const targets = _spawnTargets();
-  const minDist = TILE * 3;
-  const maxDist = TILE * 14;
+  const minDist = TILE * (opts && opts.minTiles != null ? opts.minTiles : 3);
+  const maxDist = TILE * (opts && opts.maxTiles != null ? opts.maxTiles : 9);
   for (let attempt = 0; attempt < 40; attempt++) {
     const tx = Math.floor(Math.random() * MAP_W);
     const tz = Math.floor(Math.random() * MAP_H);
@@ -1153,7 +1153,32 @@ function spawnZombie() {
   let pick = null;
   const _isBossSpawn = round % 5 === 0 && zSpawned === zToSpawn - 1;
   const _isVeryLastSpawn = (zToSpawn - zSpawned) <= 1;
-  if (windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
+  // VERY-LAST-SPAWN PRIORITY: bypass the normal pickers entirely and
+  // place the final zombie at the closest window's INSIDE-bunker
+  // position so the player engages within ~1 second of it spawning.
+  // Previous behavior routed it through random-tile + walked it in
+  // from up to 14 tiles away — that's the "waiting for the last
+  // zombie" complaint.
+  if (_isVeryLastSpawn && windows.length > 0 && !_isBossSpawn) {
+    const targets = _spawnTargets();
+    let best = null, bestD = Infinity;
+    for (const w of windows) {
+      let nearest = Infinity;
+      for (const t of targets) {
+        const d = Math.hypot(w.centerX - t.x, w.centerZ - t.z);
+        if (d < nearest) nearest = d;
+      }
+      if (nearest < bestD) { bestD = nearest; best = w; }
+    }
+    if (best) {
+      pick = {
+        wx: best.centerX - best.normalX * TILE * 1.6,
+        wz: best.centerZ - best.normalZ * TILE * 1.6,
+      };
+      targetWindow = null; // appears INSIDE — no plank choreography
+    }
+  }
+  if (!pick && windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
     // Prefer windows that still have planks AND aren't dogpiled. Among
     // candidates, BIAS toward windows close to a player so the horde
     // visibly crashes through whichever boards the squad is defending.
@@ -1298,6 +1323,13 @@ function spawnZombie() {
   else { speedMult = 0.75 + Math.random() * 0.5; hasLimp = false; }
   if (isBoss) { speedMult = 0.7; hasLimp = false; }
   if (isElite) { speedMult = 1.15 + Math.random() * 0.2; hasLimp = false; }
+  // VERY LAST zombie of a round always sprints — no slow-shamble or
+  // limp roll. They appear close to the player AND close the gap fast
+  // so the player engages immediately instead of standing around.
+  if (_isVeryLastSpawn && !isBoss) {
+    speedMult = 1.2 + Math.random() * 0.15;
+    hasLimp = false;
+  }
   spd *= speedMult;
 
   const _aiSpeedMult = isBoss ? 0.7 : (0.85 + Math.random() * 0.3);
@@ -1974,6 +2006,16 @@ function _update(dt) {
     // which feels like the game is broken.
     const isFinalSpawn = remaining <= 2;
     const isVeryLast = remaining <= 1;
+    // PRESSURE BOOST: if there are zero zombies alive AND we still
+    // owe spawns to the round, fire IMMEDIATELY (override the
+    // spawn timer). Previously the player would stand around for up
+    // to 2.5s with nothing happening — that's the "waiting for the
+    // last zombie" complaint. Combined with the close-to-player
+    // spawn pick in spawnZombie() (see _isVeryLastSpawn branch), the
+    // last zombie now appears within ~half a second of the previous
+    // kill and arrives close enough to engage immediately.
+    const noneAlive = zombies.length === 0;
+    if (noneAlive) spawnTimer = 0;
     const canSpawn = isFinalSpawn || zombies.length < maxAlive;
     if (spawnTimer <= 0 && canSpawn) {
       const beforeSpawned = zSpawned;
