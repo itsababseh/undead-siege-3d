@@ -56,16 +56,35 @@ const _BACKING_MAT = new THREE.MeshBasicMaterial({
 //    we render our custom frame+planks ON TOP so visually it's a
 //    window. Zombies use these tile coords to path toward the window.
 // ───────────────────────────────────────────────────────────────────────
+// Spread windows around the perimeter so the horde feels like it's
+// pouring in from every direction, classic CoD Zombies vibe. Each tile
+// listed below must currently be a perimeter wall in the mapData (cell
+// value 1) AND have walkable floor (0) on the *outside* of the map for
+// the spawn point — the perimeter is fenced by the world bounds, but
+// we deliberately spawn just inside the wall on the breach path.
 export const windowSpecs = [
   // North wall (row 0). Outside is above (negative Z side).
+  { id: 'n-11', tx: 11, tz: 0, dir: 'N' },
   { id: 'n-14', tx: 14, tz: 0, dir: 'N' },
   { id: 'n-18', tx: 18, tz: 0, dir: 'N' },
+  { id: 'n-21', tx: 21, tz: 0, dir: 'N' },
   // South wall (row 23). Outside is below.
   { id: 's-12', tx: 12, tz: 23, dir: 'S' },
+  { id: 's-15', tx: 15, tz: 23, dir: 'S' },
   { id: 's-18', tx: 18, tz: 23, dir: 'S' },
+  { id: 's-21', tx: 21, tz: 23, dir: 'S' },
   // East wall (col 23). Outside is to the right.
+  { id: 'e-12', tx: 23, tz: 12, dir: 'E' },
   { id: 'e-14', tx: 23, tz: 14, dir: 'E' },
   { id: 'e-17', tx: 23, tz: 17, dir: 'E' },
+  { id: 'e-21', tx: 23, tz: 21, dir: 'E' },
+  // West wall (col 0). Outside is to the left. Only the lower half
+  // of the west wall borders walkable floor — the upper half is the
+  // sealed inner room (the bunker barracks), so windows there would
+  // breach into a closed-off area. Stick to rows 11-22.
+  { id: 'w-12', tx: 0, tz: 12, dir: 'W' },
+  { id: 'w-16', tx: 0, tz: 16, dir: 'W' },
+  { id: 'w-21', tx: 0, tz: 21, dir: 'W' },
 ];
 
 // ── Runtime state — populated by buildWindows(). Each entry mirrors

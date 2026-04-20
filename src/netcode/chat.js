@@ -80,7 +80,7 @@ function _initChat() {
   // box from anywhere in-game, but ignore it when an input is already
   // focused (so buy menus / name inputs don't clash).
   document.addEventListener('keydown', (e) => {
-    if (!netcode.isConnected()) return;
+    if (!_isInMatch()) return;
     if (_inputActive) {
       if (e.key === 'Enter') {
         const text = _inputEl.value;
@@ -162,15 +162,26 @@ function escapeHtml(s) {
 }
 
 /** Call each frame. Fades the window out after a delay. */
+// Match-presence test mirroring main.js's isInActiveMatch(). Connected
+// alone isn't enough — the death screen auto-connects to submit scores,
+// and we don't want a chat HUD or T-to-chat in solo runs.
+function _isInMatch() {
+  if (!netcode.isConnected()) return false;
+  try {
+    const id = netcode.getMyLobbyId();
+    return id && id !== 0n;
+  } catch (e) { return false; }
+}
+
 export function tickChat() {
   if (!_windowEl) return;
-  const connected = netcode.isConnected();
+  const inMatch = _isInMatch();
   const state = _getState ? _getState() : null;
   const inGameplay = state === 'playing' || state === 'roundIntro';
   // Only advertise "Press T to chat" during actual gameplay so the
   // hint doesn't appear in the lobby / menu / death screens.
-  _hintEl.classList.toggle('visible', connected && inGameplay && !_inputActive);
-  if (!connected || !inGameplay) {
+  _hintEl.classList.toggle('visible', inMatch && inGameplay && !_inputActive);
+  if (!inMatch || !inGameplay) {
     _windowEl.classList.remove('visible');
     // Safety: if the state left gameplay while input was open, close it
     if (_inputActive) closeInput();
