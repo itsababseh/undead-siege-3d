@@ -76,7 +76,10 @@ export const windowSpecs = [
   // East wall (col 23). Outside is to the right.
   { id: 'e-12', tx: 23, tz: 12, dir: 'E' },
   { id: 'e-14', tx: 23, tz: 14, dir: 'E' },
-  { id: 'e-17', tx: 23, tz: 17, dir: 'E' },
+  // NOTE: 'e-17' deliberately removed — the BLUE generator at (22,16)
+  // sits one tile from this window, which crowded the repair prompt
+  // and made the generator un-interactable. Closest E window is now
+  // e-14 (3 tiles away from the gen) which keeps repair clear.
   { id: 'e-21', tx: 23, tz: 21, dir: 'E' },
   // West wall (col 0). Outside is to the left. Only the lower half
   // of the west wall borders walkable floor — the upper half is the

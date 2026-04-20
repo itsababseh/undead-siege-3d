@@ -1128,14 +1128,31 @@ function spawnZombie() {
   const _isBossSpawn = round % 5 === 0 && zSpawned === zToSpawn - 1;
   const _isVeryLastSpawn = (zToSpawn - zSpawned) <= 1;
   if (windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
-    // Prefer windows that still have planks AND aren't dogpiled.
+    // Prefer windows that still have planks AND aren't dogpiled. Among
+    // candidates, BIAS toward windows close to a player so the horde
+    // visibly crashes through whichever boards the squad is defending.
+    // Score = attackerCount * 8 + tilesToNearestPlayer; lower is better.
+    // Adding 8x weight on attackers keeps a single window from getting
+    // monopolized even when the player camps right next to it.
     const candidateWindows = windows.filter(w =>
       intactPlanks(w) > 0 && w.attackers.length < PER_WINDOW_ATTACKER_CAP
     );
     if (candidateWindows.length > 0) {
-      const minAttackers = Math.min(...candidateWindows.map(w => w.attackers.length));
-      const tied = candidateWindows.filter(w => w.attackers.length === minAttackers);
-      targetWindow = tied[Math.floor(Math.random() * tied.length)];
+      const targets = _spawnTargets();
+      const scored = candidateWindows.map(w => {
+        let nearest = Infinity;
+        for (const t of targets) {
+          const dx = w.centerX - t.x, dz = w.centerZ - t.z;
+          const d = Math.hypot(dx, dz) / TILE; // distance in tiles
+          if (d < nearest) nearest = d;
+        }
+        // A small jitter (±0.5) breaks ties without making selection
+        // feel deterministic when multiple windows are equidistant.
+        const score = w.attackers.length * 8 + nearest + (Math.random() - 0.5);
+        return { w, score };
+      });
+      scored.sort((a, b) => a.score - b.score);
+      targetWindow = scored[0].w;
       const pos = outsideSpawnPosition(targetWindow);
       if (pos) pick = { wx: pos.x, wz: pos.z };
     }
@@ -1157,17 +1174,68 @@ function spawnZombie() {
       const d = Math.hypot(wx - camera.position.x, wz - camera.position.z);
       candidates.push({ wx, wz, d });
     }
-    if (!candidates.length) return;
-    const minDist = TILE * 3;
-    const viable = candidates.filter(c => c.d >= minDist);
-    const pool = viable.length > 0 ? viable : candidates;
-    const totalWeight = pool.reduce((sum, c) => sum + 1 / Math.max(c.d, 1), 0);
-    let roll = Math.random() * totalWeight;
-    pick = pool[0];
-    for (const c of pool) {
-      roll -= 1 / Math.max(c.d, 1);
-      if (roll <= 0) { pick = c; break; }
+    if (candidates.length) {
+      const minDist = TILE * 3;
+      const viable = candidates.filter(c => c.d >= minDist);
+      const pool = viable.length > 0 ? viable : candidates;
+      const totalWeight = pool.reduce((sum, c) => sum + 1 / Math.max(c.d, 1), 0);
+      let roll = Math.random() * totalWeight;
+      pick = pool[0];
+      for (const c of pool) {
+        roll -= 1 / Math.max(c.d, 1);
+        if (roll <= 0) { pick = c; break; }
+      }
     }
+  }
+  // GUARANTEED-SPAWN FALLBACKS — without these, a player camped in a
+  // sealed area can stall the round forever because both the random
+  // tile picker and the spawnPts list returned nothing. Try, in
+  // order: any window's inside-bunker position, then ANY open tile
+  // on the map. zSpawned is only incremented if we actually push a
+  // zombie below, so the round-end check is never stranded by a
+  // silent return.
+  if (!pick && windows.length > 0) {
+    // Pick any window — even fully-breached or dogpiled — and spawn
+    // the zombie at its inside-bunker position so it can immediately
+    // chase. Skip the plank-break choreography for this fallback.
+    const w = windows[Math.floor(Math.random() * windows.length)];
+    pick = {
+      wx: w.centerX - w.normalX * TILE * 1.6,
+      wz: w.centerZ - w.normalZ * TILE * 1.6,
+    };
+    targetWindow = null; // already inside, don't queue plank-breaks
+  }
+  if (!pick) {
+    // Absolute last resort: scan the map for any walkable tile far
+    // enough from every player. If even that fails (map is hostile),
+    // grab literally any open tile so the round can advance.
+    const minDist = TILE * 2;
+    const targets = _spawnTargets();
+    const scan = [];
+    for (let tz = 1; tz < MAP_H - 1; tz++) {
+      for (let tx = 1; tx < MAP_W - 1; tx++) {
+        const wx = tx * TILE + TILE * 0.5;
+        const wz = tz * TILE + TILE * 0.5;
+        if (mapAt(wx, wz) !== 0) continue;
+        let nearest = Infinity;
+        for (const t of targets) {
+          const d = Math.hypot(wx - t.x, wz - t.z);
+          if (d < nearest) nearest = d;
+        }
+        scan.push({ wx, wz, d: nearest });
+      }
+    }
+    if (scan.length) {
+      const farEnough = scan.filter(s => s.d >= minDist);
+      const pool = farEnough.length ? farEnough : scan;
+      pick = pool[Math.floor(Math.random() * pool.length)];
+    }
+  }
+  if (!pick) {
+    // True dead end — nothing walkable on the entire map. Bail
+    // without incrementing zSpawned so the next tick retries; the
+    // global watchdog will eventually teleport survivors anyway.
+    return;
   }
   
   const tier = getDifficultyTier();
@@ -1870,11 +1938,18 @@ function _update(dt) {
     // the final zombie to appear if earlier ones are still alive,
     // which feels like the game is broken.
     const isFinalSpawn = remaining <= 2;
+    const isVeryLast = remaining <= 1;
     const canSpawn = isFinalSpawn || zombies.length < maxAlive;
     if (spawnTimer <= 0 && canSpawn) {
+      const beforeSpawned = zSpawned;
       spawnZombie();
       const baseRate = Math.max(0.5, 2.5 - round * 0.12);
-      spawnTimer = isFinalSpawn ? Math.min(baseRate, 0.8) : baseRate;
+      // Very last spawn gets a near-instant retry cadence (0.25s) so
+      // even if the first attempt silently bailed (no walkable tile),
+      // the round doesn't stall waiting on the next regular tick.
+      // Other final-2 spawns cap at 0.6s to keep the wave snappy.
+      if (isVeryLast) spawnTimer = (zSpawned > beforeSpawned) ? 0.25 : 0.15;
+      else spawnTimer = isFinalSpawn ? Math.min(baseRate, 0.6) : baseRate;
     }
   }
 
