@@ -16,8 +16,20 @@ export const wallMeshes = [];
 export const doorMeshes = []; // track door meshes for removal
 
 export function buildMap() {
-  // Remove old walls
-  wallMeshes.forEach(m => _scene.remove(m));
+  // Remove old walls AND release their GPU resources. Without disposing,
+  // every restart of the game leaks the merged-wall geometries (large)
+  // plus their materials. With per-color merges that's a meaningful
+  // amount per restart.
+  wallMeshes.forEach(m => {
+    _scene.remove(m);
+    if (m.geometry) try { m.geometry.dispose(); } catch (e) {}
+    if (m.material) {
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) {
+        try { mat.dispose(); } catch (e) {}
+      }
+    }
+  });
   wallMeshes.length = 0;
   doorMeshes.length = 0;
 
