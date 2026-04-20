@@ -338,20 +338,43 @@ function _introLerp(tNorm) {
 }
 let _introSubtitleEl = null;
 let _introPrevHudHidden = false;
+let _introLetterboxEl = null;
+let _introSkipHintEl = null;
 function _buildIntroSubtitle() {
   if (_introSubtitleEl) return;
+  // Subtitle line in lower third — large, glowing, hard to miss
   _introSubtitleEl = document.createElement('div');
   _introSubtitleEl.id = 'introSubtitle';
   _introSubtitleEl.style.cssText = `
-    position:fixed;left:50%;bottom:20%;transform:translateX(-50%);
+    position:fixed;left:50%;bottom:25%;transform:translateX(-50%);
     z-index:120;pointer-events:none;font-family:'Courier New',monospace;
-    color:#cfe9ff;letter-spacing:3px;font-size:clamp(12px,2vw,18px);
-    text-align:center;text-shadow:0 0 10px rgba(68,170,255,0.7),0 0 20px rgba(0,0,0,0.9);
-    opacity:0;transition:opacity 0.5s ease-in-out;max-width:90vw`;
+    color:#cfe9ff;letter-spacing:4px;font-size:clamp(16px,2.5vw,26px);
+    text-align:center;text-shadow:0 0 14px rgba(68,170,255,0.85),0 0 28px rgba(0,0,0,0.95);
+    opacity:0;transition:opacity 0.45s ease-in-out;max-width:90vw;font-weight:bold`;
   document.body.appendChild(_introSubtitleEl);
+  // Cinematic letterbox bars — top and bottom, fade in fast, fade out at end
+  _introLetterboxEl = document.createElement('div');
+  _introLetterboxEl.id = 'introLetterbox';
+  _introLetterboxEl.style.cssText = `
+    position:fixed;inset:0;pointer-events:none;z-index:118;opacity:0;
+    transition:opacity 0.4s ease-in-out;
+    background:linear-gradient(to bottom,
+      rgba(0,0,0,1) 0%, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 10%,
+      rgba(0,0,0,0) 90%, rgba(0,0,0,1) 90%, rgba(0,0,0,1) 100%)`;
+  document.body.appendChild(_introLetterboxEl);
+  // "PRESS ANY KEY TO SKIP" — appears after 1s
+  _introSkipHintEl = document.createElement('div');
+  _introSkipHintEl.id = 'introSkipHint';
+  _introSkipHintEl.style.cssText = `
+    position:fixed;right:20px;bottom:20px;z-index:122;pointer-events:none;
+    font:11px 'Courier New',monospace;color:rgba(255,255,255,0.55);
+    letter-spacing:2px;opacity:0;transition:opacity 0.4s ease-in`;
+  _introSkipHintEl.textContent = '[ANY KEY] SKIP';
+  document.body.appendChild(_introSkipHintEl);
 }
 let _introGroanTimer = 0;
 function _startIntroCinematic() {
+  console.log('[intro] cinematic starting');
   state = 'intro';
   introTimer = 0;
   _introGroanTimer = 0;
@@ -360,6 +383,9 @@ function _startIntroCinematic() {
   const hud = document.getElementById('hud');
   _introPrevHudHidden = hud.classList.contains('hidden');
   hud.classList.add('hidden');
+  // Show letterbox bars immediately for cinematic frame
+  if (_introLetterboxEl) _introLetterboxEl.style.opacity = '1';
+  if (_introSkipHintEl) _introSkipHintEl.style.opacity = '0';
   // Position camera at first keyframe immediately
   const kf0 = INTRO_KEYFRAMES[0];
   camera.position.set(kf0.x, kf0.y, kf0.z);
@@ -373,8 +399,11 @@ function _startIntroCinematic() {
 }
 function _endIntroCinematic() {
   if (state !== 'intro') return;
-  // Clear subtitle
+  console.log('[intro] cinematic ending');
+  // Clear subtitle + letterbox + skip hint
   if (_introSubtitleEl) _introSubtitleEl.style.opacity = '0';
+  if (_introLetterboxEl) _introLetterboxEl.style.opacity = '0';
+  if (_introSkipHintEl) _introSkipHintEl.style.opacity = '0';
   // Restore HUD visibility
   if (!_introPrevHudHidden) document.getElementById('hud').classList.remove('hidden');
   // Restore gun visibility (updateGunModel will re-toggle individual models)
@@ -399,7 +428,7 @@ function _updateIntroCinematic(dt) {
   if (_introSubtitleEl) {
     if (introTimer < 1.0) {
       _introSubtitleEl.textContent = '[ RADIO ] ...static...';
-      _introSubtitleEl.style.opacity = '0.5';
+      _introSubtitleEl.style.opacity = '0.6';
     } else if (introTimer < 3.0) {
       _introSubtitleEl.textContent = '[ COMMAND ] We have a situation.';
       _introSubtitleEl.style.opacity = '1';
@@ -409,6 +438,11 @@ function _updateIntroCinematic(dt) {
     } else {
       _introSubtitleEl.style.opacity = '0';
     }
+  }
+  // Skip hint appears after 1s — gives the cinematic a chance to land
+  // before telling the player they can skip
+  if (_introSkipHintEl && introTimer >= 1.0 && _introSkipHintEl.style.opacity !== '1') {
+    _introSkipHintEl.style.opacity = '1';
   }
   // Distant zombie idle sounds build in frequency over the 5 seconds.
   // sfxZombieIdle is a positional SFX that takes (wx, wz, camX, camZ).
@@ -1264,7 +1298,7 @@ document.addEventListener('keydown', e => {
   }
   // Skip intro cinematic on any key (after small grace to prevent
   // accidental-skip from menu clicks lingering)
-  if (state === 'intro' && introTimer > 0.4) { _endIntroCinematic(); return; }
+  if (state === 'intro' && introTimer > 1.0) { _endIntroCinematic(); return; }
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (gameKeys.includes(k)) e.preventDefault();
@@ -1320,7 +1354,7 @@ renderer.domElement.addEventListener('click', () => {
   // need a teammate revive (or a session reset).
   if (isLocallyDowned()) return;
   // Clicks during the intro cinematic skip it (after small grace)
-  if (state === 'intro' && introTimer > 0.4) { _endIntroCinematic(); return; }
+  if (state === 'intro' && introTimer > 1.0) { _endIntroCinematic(); return; }
   if ((state === 'playing' || state === 'roundIntro') && paused) {
     paused = false; hidePause();
     controls.lock();
