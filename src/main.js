@@ -1365,12 +1365,56 @@ renderer.domElement.addEventListener('click', () => {
     controls.lock();
   }
 });
-document.getElementById('pauseOverlay').addEventListener('click', () => {
+document.getElementById('pauseOverlay').addEventListener('click', (e) => {
   if (isLocallyDowned()) return;
+  // Buttons inside the overlay handle their own logic and stop
+  // propagation; this listener fires for clicks on empty space and
+  // resumes the game (single-player only — MP doesn't pause).
+  if (e.target && (e.target.id === 'pauseEndRunBtn' || e.target.id === 'pauseMainMenuBtn')) return;
   if ((state === 'playing' || state === 'roundIntro')) {
     paused = false; hidePause();
     controls.lock();
   }
+});
+
+// SP pause menu: END RUN — bring up the death/game-over screen with
+// current stats. Score still gets submitted to the leaderboard since
+// showDeath() handles that.
+document.getElementById('pauseEndRunBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (state !== 'playing' && state !== 'roundIntro') return;
+  paused = false; hidePause();
+  player.hp = 0;
+  state = 'dead';
+  try { sfxPlayerDeath(); } catch (err) {}
+  try { controls.unlock(); } catch (err) {}
+  setTimeout(showDeath, 600);
+});
+
+// SP pause menu: MAIN MENU — abandon the run, return to title screen.
+// Resets game state cleanly so a follow-up ENLIST starts fresh.
+document.getElementById('pauseMainMenuBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (state !== 'playing' && state !== 'roundIntro') return;
+  paused = false; hidePause();
+  // Reset state so the next ENLIST starts a clean run
+  state = 'menu';
+  try { controls.unlock(); } catch (err) {}
+  // Drop active zombies + restore the menu scene
+  zombies.forEach(z => { try { removeZombieMesh(z); } catch (err) {} });
+  zombies.length = 0;
+  // Hide the HUD, restore the menu blocker
+  document.getElementById('hud')?.classList.add('hidden');
+  const blocker = document.getElementById('blocker');
+  if (blocker) {
+    blocker.classList.remove('hidden');
+    blocker.style.opacity = '1';
+  }
+  // If the death screen replaced blocker.innerHTML earlier, the menu
+  // panel reference is stale. Easiest reliable path: full reload to a
+  // fresh menu state. UX-wise this is identical to clicking "MAIN MENU"
+  // in any console game.
+  setTimeout(() => { window.location.reload(); }, 100);
 });
 
 // ===== MP "click to refocus" hint =====

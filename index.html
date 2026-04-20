@@ -229,8 +229,12 @@
 
 <div id="pauseOverlay">
   <h2>PAUSED</h2>
-  <div class="info">Click to resume</div>
+  <div class="info">Click anywhere to resume</div>
   <div class="pinfo" id="pausePerks"></div>
+  <div id="pauseActions" style="margin-top:24px;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:auto">
+    <button id="pauseEndRunBtn" style="background:none;border:2px solid #c00;color:#c00;padding:10px 30px;font:bold 13px 'Courier New';letter-spacing:3px;cursor:pointer;min-width:240px">END RUN</button>
+    <button id="pauseMainMenuBtn" style="background:none;border:2px solid #888;color:#aaa;padding:10px 30px;font:bold 13px 'Courier New';letter-spacing:3px;cursor:pointer;min-width:240px">MAIN MENU</button>
+  </div>
 </div>
 
 <div id="mobileControls">
