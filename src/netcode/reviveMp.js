@@ -13,6 +13,18 @@
 
 import * as netcode from './connection.js';
 
+// In-an-actual-match check. The death screen auto-connects so it can
+// submit high scores; bare connection without a lobby must NOT count
+// as MP for the revive system, otherwise SP runs after a death+retry
+// would fall into the MP downed flow and softlock.
+function _inActiveMatch() {
+  if (!netcode.isConnected()) return false;
+  try {
+    const id = netcode.getMyLobbyId();
+    return id && id !== 0n;
+  } catch (e) { return false; }
+}
+
 const REVIVE_TIME_SEC = 3.0;
 const REVIVE_RANGE = 3.0;
 
@@ -75,7 +87,11 @@ export function hasReviveGrace() {
  * and returns true.
  */
 export function onLocalHpZero() {
-  if (!netcode.isConnected()) return false;
+  // Active match required — bare connection (e.g. high-score auto-
+  // connect from the death screen) doesn't count. Without this guard
+  // a SP run after a death+retry would enter the MP downed state on
+  // the next death and softlock waiting for a teammate.
+  if (!_inActiveMatch()) return false;
   _downed = true;
   _downedAckedByServer = false;
   _ctx.sfxPlayerDeath();
@@ -104,7 +120,7 @@ export function tickDowned() {
   const hud = getHud();
   if (hud && hud.style.display !== 'none') hud.style.display = 'none';
 
-  if (!netcode.isConnected()) return;
+  if (!_inActiveMatch()) return;
 
   const srvDowned = netcode.isLocalPlayerDowned();
   if (srvDowned) {
@@ -138,7 +154,7 @@ export function tickDowned() {
  * completion.
  */
 export function tickRevive(dt) {
-  if (!netcode.isConnected()) {
+  if (!_inActiveMatch()) {
     _reviveProgress = 0;
     _reviveTargetHex = null;
     const hud = getHud();

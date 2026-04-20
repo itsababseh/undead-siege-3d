@@ -27,6 +27,30 @@ import {
   tickDowned, tickRevive, hasReviveGrace,
 } from './netcode/reviveMp.js';
 
+// True only when the player is in an actual multiplayer match — i.e.
+// connected to the server AND assigned to a lobby. The death screen
+// auto-connects to submit high scores, so `netcode.isConnected()` alone
+// over-reports MP and would put SP players into MP-mode AI / chat HUD
+// after their first death + retry. Use this everywhere the question is
+// "are we in a multiplayer game right now?".
+function isInActiveMatch() {
+  if (!netcode.isConnected()) return false;
+  try {
+    const lobbyId = netcode.getMyLobbyId();
+    return lobbyId && lobbyId !== 0n;
+  } catch (e) {
+    return false;
+  }
+}
+window._isInActiveMatch = isInActiveMatch;
+
+// Watchdog state — used by the end-of-round stall guard. Updated each
+// time a zombie is removed; the per-frame check below force-rages any
+// remaining zombies if no kill has happened in a while and the round
+// is on its tail end. Reset to 0 on round start (nextRound).
+let _lastZombieDeathTime = 0;
+window._resetZombieDeathTimer = () => { _lastZombieDeathTime = performance.now(); };
+
 // Local player name helper — used for high-score submission + chat.
 function getLocalPlayerName() {
   return (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
@@ -914,6 +938,9 @@ function _triggerMilestoneFanfare(rank) {
 function nextRound() {
   round++;
   const roundEntering = round;
+  // Reset the stuck-zombie watchdog at the start of each round so the
+  // first kill of the wave isn't immediately deemed "overdue".
+  _lastZombieDeathTime = performance.now();
   // Instantly clean up any in-progress knife animation so there's no
   // ghost shank lingering into the new round.
   resetKnifeState();
@@ -1082,28 +1109,30 @@ function _findRandomSpawnTile() {
 }
 
 function spawnZombie() {
-  // Window spawns take priority over random tile spawns once windows
-  // are built and at least one has intact planks. Several gates keep
-  // window-spawning from causing 'stuck zombie' end-of-round hangs:
-  //  - Boss zombies always use the random tile path (don't waste boss
-  //    on a window).
-  //  - The LAST 2 zombies of any round always use random tile spawn
-  //    so the round-end condition isn't gated on a slow plank-break.
-  //  - Spawn rate scales with round (15% on round 1, 25% on round 2,
-  //    35% from round 3 onward) so early rounds don't feel sluggish.
+  // CoD-Zombies feel: zombies should overwhelmingly come from the
+  // boarded-up windows so the player sees planks shake and shatter
+  // as the horde claws in. Random-tile spawning is the fallback path
+  // for cases where windows can't be used:
+  //  - Boss zombies always use the random tile path (a boss should
+  //    not get bottlenecked on planks).
+  //  - The VERY LAST zombie of any round uses random tile spawn so
+  //    a slow plank-break can't strand the round-end condition.
+  //  - All windows are saturated (each has hit the per-window
+  //    attacker cap) — overflow falls back to random tiles.
+  //  - All windows have already been fully breached (no planks left
+  //    anywhere) — at that point there's nothing dramatic to break,
+  //    so random spawns keep variety up.
+  const PER_WINDOW_ATTACKER_CAP = 4;
   let targetWindow = null;
   let pick = null;
-  const _isBossRound = round % 5 === 0 && zSpawned === zToSpawn - 1;
-  const _isLastFewSpawns = (zToSpawn - zSpawned) <= 2;
-  const _windowSpawnChance = round <= 1 ? 0.15 : round === 2 ? 0.25 : 0.35;
-  if (windows.length > 0 && !_isBossRound && !_isLastFewSpawns && Math.random() < _windowSpawnChance) {
-    // Only pick windows that still have at least one intact plank — zombies
-    // at a fully-broken window just walk through, no reason to queue more
-    // zombies on the outside.
-    const candidateWindows = windows.filter(w => intactPlanks(w) > 0);
+  const _isBossSpawn = round % 5 === 0 && zSpawned === zToSpawn - 1;
+  const _isVeryLastSpawn = (zToSpawn - zSpawned) <= 1;
+  if (windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
+    // Prefer windows that still have planks AND aren't dogpiled.
+    const candidateWindows = windows.filter(w =>
+      intactPlanks(w) > 0 && w.attackers.length < PER_WINDOW_ATTACKER_CAP
+    );
     if (candidateWindows.length > 0) {
-      // Use pickSpawnWindow's "least busy" distribution, but restricted
-      // to candidates with planks still up.
       const minAttackers = Math.min(...candidateWindows.map(w => w.attackers.length));
       const tied = candidateWindows.filter(w => w.attackers.length === minAttackers);
       targetWindow = tied[Math.floor(Math.random() * tied.length)];
@@ -1344,7 +1373,7 @@ document.addEventListener('pointerlockchange', () => {
       // ticking even if you walk away. Show a small unobtrusive
       // "click to refocus" hint instead so the player can re-engage
       // without obscuring gameplay (or dying behind a fake pause screen).
-      if (netcode.isConnected()) {
+      if (isInActiveMatch()) {
         showMpUnlockHint();
       } else {
         paused = true;
@@ -1602,7 +1631,7 @@ function tryKnife() {
   }
 
   if (bestZ) {
-    const mpActive = netcode.isConnected();
+    const mpActive = isInActiveMatch();
     const dmg = getKnifeDamage();
 
     // Visual + audio feedback fires immediately in both modes.
@@ -1654,6 +1683,7 @@ function tryKnife() {
           }
           removeZombieMesh(bestZ);
           zombies.splice(idx, 1);
+          _lastZombieDeathTime = performance.now();
           if (bestZ.isBoss) {
             sfxBossKill();
             // S4.2: Longer, more intense screen shake on boss death
@@ -1824,7 +1854,12 @@ function _update(dt) {
   // Multiplayer authority check. In MP, only the host runs the zombie
   // spawn loop, AI, collision, and wave progression. Non-hosts mirror the
   // Zombie table from the server via subscription callbacks (see below).
-  const _mpActive = netcode.isConnected();
+  // IMPORTANT: "MP active" means we're actually in a multiplayer match
+  // (connected AND in a lobby), not just connected to the server. The
+  // death screen auto-connects to submit scores, which would otherwise
+  // flip every subsequent SP run into MP mode (chat HUD appears, host
+  // checks fail, etc.). See isInActiveMatch() for the canonical test.
+  const _mpActive = isInActiveMatch();
   const _isHostOrSP = !_mpActive || netcode.isHost();
 
   if (_isHostOrSP && zSpawned < zToSpawn) {
@@ -1903,12 +1938,14 @@ function _update(dt) {
           z._atWindow = true;
           z._atWindowTime = (z._atWindowTime || 0) + dt;
           z._plankBreakTimer -= dt;
-          // SAFETY NET: if this zombie is one of the last 2 alive AND all
+          // SAFETY NET: if this zombie is one of the last 3 alive AND all
           // outstanding spawns are done, force-accelerate plank breaking so
           // the round can end. Prevents 'stuck zombie' hangs reported on r1.
+          // Also: once *anyone* has been at this window > 12s (which would
+          // only happen if SFX/timer logic broke), force-clear regardless.
           const _allSpawned = zSpawned >= zToSpawn;
-          const _lastFew = zombies.length <= 2;
-          if (_allSpawned && _lastFew && z._atWindowTime > 6) {
+          const _lastFew = zombies.length <= 3;
+          if ((_allSpawned && _lastFew && z._atWindowTime > 2.5) || z._atWindowTime > 12) {
             // Rage mode: smash a plank every frame until clear
             const brokenIdx = breakNextPlank(w);
             if (brokenIdx >= 0) {
@@ -2308,6 +2345,40 @@ function _update(dt) {
   updateRadioTransmission(dt);
   updateGenerators(dt);
   
+  // ── STUCK-ZOMBIE WATCHDOG ───────────────────────────────────────────
+  // If the round is on its tail end (all spawned, ≤3 alive) and no
+  // kill has happened in 8s, force-rage every remaining zombie so the
+  // round can advance. "Force-rage" = clear all planks on their target
+  // window, teleport them inside the bunker, and slam their AI into a
+  // direct chase at boosted speed. Only runs on host/SP — clients
+  // mirror via subscription.
+  if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length > 0 && zombies.length <= 3) {
+    const _stallMs = performance.now() - _lastZombieDeathTime;
+    if (_stallMs > 8000) {
+      for (const z of zombies) {
+        // Boss never gets force-teleported — it's the round objective.
+        if (z.isBoss) continue;
+        // Clear any window the zombie was attached to.
+        if (z._targetWindow) {
+          const w = z._targetWindow;
+          while (intactPlanks(w) > 0) breakNextPlank(w);
+          z.wx = w.centerX - w.normalX * TILE * 1.6;
+          z.wz = w.centerZ - w.normalZ * TILE * 1.6;
+          const ai = w.attackers.indexOf(z);
+          if (ai >= 0) w.attackers.splice(ai, 1);
+          z._targetWindow = null;
+          z._atWindow = false;
+        }
+        // Boost speed so they actually close the gap.
+        z._speedMult = Math.max(z._speedMult || 1, 1.4);
+        // Reset stuck check so chase AI's nudge logic gets a fresh window.
+        z.stuckCheck = null;
+      }
+      // Reset the timer so we don't hit this branch every frame.
+      _lastZombieDeathTime = performance.now();
+    }
+  }
+
   if (_isHostOrSP && zSpawned >= zToSpawn && zombies.length === 0) {
     // Clean up knife immediately so no ghost shank on round transition
     resetKnifeState();
