@@ -103,6 +103,91 @@ export function buildMysteryBox() {
   mysteryBoxMeshes.weaponDisplay = null;
 }
 
+// ===== WEAPON PREVIEW MESH BUILDER =====
+// Build a small, recognizable preview mesh for each weapon idx so the
+// box hovering display reads as the actual gun (not a generic block).
+// Mirrors the remote-player weapon meshes for visual consistency.
+const _PREVIEW_METAL = new THREE.MeshStandardMaterial({ color: 0x3a3a3e, metalness: 0.7, roughness: 0.4 });
+const _PREVIEW_DARK  = new THREE.MeshStandardMaterial({ color: 0x1a1a1c, metalness: 0.6, roughness: 0.5 });
+const _PREVIEW_WOOD  = new THREE.MeshStandardMaterial({ color: 0x6a3a18, metalness: 0.1, roughness: 0.85 });
+const _PREVIEW_RAY   = new THREE.MeshStandardMaterial({ color: 0x44ff66, emissive: 0x22aa33, emissiveIntensity: 1.4, metalness: 0.6, roughness: 0.3 });
+const _PREVIEW_RAYGLOW = new THREE.MeshBasicMaterial({ color: 0x88ffaa, transparent: true, opacity: 0.6 });
+
+function _buildWeaponPreview(idx) {
+  const group = new THREE.Group();
+  switch (idx) {
+    case 0: { // M1911 pistol — short body + barrel + grip
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.22, 0.5), _PREVIEW_METAL);
+      body.position.set(0, 0.05, 0);
+      group.add(body);
+      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.36), _PREVIEW_DARK);
+      barrel.position.set(0, 0.08, -0.4);
+      group.add(barrel);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.32, 0.18), _PREVIEW_DARK);
+      grip.position.set(0, -0.18, 0.05);
+      grip.rotation.x = -0.2;
+      group.add(grip);
+      break;
+    }
+    case 1: { // MP40 SMG — long body + curved mag + barrel
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 1.0), _PREVIEW_METAL);
+      body.position.set(0, 0.05, 0);
+      group.add(body);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.7, 8), _PREVIEW_DARK);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.05, -0.7);
+      group.add(barrel);
+      const mag = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.42, 0.16), _PREVIEW_DARK);
+      mag.position.set(0, -0.25, -0.05);
+      group.add(mag);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.14), _PREVIEW_WOOD);
+      grip.position.set(0, -0.18, 0.25);
+      group.add(grip);
+      break;
+    }
+    case 2: { // Trench Gun shotgun — wide body + thick barrel + wood stock
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 1.1), _PREVIEW_METAL);
+      body.position.set(0, 0.05, 0);
+      group.add(body);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.85, 8), _PREVIEW_DARK);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.06, -0.85);
+      group.add(barrel);
+      const heatShield = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.4, 6), _PREVIEW_METAL);
+      heatShield.rotation.x = Math.PI / 2;
+      heatShield.position.set(0, 0.06, -0.55);
+      group.add(heatShield);
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.45), _PREVIEW_WOOD);
+      stock.position.set(0, -0.04, 0.55);
+      group.add(stock);
+      break;
+    }
+    case 3: { // Ray Gun — bright green glowing chunk + coil + emitter
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.9), _PREVIEW_RAY);
+      body.position.set(0, 0.05, 0);
+      group.add(body);
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.04, 8, 16), _PREVIEW_RAYGLOW);
+      coil.rotation.y = Math.PI / 2;
+      coil.position.set(0, 0.05, -0.6);
+      group.add(coil);
+      const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), _PREVIEW_RAYGLOW);
+      emitter.position.set(0, 0.05, -0.85);
+      group.add(emitter);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.3, 0.18), _PREVIEW_DARK);
+      grip.position.set(0, -0.2, 0.15);
+      grip.rotation.x = -0.2;
+      group.add(grip);
+      break;
+    }
+    default: {
+      // Fallback — generic colored block so we never error
+      const fallback = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.2), _PREVIEW_METAL);
+      group.add(fallback);
+    }
+  }
+  return group;
+}
+
 // ===== OCTOPUS (AutoGPT homage) =====
 // Procedural purple-glowing octopus mesh built from a sphere head and
 // 6 tentacles (curved cylinders). Used as the "this gamble didn't pay
@@ -384,12 +469,11 @@ export function updateMysteryBox(dt) {
 
       mysteryBox.collectTimer = mysteryBox.collectDuration;
 
-      const indicatorGeo = new THREE.BoxGeometry(0.8, 0.3, 0.15);
       const w = _weapons[mysteryBox.resultWeaponIdx];
-      const indicatorMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(w.color), transparent: true, opacity: 0.8
-      });
-      const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+      // Recognizable weapon preview floats above the box during the
+      // collect window. Replaces the previous tiny colored block so
+      // players can identify what they rolled at a glance.
+      const indicator = _buildWeaponPreview(mysteryBox.resultWeaponIdx);
       indicator.position.set(bx, 2, bz);
       _scene.add(indicator);
       mysteryBoxMeshes.weaponDisplay = indicator;
