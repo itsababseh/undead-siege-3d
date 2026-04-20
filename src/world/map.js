@@ -1,6 +1,8 @@
 // 3D Map Building
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { floorTex, ceilTex, wallTextures } from './textures.js';
+import { windowSpecs } from './windows.js';
 
 const PI = Math.PI;
 
@@ -40,23 +42,55 @@ export function buildMap() {
 
   // Walls
   const wallH = 3.2;
+
+  // Window tiles — skip these so windows.js can build its own frame/planks
+  // without hunting for a per-tile wall mesh to remove.
+  const windowKeys = new Set(windowSpecs.map(s => `${s.tx},${s.tz}`));
+
+  // Group static (non-door) wall tiles by material index so we can merge
+  // each color family into a single draw call. Doors stay as individual
+  // meshes because gameplay code animates/removes them per-door.
+  const groupedGeos = new Map(); // ci -> BufferGeometry[]
+
   for (let z = 0; z < _MAP_H; z++) {
     for (let x = 0; x < _MAP_W; x++) {
       const cell = _map[z * _MAP_W + x];
       if (cell === 0) continue;
-      const ci = Math.min(cell - 1, wallTextures.length - 1);
-      const mat = new THREE.MeshStandardMaterial({ map: wallTextures[ci], roughness: 0.85, metalness: 0.05 });
-      const geo = new THREE.BoxGeometry(_TILE, wallH, _TILE);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x * _TILE + _TILE / 2, wallH / 2, z * _TILE + _TILE / 2);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      _scene.add(mesh);
-      wallMeshes.push(mesh);
+
       if (cell === 4 || cell === 5) {
+        const ci = Math.min(cell - 1, wallTextures.length - 1);
+        const mat = new THREE.MeshStandardMaterial({ map: wallTextures[ci], roughness: 0.85, metalness: 0.05 });
+        const geo = new THREE.BoxGeometry(_TILE, wallH, _TILE);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x * _TILE + _TILE / 2, wallH / 2, z * _TILE + _TILE / 2);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        _scene.add(mesh);
+        wallMeshes.push(mesh);
         doorMeshes.push({ mesh, x, z, cell });
+        continue;
       }
+
+      if (windowKeys.has(`${x},${z}`)) continue;
+
+      const ci = Math.min(cell - 1, wallTextures.length - 1);
+      const geo = new THREE.BoxGeometry(_TILE, wallH, _TILE);
+      geo.translate(x * _TILE + _TILE / 2, wallH / 2, z * _TILE + _TILE / 2);
+      if (!groupedGeos.has(ci)) groupedGeos.set(ci, []);
+      groupedGeos.get(ci).push(geo);
     }
+  }
+
+  for (const [ci, geos] of groupedGeos) {
+    const merged = mergeGeometries(geos, false);
+    geos.forEach(g => g.dispose());
+    if (!merged) continue;
+    const mat = new THREE.MeshStandardMaterial({ map: wallTextures[ci], roughness: 0.85, metalness: 0.05 });
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    _scene.add(mesh);
+    wallMeshes.push(mesh);
   }
 }
 
