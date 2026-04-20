@@ -21,6 +21,7 @@ import {
 } from './entities/zombies.js';
 import * as netcode from './netcode/connection.js';
 import { initRemotePlayers, updateRemotePlayers, clearRemotePlayers } from './netcode/remotePlayers.js';
+import { profBeginFrame, profBegin, profEnd, profEndFrame } from './ui/profiler.js';
 import { makeHostZid, createHostSync } from './netcode/hostSync.js';
 import {
   initReviveMp, isLocallyDowned, onLocalHpZero, resetDownedState,
@@ -2021,7 +2022,7 @@ function _update(dt) {
     const canSpawn = isFinalSpawn || zombies.length < maxAlive;
     if (spawnTimer <= 0 && canSpawn) {
       const beforeSpawned = zSpawned;
-      spawnZombie();
+      profBegin('spawnZombie'); try { spawnZombie(); } finally { profEnd(); }
       const baseRate = Math.max(0.5, 2.5 - round * 0.12);
       // Very last spawn gets a near-instant retry cadence (0.25s) so
       // even if the first attempt silently bailed (no walkable tile),
@@ -2085,6 +2086,7 @@ function _update(dt) {
     // This runs on host/SP only — non-host clients get authoritative
     // positions via netcode and don't simulate zombie behavior.
     if (_isHostOrSP && z._targetWindow) {
+      profBegin('ai:window');
       const w = z._targetWindow;
       // CRITICAL ROUND END SHORTCUT: if all spawns are done and ≤2
       // zombies remain, ANY zombie still trudging toward a window or
@@ -2137,6 +2139,7 @@ function _update(dt) {
           _lastBreachThud = _now;
         }
         updateZombieMesh(z, dt);
+        profEnd();
         continue;
       } else {
         // Otherwise move toward the window center (outside face) until
@@ -2224,9 +2227,11 @@ function _update(dt) {
       // Still let the zombie mesh animate + take the usual per-frame
       // cleanup path. Skip the rest of the AI (boss phases, chase, etc.)
       updateZombieMesh(z, dt);
+      profEnd();
       continue;
     }
 
+    profBegin('ai:chase');
     // === S4.2: BOSS HEALTH PHASES ===
     if (z.isBoss && _isHostOrSP) {
       const hpRatio = z.hp / z.maxHp;
@@ -2542,6 +2547,7 @@ function _update(dt) {
             }
           }
           z.atkTimer = 1;
+          profEnd();
           continue;
         }
         player.hp -= z.dmg;
@@ -2569,6 +2575,7 @@ function _update(dt) {
             player.reloadTimer = 0;
             player.fireTimer = 0;
             player.sprinting = false;
+            profEnd();
             break;
           }
           // SP: instant death, no self-revive (no one to revive you).
@@ -2576,17 +2583,19 @@ function _update(dt) {
           sfxPlayerDeath();
           controls.unlock();
           setTimeout(showDeath, 1000);
+          profEnd();
           break;
         }
       }
     }
-    
+
     updateZombieMesh(z, dt);
+    profEnd();
   }
 
-  updateZombieEyeLightPool(zombies);
+  profBegin('eyeLights'); try { updateZombieEyeLightPool(zombies); } finally { profEnd(); }
 
-  updateParticles(dt);
+  profBegin('particles'); try { updateParticles(dt); } finally { profEnd(); }
   updateAtmosphere(dt);
   
   for (let i = floatTexts.length - 1; i >= 0; i--) {
@@ -2998,16 +3007,17 @@ function gameLoop(time) {
   requestAnimationFrame(gameLoop);
   const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
-  
+  profBeginFrame();
+
   // Multiplayer runs on the menu too so the connect button works
   // and the local transform keeps streaming even while paused.
   netcode.update(dt);
   netcode.setLocalTransform(camera.position.x, camera.position.z, controls._yaw);
   netcode.broadcastLocalWeapon(player.curWeapon | 0);
-  updateRemotePlayers(dt, netcode.getRemotePlayers());
+  profBegin('remotePlayers'); try { updateRemotePlayers(dt, netcode.getRemotePlayers()); } finally { profEnd(); }
   tickChat();
 
-  if (state === 'menu' || state === 'mpLobby') return;
+  if (state === 'menu' || state === 'mpLobby') { profEndFrame(); return; }
 
   // Intro cinematic: camera-only path. Game logic + HUD disabled until
   // the 5-second dolly ends. Lights and atmosphere still render so the
@@ -3015,7 +3025,8 @@ function gameLoop(time) {
   if (state === 'intro') {
     _updateIntroCinematic(dt);
     // Still render the scene to the screen
-    renderer.render(scene, camera);
+    profBegin('render'); try { renderer.render(scene, camera); } finally { profEnd(); }
+    profEndFrame();
     return;
   }
 
@@ -3057,7 +3068,8 @@ function gameLoop(time) {
     po.light.intensity = owned ? 0.2 : 0.5 + Math.sin(t * 2 + 1) * 0.3;
   }
   
-  renderPostProcessing();
+  profBegin('render'); try { renderPostProcessing(); } finally { profEnd(); }
+  profEndFrame();
 }
 
 // ===== START =====
