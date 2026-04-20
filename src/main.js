@@ -92,7 +92,7 @@ import {
   spawnTracer, updateTracers, tracers,
   updateBloodDecals, bloodDecals,
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
-  updateParticles, particles,
+  updateParticles, particles, clearParticles,
   addFloatText, floatTexts,
   resetEffects,
   setEffectsDeps,
@@ -809,8 +809,7 @@ function initGame() {
   zombies.forEach(z => removeZombieMesh(z));
   zombies.length = 0;
   
-  particles.forEach(p => { scene.remove(p.mesh); p.mesh.material.dispose(); });
-  particles.length = 0;
+  clearParticles();
   floatTexts.length = 0;
   
   for (let i = 0; i < weapons.length; i++) {
@@ -1106,10 +1105,10 @@ function _tileZone(tx, tz) {
   return null;
 }
 
-function _findRandomSpawnTile() {
+function _findRandomSpawnTile(opts) {
   const targets = _spawnTargets();
-  const minDist = TILE * 3;
-  const maxDist = TILE * 14;
+  const minDist = TILE * (opts && opts.minTiles != null ? opts.minTiles : 3);
+  const maxDist = TILE * (opts && opts.maxTiles != null ? opts.maxTiles : 9);
   for (let attempt = 0; attempt < 40; attempt++) {
     const tx = Math.floor(Math.random() * MAP_W);
     const tz = Math.floor(Math.random() * MAP_H);
@@ -1154,7 +1153,32 @@ function spawnZombie() {
   let pick = null;
   const _isBossSpawn = round % 5 === 0 && zSpawned === zToSpawn - 1;
   const _isVeryLastSpawn = (zToSpawn - zSpawned) <= 1;
-  if (windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
+  // VERY-LAST-SPAWN PRIORITY: bypass the normal pickers entirely and
+  // place the final zombie at the closest window's INSIDE-bunker
+  // position so the player engages within ~1 second of it spawning.
+  // Previous behavior routed it through random-tile + walked it in
+  // from up to 14 tiles away — that's the "waiting for the last
+  // zombie" complaint.
+  if (_isVeryLastSpawn && windows.length > 0 && !_isBossSpawn) {
+    const targets = _spawnTargets();
+    let best = null, bestD = Infinity;
+    for (const w of windows) {
+      let nearest = Infinity;
+      for (const t of targets) {
+        const d = Math.hypot(w.centerX - t.x, w.centerZ - t.z);
+        if (d < nearest) nearest = d;
+      }
+      if (nearest < bestD) { bestD = nearest; best = w; }
+    }
+    if (best) {
+      pick = {
+        wx: best.centerX - best.normalX * TILE * 1.6,
+        wz: best.centerZ - best.normalZ * TILE * 1.6,
+      };
+      targetWindow = null; // appears INSIDE — no plank choreography
+    }
+  }
+  if (!pick && windows.length > 0 && !_isBossSpawn && !_isVeryLastSpawn) {
     // Prefer windows that still have planks AND aren't dogpiled. Among
     // candidates, BIAS toward windows close to a player so the horde
     // visibly crashes through whichever boards the squad is defending.
@@ -1299,6 +1323,16 @@ function spawnZombie() {
   else { speedMult = 0.75 + Math.random() * 0.5; hasLimp = false; }
   if (isBoss) { speedMult = 0.7; hasLimp = false; }
   if (isElite) { speedMult = 1.15 + Math.random() * 0.2; hasLimp = false; }
+  // FINAL 2 zombies of a round always sprint — no slow-shamble or
+  // limp roll. They appear close to the player AND close the gap
+  // fast so the player engages immediately instead of standing
+  // around. Applies to both the very-last spawn AND the
+  // second-to-last (anything with remaining ≤ 2).
+  const _isFinalTwoSpawn = (zToSpawn - zSpawned) <= 2;
+  if (_isFinalTwoSpawn && !isBoss) {
+    speedMult = 1.15 + Math.random() * 0.2;
+    hasLimp = false;
+  }
   spd *= speedMult;
 
   const _aiSpeedMult = isBoss ? 0.7 : (0.85 + Math.random() * 0.3);
@@ -1975,6 +2009,16 @@ function _update(dt) {
     // which feels like the game is broken.
     const isFinalSpawn = remaining <= 2;
     const isVeryLast = remaining <= 1;
+    // PRESSURE BOOST: if there are zero zombies alive AND we still
+    // owe spawns to the round, fire IMMEDIATELY (override the
+    // spawn timer). Previously the player would stand around for up
+    // to 2.5s with nothing happening — that's the "waiting for the
+    // last zombie" complaint. Combined with the close-to-player
+    // spawn pick in spawnZombie() (see _isVeryLastSpawn branch), the
+    // last zombie now appears within ~half a second of the previous
+    // kill and arrives close enough to engage immediately.
+    const noneAlive = zombies.length === 0;
+    if (noneAlive) spawnTimer = 0;
     const canSpawn = isFinalSpawn || zombies.length < maxAlive;
     if (spawnTimer <= 0 && canSpawn) {
       const beforeSpawned = zSpawned;
@@ -2044,6 +2088,27 @@ function _update(dt) {
     if (_isHostOrSP && z._targetWindow) {
       profBegin('ai:window');
       const w = z._targetWindow;
+      // CRITICAL ROUND END SHORTCUT: if all spawns are done and ≤2
+      // zombies remain, ANY zombie still trudging toward a window or
+      // pounding planks gets promoted: planks instantly cleared,
+      // zombie hard-warped to the inside-bunker landing position,
+      // straight into chase AI. Eliminates the worst-case round-1
+      // wait where slow window-spawn zombies are the last few alive.
+      if (zSpawned >= zToSpawn && zombies.length <= 2) {
+        while (intactPlanks(w) > 0) breakNextPlank(w);
+        z.wx = w.centerX - w.normalX * TILE * 1.6;
+        z.wz = w.centerZ - w.normalZ * TILE * 1.6;
+        const ai = w.attackers.indexOf(z);
+        if (ai >= 0) w.attackers.splice(ai, 1);
+        z._targetWindow = null;
+        z._atWindow = false;
+        // Boost speed so they reach the player promptly
+        z._speedMult = Math.max(z._speedMult || 1, 1.3);
+        // Reset render lerp so the warp doesn't show a slide
+        z._renderX = z.wx; z._renderZ = z.wz;
+        updateZombieMesh(z, dt);
+        continue;
+      }
       // If the window has been fully breached (no planks left), stop
       // targeting it — teleport the zombie a couple tiles INSIDE the
       // bunker so they're in walkable space (the window tile itself
@@ -2079,13 +2144,20 @@ function _update(dt) {
       } else {
         // Otherwise move toward the window center (outside face) until
         // we're at the window, then start breaking planks.
+        // END-OF-ROUND PRESSURE: when all spawns are done and the round
+        // is on its tail end (≤2 alive), boost the walk-to-window speed
+        // 4x. Slow zombies on round 1 otherwise take 8+ seconds JUST to
+        // reach the window before they even start breaking planks —
+        // that's the "still waiting on level 1" complaint.
+        const _endOfRoundPressure = (zSpawned >= zToSpawn) && (zombies.length <= 2);
         const dx = w.centerX - z.wx;
         const dz = w.centerZ - z.wz;
         const d = Math.hypot(dx, dz);
         if (d > 1.4) {
           // Walk toward the window's outside face. Use zombie's own
           // speed + stagger so this matches the normal movement feel.
-          const step = z.spd * dt * (z._speedMult || 1);
+          let step = z.spd * dt * (z._speedMult || 1);
+          if (_endOfRoundPressure) step *= 4;
           z.wx += (dx / d) * step;
           z.wz += (dz / d) * step;
           z._atWindow = false;
@@ -2122,7 +2194,11 @@ function _update(dt) {
           // only happen if SFX/timer logic broke), force-clear regardless.
           const _allSpawned = zSpawned >= zToSpawn;
           const _lastFew = zombies.length <= 3;
-          if ((_allSpawned && _lastFew && z._atWindowTime > 2.5) || z._atWindowTime > 12) {
+          // ≤2 alive at end of round → smash planks IMMEDIATELY (no
+          // 2.5s wait). Player is standing around with nothing to
+          // shoot, get the zombie inside NOW.
+          const _critical = _allSpawned && zombies.length <= 2;
+          if (_critical || (_allSpawned && _lastFew && z._atWindowTime > 2.5) || z._atWindowTime > 12) {
             // Rage mode: smash a plank every frame until clear
             const brokenIdx = breakNextPlank(w);
             if (brokenIdx >= 0) {

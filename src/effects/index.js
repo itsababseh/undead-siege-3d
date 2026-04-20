@@ -636,17 +636,63 @@ function clearHitIndicators() {
 }
 
 // ===== PARTICLES =====
+// Pooled InstancedMesh approach: one InstancedMesh per color family (blood/dirt/energy)
+// collapses hundreds of short-lived spheres into 3 draw calls with zero per-spawn
+// allocation. Fade is via per-instance scale — InstancedMesh shares one material,
+// so opacity can't vary per instance without a custom shader.
+const MAX_PARTICLES = 220;
+const POOL_CAP = 220;
 const particles = [];
-const particleGeo = new THREE.SphereGeometry(0.05, 4, 4);
+const _particleGeo = new THREE.SphereGeometry(0.05, 4, 4);
+const _bloodMat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
+// Dirt mat is white; per-instance color (setColorAt) tints each slot to a shade.
+const _dirtMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const _energyMat = new THREE.MeshBasicMaterial({ color: 0x00ff44 });
+const _dirtColors = [0x5a3a1a, 0x6b4423, 0x4a2f12, 0x7a5533, 0x3d2b10]
+  .map(c => new THREE.Color(c));
+
+const _tmpMat4 = new THREE.Matrix4();
+const _zeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
+const _tmpColor = new THREE.Color();
+let _pools = null;
+
+function _ensurePools() {
+  if (_pools) return _pools;
+  const make = (mat) => {
+    const im = new THREE.InstancedMesh(_particleGeo, mat, POOL_CAP);
+    im.count = POOL_CAP;
+    im.frustumCulled = false;
+    for (let i = 0; i < POOL_CAP; i++) im.setMatrixAt(i, _zeroMat);
+    im.instanceMatrix.needsUpdate = true;
+    _scene.add(im);
+    const free = new Array(POOL_CAP);
+    for (let i = 0; i < POOL_CAP; i++) free[i] = POOL_CAP - 1 - i;
+    return { im, free, dirty: false };
+  };
+  _pools = { blood: make(_bloodMat), dirt: make(_dirtMat), energy: make(_energyMat) };
+  return _pools;
+}
+
+function _acquire(poolKey) {
+  const pool = _ensurePools()[poolKey];
+  if (pool.free.length === 0) return null;
+  return { pool, slot: pool.free.pop() };
+}
+
+function _release(pool, slot) {
+  pool.im.setMatrixAt(slot, _zeroMat);
+  pool.dirty = true;
+  pool.free.push(slot);
+}
 
 function spawnBloodParticles(x, y, z, count = 5) {
   for (let i = 0; i < count; i++) {
-    const mat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
-    const mesh = new THREE.Mesh(particleGeo, mat);
-    mesh.position.set(x, y, z);
-    _scene.add(mesh);
+    if (particles.length >= MAX_PARTICLES) break;
+    const a = _acquire('blood');
+    if (!a) break;
     particles.push({
-      mesh,
+      pool: a.pool, slot: a.slot,
+      x, y, z, size: 1,
       vx: (Math.random()-0.5)*3,
       vy: Math.random()*3 + 1,
       vz: (Math.random()-0.5)*3,
@@ -655,22 +701,18 @@ function spawnBloodParticles(x, y, z, count = 5) {
   }
 }
 
-// Pre-allocated dirt materials — shared across particles to avoid per-spawn alloc
-const _dirtMats = [0x5a3a1a, 0x6b4423, 0x4a2f12, 0x7a5533, 0x3d2b10].map(
-  c => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 1 })
-);
-
 function spawnDirtParticles(x, z, count = 12) {
   for (let i = 0; i < count; i++) {
-    // Clone from pool so each particle can fade independently
-    const mat = _dirtMats[Math.floor(Math.random() * _dirtMats.length)].clone();
-    const size = 0.6 + Math.random() * 0.8;
-    const mesh = new THREE.Mesh(particleGeo, mat);
-    mesh.position.set(x + (Math.random()-0.5)*1.2, 0.05, z + (Math.random()-0.5)*1.2);
-    mesh.scale.setScalar(size);
-    _scene.add(mesh);
+    if (particles.length >= MAX_PARTICLES) break;
+    const a = _acquire('dirt');
+    if (!a) break;
+    _tmpColor.copy(_dirtColors[Math.floor(Math.random() * _dirtColors.length)]);
+    a.pool.im.setColorAt(a.slot, _tmpColor);
+    if (a.pool.im.instanceColor) a.pool.im.instanceColor.needsUpdate = true;
     particles.push({
-      mesh,
+      pool: a.pool, slot: a.slot,
+      x: x + (Math.random()-0.5)*1.2, y: 0.05, z: z + (Math.random()-0.5)*1.2,
+      size: 0.6 + Math.random() * 0.8,
       vx: (Math.random()-0.5)*2.5,
       vy: Math.random()*4 + 2,
       vz: (Math.random()-0.5)*2.5,
@@ -681,13 +723,12 @@ function spawnDirtParticles(x, z, count = 12) {
 
 function spawnEnergyParticles(x, y, z, count = 8) {
   for (let i = 0; i < count; i++) {
-    const mat = new THREE.MeshBasicMaterial({ color: 0x00ff44, transparent: true, opacity: 1 });
-    const mesh = new THREE.Mesh(particleGeo, mat);
-    mesh.position.set(x, y, z);
-    mesh.scale.setScalar(1.5);
-    _scene.add(mesh);
+    if (particles.length >= MAX_PARTICLES) break;
+    const a = _acquire('energy');
+    if (!a) break;
     particles.push({
-      mesh,
+      pool: a.pool, slot: a.slot,
+      x, y, z, size: 1.5,
       vx: (Math.random()-0.5)*5,
       vy: Math.random()*4 + 2,
       vz: (Math.random()-0.5)*5,
@@ -696,40 +737,52 @@ function spawnEnergyParticles(x, y, z, count = 8) {
   }
 }
 
-// Cap particles so dust/blood/dirt bursts during chaotic moments
-// (multiple boss deaths, multiple window breaches in one frame) can't
-// blow the budget. When over MAX, oldest particles are evicted first.
-const MAX_PARTICLES = 220;
-function _trimParticles() {
-  if (particles.length <= MAX_PARTICLES) return;
-  const toDrop = particles.length - MAX_PARTICLES;
-  for (let i = 0; i < toDrop; i++) {
-    const p = particles[i];
-    if (p && p.mesh) {
-      _scene.remove(p.mesh);
-      try { p.mesh.material.dispose(); } catch (e) {}
-    }
-  }
-  particles.splice(0, toDrop);
-}
 function updateParticles(dt) {
-  _trimParticles();
+  if (_pools) {
+    _pools.blood.dirty = false;
+    _pools.dirt.dirty = false;
+    _pools.energy.dirty = false;
+  }
+
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= dt;
     if (p.life <= 0) {
-      _scene.remove(p.mesh);
-      p.mesh.material.dispose();
+      _release(p.pool, p.slot);
       particles.splice(i, 1);
       continue;
     }
     p.vy -= 9.8 * dt;
-    p.mesh.position.x += p.vx * dt;
-    p.mesh.position.y += p.vy * dt;
-    p.mesh.position.z += p.vz * dt;
-    if (p.mesh.position.y < 0.05) { p.mesh.position.y = 0.05; p.vy = 0; p.vx *= 0.5; p.vz *= 0.5; }
-    p.mesh.material.opacity = p.life;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.z += p.vz * dt;
+    if (p.y < 0.05) { p.y = 0.05; p.vy = 0; p.vx *= 0.5; p.vz *= 0.5; }
+    // Scale-fade: last ~0.33s shrinks to zero (stands in for per-instance opacity).
+    const s = p.size * Math.min(1, p.life * 3);
+    _tmpMat4.makeScale(s, s, s);
+    _tmpMat4.setPosition(p.x, p.y, p.z);
+    p.pool.im.setMatrixAt(p.slot, _tmpMat4);
+    p.pool.dirty = true;
   }
+
+  if (_pools) {
+    if (_pools.blood.dirty) _pools.blood.im.instanceMatrix.needsUpdate = true;
+    if (_pools.dirt.dirty) _pools.dirt.im.instanceMatrix.needsUpdate = true;
+    if (_pools.energy.dirty) _pools.energy.im.instanceMatrix.needsUpdate = true;
+  }
+}
+
+function clearParticles() {
+  if (_pools) {
+    for (const key of ['blood', 'dirt', 'energy']) {
+      const pool = _pools[key];
+      for (let i = 0; i < POOL_CAP; i++) pool.im.setMatrixAt(i, _zeroMat);
+      pool.im.instanceMatrix.needsUpdate = true;
+      pool.free.length = 0;
+      for (let i = POOL_CAP - 1; i >= 0; i--) pool.free.push(i);
+    }
+  }
+  particles.length = 0;
 }
 
 // ===== FLOATING TEXTS (screen-space) =====
@@ -765,7 +818,7 @@ export {
   // Zombie death
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
   // Particles
-  updateParticles, particles,
+  updateParticles, particles, clearParticles,
   // Float text
   addFloatText, floatTexts,
   // Reset all effects state (called on game restart)
