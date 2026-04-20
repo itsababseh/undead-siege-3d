@@ -696,7 +696,24 @@ function spawnEnergyParticles(x, y, z, count = 8) {
   }
 }
 
+// Cap particles so dust/blood/dirt bursts during chaotic moments
+// (multiple boss deaths, multiple window breaches in one frame) can't
+// blow the budget. When over MAX, oldest particles are evicted first.
+const MAX_PARTICLES = 220;
+function _trimParticles() {
+  if (particles.length <= MAX_PARTICLES) return;
+  const toDrop = particles.length - MAX_PARTICLES;
+  for (let i = 0; i < toDrop; i++) {
+    const p = particles[i];
+    if (p && p.mesh) {
+      _scene.remove(p.mesh);
+      try { p.mesh.material.dispose(); } catch (e) {}
+    }
+  }
+  particles.splice(0, toDrop);
+}
 function updateParticles(dt) {
+  _trimParticles();
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= dt;

@@ -49,6 +49,10 @@ window._isInActiveMatch = isInActiveMatch;
 // remaining zombies if no kill has happened in a while and the round
 // is on its tail end. Reset to 0 on round start (nextRound).
 let _lastZombieDeathTime = 0;
+// Throttles for window-breach sound effects so simultaneous breaches
+// don't pile up audio nodes (lag culprit during chaotic moments).
+let _lastBreachThud = 0;
+let _lastBreachBang = 0;
 window._resetZombieDeathTimer = () => { _lastZombieDeathTime = performance.now(); };
 
 // Local player name helper — used for high-score submission + chat.
@@ -2059,8 +2063,14 @@ function _update(dt) {
         if (atkIdx >= 0) w.attackers.splice(atkIdx, 1);
         z._targetWindow = null;
         z._atWindow = false;
-        // Soft thud as they crash through the breach
-        try { beep(110, 'sawtooth', 0.25, 0.2); } catch (e) {}
+        // Soft thud as they crash through the breach. Rate-limited
+        // to one thud per ~250ms across all zombies so simultaneous
+        // breaches don't pile audio nodes during chaotic moments.
+        const _now = performance.now();
+        if (!_lastBreachThud || _now - _lastBreachThud > 250) {
+          try { beep(110, 'sawtooth', 0.25, 0.2); } catch (e) {}
+          _lastBreachThud = _now;
+        }
         updateZombieMesh(z, dt);
         continue;
       } else {
@@ -2085,12 +2095,19 @@ function _update(dt) {
           // on an otherwise-quiet window plays this; later attackers
           // joining the same dogpile would just spam the audio mix.
           if (!z._atWindow && (w.attackers.length <= 1)) {
-            try {
-              beep(70, 'sawtooth', 0.55, 0.35);   // body of the bang
-              setTimeout(() => beep(45, 'square', 0.4, 0.25), 40); // sub
-              setTimeout(() => beep(180, 'sawtooth', 0.25, 0.08), 90); // wood snap
-            } catch (e) {}
-            triggerScreenShake(0.5, 5);
+            // Rate-limit the bang to once per 700ms across all windows
+            // — multiple zombies arriving at different windows in the
+            // same frame would otherwise stack 9 audio nodes.
+            const _now = performance.now();
+            if (_now - _lastBreachBang > 700) {
+              try {
+                beep(70, 'sawtooth', 0.55, 0.35);
+                setTimeout(() => beep(45, 'square', 0.4, 0.25), 40);
+                setTimeout(() => beep(180, 'sawtooth', 0.25, 0.08), 90);
+              } catch (e) {}
+              triggerScreenShake(0.5, 5);
+              _lastBreachBang = _now;
+            }
           }
           z._atWindow = true;
           z._atWindowTime = (z._atWindowTime || 0) + dt;
