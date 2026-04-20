@@ -1304,7 +1304,11 @@ function updateZombieMesh(z, dt) {
   const lerpFactor = Math.min(1, dt * 15);
   z._renderX += (z.wx - z._renderX) * lerpFactor;
   z._renderZ += (z.wz - z._renderZ) * lerpFactor;
-  group.position.set(z._renderX, yOff, z._renderZ);
+  // Climb-through vault offset — set by the window AI when a zombie
+  // is mid-breach so the model arcs over the sill instead of popping
+  // to the inside-bunker position.
+  const climbY = z._climbYOff || 0;
+  group.position.set(z._renderX, yOff + climbY, z._renderZ);
 
   // Billboard: smooth Y-axis rotation to face camera
   const dx = _camera.position.x - group.position.x;
