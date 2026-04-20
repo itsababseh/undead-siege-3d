@@ -530,7 +530,7 @@ initGunModels();
 setPortalDeps(scene, camera, TILE);
 setMapDeps(scene, TILE, MAP_W, MAP_H, map);
 setPropDeps(scene, TILE, MAP_W, MAP_H, map);
-setWindowDeps(scene, TILE);
+setWindowDeps(scene, TILE, wallMeshes);
 // Expose window helpers + the beep SFX to the buying module so it can
 // run the repair interaction without creating a circular import.
 window.__siegeWindows = {
@@ -1823,11 +1823,12 @@ function _update(dt) {
     if (_isHostOrSP && z._targetWindow) {
       const w = z._targetWindow;
       // If the window has been fully breached (no planks left), stop
-      // targeting it — walk inward and join the normal chase AI.
+      // targeting it — teleport the zombie a couple tiles INSIDE the
+      // bunker so they're in walkable space (the window tile itself
+      // is still mapAt=1 / wall) and clear their window state.
       if (intactPlanks(w) === 0) {
-        // Nudge the zombie slightly inside (away from the outside normal)
-        z.wx -= w.normalX * 0.3;
-        z.wz -= w.normalZ * 0.3;
+        z.wx = w.centerX - w.normalX * TILE * 1.6;
+        z.wz = w.centerZ - w.normalZ * TILE * 1.6;
         const atkIdx = w.attackers.indexOf(z);
         if (atkIdx >= 0) w.attackers.splice(atkIdx, 1);
         z._targetWindow = null;

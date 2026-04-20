@@ -22,6 +22,9 @@ export const PLANKS_PER_WINDOW = 6;
 // Scene + TILE dep — set once at init.
 let _scene = null;
 let _TILE = 4;
+// wallMeshes ref — passed in so we can remove the wall mesh at window
+// tiles after buildMap runs (otherwise the wall hides the window).
+let _wallMeshes = null;
 
 // ── Wood materials (shared across all planks) ────────────────────────────
 // Base planks are warm brown; shattered pieces fly off with the same mat.
@@ -87,92 +90,88 @@ export function buildWindows() {
   cleanupWindows();
   for (const spec of windowSpecs) {
     const w = { ...spec, planks: [], plankMeshes: [], attackers: [] };
-    // Anchor — world position of the outer face of the tile
+    // Frame sits at the CENTER of the wall tile so it occupies the
+    // space of the wall we're about to remove. Outward normal points
+    // from tile center toward the outside of the bunker.
     const cx = spec.tx * _TILE + _TILE / 2;
     const cz = spec.tz * _TILE + _TILE / 2;
-    const halfTile = _TILE / 2;
-    let frameX = cx, frameZ = cz;
-    let normalX = 0, normalZ = 0; // outward normal
-    // Slide the frame to the outer edge of the tile, and track the
-    // outward-facing normal so zombies approach from outside.
+    let normalX = 0, normalZ = 0;
     switch (spec.dir) {
-      case 'N': frameZ = cz - halfTile; normalZ = -1; break;
-      case 'S': frameZ = cz + halfTile; normalZ =  1; break;
-      case 'E': frameX = cx + halfTile; normalX =  1; break;
-      case 'W': frameX = cx - halfTile; normalX = -1; break;
+      case 'N': normalZ = -1; break;
+      case 'S': normalZ =  1; break;
+      case 'E': normalX =  1; break;
+      case 'W': normalX = -1; break;
     }
-    w.centerX = frameX;
-    w.centerZ = frameZ;
+    w.centerX = cx;
+    w.centerZ = cz;
     w.normalX = normalX;
     w.normalZ = normalZ;
+    // ── Remove the wall mesh at this tile so the window is visible
+    // from inside the bunker. mapAt remains 1 (wall) for collision —
+    // planks are the visual + functional barrier; once they're gone
+    // the zombie window AI manually moves zombies through.
+    if (_wallMeshes) {
+      const expectX = cx, expectZ = cz;
+      for (let i = _wallMeshes.length - 1; i >= 0; i--) {
+        const m = _wallMeshes[i];
+        if (!m || !m.position) continue;
+        if (Math.abs(m.position.x - expectX) < 0.05 && Math.abs(m.position.z - expectZ) < 0.05) {
+          _scene.remove(m);
+          _wallMeshes.splice(i, 1);
+          break;
+        }
+      }
+    }
     // For N/S windows the frame spans along X; for E/W along Z
     const alongX = (spec.dir === 'N' || spec.dir === 'S');
-    const frameWidth = _TILE * 0.95;
-    const frameHeight = 2.2;
+    const frameWidth = _TILE * 0.92;     // slightly inside the tile bounds
+    const frameHeight = 2.4;
     const frameThickness = 0.22;
-    const frameY = 1.3; // vertical center of the window
-    // Dark backing behind planks so the "outside" reads as black/void
-    const backingGeo = alongX
-      ? new THREE.PlaneGeometry(frameWidth, frameHeight)
-      : new THREE.PlaneGeometry(frameWidth, frameHeight);
+    const frameY = 1.2;                  // vertical center of the window
+    const plankZBias = normalZ * 0.05;   // nudge planks slightly outward
+    const plankXBias = normalX * 0.05;
+    // Dark "void" backing behind the planks. Sized larger than the
+    // frame so it fully occludes the now-missing wall geometry.
+    const backingGeo = new THREE.PlaneGeometry(frameWidth + 0.4, frameHeight + 0.4);
     const backing = new THREE.Mesh(backingGeo, _BACKING_MAT);
-    backing.position.set(frameX, frameY, frameZ);
-    if (alongX) backing.rotation.y = 0;
-    else backing.rotation.y = Math.PI / 2;
+    backing.position.set(cx + normalX * 0.02, frameY, cz + normalZ * 0.02);
+    if (!alongX) backing.rotation.y = Math.PI / 2;
     _scene.add(backing);
     w.backingMesh = backing;
-    // Frame: top + bottom + two sides (ring around opening)
-    const sideGeo = alongX
-      ? new THREE.BoxGeometry(frameThickness, frameHeight, frameThickness)
-      : new THREE.BoxGeometry(frameThickness, frameHeight, frameThickness);
-    const topGeo = alongX
-      ? new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameThickness)
-      : new THREE.BoxGeometry(frameThickness, frameThickness, frameWidth + frameThickness * 2);
+    // Frame: 4 bars forming the window ring. Built as a Group so we
+    // can rotate the whole assembly in one shot.
+    const sideGeo = new THREE.BoxGeometry(frameThickness, frameHeight, frameThickness);
+    const topGeo = new THREE.BoxGeometry(frameWidth + frameThickness * 2, frameThickness, frameThickness);
     const frameGroup = new THREE.Group();
-    // Build the 4 frame bars relative to (0,0,0), then position the
-    // group at the window anchor.
-    if (alongX) {
-      const lSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
-      lSide.position.set(-frameWidth / 2, 0, 0);
-      frameGroup.add(lSide);
-      const rSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
-      rSide.position.set(frameWidth / 2, 0, 0);
-      frameGroup.add(rSide);
-      const top = new THREE.Mesh(topGeo, _FRAME_MAT);
-      top.position.set(0, frameHeight / 2, 0);
-      frameGroup.add(top);
-      const bot = new THREE.Mesh(topGeo, _FRAME_MAT);
-      bot.position.set(0, -frameHeight / 2, 0);
-      frameGroup.add(bot);
-    } else {
-      const lSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
-      lSide.position.set(0, 0, -frameWidth / 2);
-      frameGroup.add(lSide);
-      const rSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
-      rSide.position.set(0, 0, frameWidth / 2);
-      frameGroup.add(rSide);
-      const top = new THREE.Mesh(topGeo, _FRAME_MAT);
-      top.position.set(0, frameHeight / 2, 0);
-      frameGroup.add(top);
-      const bot = new THREE.Mesh(topGeo, _FRAME_MAT);
-      bot.position.set(0, -frameHeight / 2, 0);
-      frameGroup.add(bot);
-    }
-    frameGroup.position.set(frameX, frameY, frameZ);
+    const lSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
+    lSide.position.set(-frameWidth / 2, 0, 0);
+    frameGroup.add(lSide);
+    const rSide = new THREE.Mesh(sideGeo, _FRAME_MAT);
+    rSide.position.set(frameWidth / 2, 0, 0);
+    frameGroup.add(rSide);
+    const top = new THREE.Mesh(topGeo, _FRAME_MAT);
+    top.position.set(0, frameHeight / 2, 0);
+    frameGroup.add(top);
+    const bot = new THREE.Mesh(topGeo, _FRAME_MAT);
+    bot.position.set(0, -frameHeight / 2, 0);
+    frameGroup.add(bot);
+    frameGroup.position.set(cx, frameY, cz);
+    if (!alongX) frameGroup.rotation.y = Math.PI / 2;
     _scene.add(frameGroup);
     w.frameGroup = frameGroup;
-    // Planks — 6 horizontal bars (slightly rotated for a nailed-across
-    // look). They sit inside the frame opening.
-    const plankGeo = alongX
-      ? new THREE.BoxGeometry(frameWidth * 0.95, 0.18, 0.08)
-      : new THREE.BoxGeometry(0.08, 0.18, frameWidth * 0.95);
+    // Planks — horizontal bars across the opening. Each plank is its
+    // own mesh so we can hide them individually as zombies break them.
+    const plankGeo = new THREE.BoxGeometry(frameWidth * 0.95, 0.18, 0.08);
     for (let i = 0; i < PLANKS_PER_WINDOW; i++) {
       const mat = _makePlankMat();
       const plank = new THREE.Mesh(plankGeo, mat);
-      // Evenly distribute vertically + add small random tilt
       const yOffset = (i - (PLANKS_PER_WINDOW - 1) / 2) * (frameHeight / (PLANKS_PER_WINDOW + 1)) * 0.95;
       const tilt = (i % 2 === 0 ? 1 : -1) * 0.15 + (Math.random() - 0.5) * 0.1;
-      plank.position.set(frameX, frameY + yOffset, frameZ);
+      plank.position.set(cx + plankXBias, frameY + yOffset, cz + plankZBias);
+      // Rotate the whole plank around Y for E/W windows so the long
+      // axis lines up with the wall direction.
+      if (!alongX) plank.rotation.y = Math.PI / 2;
+      // Tilt around the wall-perpendicular axis for that nailed-on look
       if (alongX) plank.rotation.z = tilt;
       else plank.rotation.x = tilt;
       _scene.add(plank);
@@ -291,7 +290,8 @@ export function outsideSpawnPosition(windowRef) {
   };
 }
 
-export function setWindowDeps(scene, TILE) {
+export function setWindowDeps(scene, TILE, wallMeshesRef) {
   _scene = scene;
   _TILE = TILE;
+  _wallMeshes = wallMeshesRef || null;
 }
