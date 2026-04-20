@@ -2056,6 +2056,10 @@ function _update(dt) {
     z.flash = Math.max(0, z.flash - dt * 5);
 
     // Skip movement + attack while zombie is still emerging from the ground
+    // Init stall probe BEFORE continue so watchdog tracks rising zombies
+    if (!z._stallProbe) {
+      z._stallProbe = { x: z.wx, z: z.wz, sinceMs: performance.now() };
+    }
     if (z._spawnRising) { updateZombieMesh(z, dt); continue; }
 
     // === CLIMB-THROUGH TWEEN (just after a window breach) ===
@@ -2648,16 +2652,18 @@ function _update(dt) {
     // player isn't punished by mass culls.
     let stalest = null, stalestSinceMs = performance.now();
     for (const z of zombies) {
-      if (z.isBoss) continue;
       if (z._stallProbe && z._stallProbe.sinceMs < stalestSinceMs) {
         stalest = z;
         stalestSinceMs = z._stallProbe.sinceMs;
       }
     }
     const _stallMs = stalest ? (performance.now() - stalestSinceMs) : 0;
-    const _runRage = stalest && _stallMs > 25000 && _stallMs <= 40000;
-    const _runWarp = stalest && _stallMs > 40000 && _stallMs <= 60000;
-    const _runCull = stalest && _stallMs > 60000;
+    const _isLastStandingZombie = zombies.length === 1 && zSpawned >= zToSpawn;
+    const _stallThreshMult = _isLastStandingZombie ? 0.3 : 1.0;
+    // 0.3x: rage@7.5s, warp@12s, cull@18s — fast-tracks the final lone zombie
+    const _runRage = stalest && _stallMs > 25000 * _stallThreshMult && _stallMs <= 40000 * _stallThreshMult;
+    const _runWarp = stalest && _stallMs > 40000 * _stallThreshMult && _stallMs <= 60000 * _stallThreshMult;
+    const _runCull = stalest && _stallMs > 60000 * _stallThreshMult;
     if (_runRage || _runWarp || _runCull) {
       // Pick a tile near the player to teleport stuck zombies onto.
       // Used by RAGE (for non-window zombies) and WARP (for everyone).
@@ -2684,8 +2690,14 @@ function _update(dt) {
       const idx = zombies.indexOf(z);
       if (_runCull && idx >= 0) {
         totalKills++;
-        const basePts = z.isElite ? 120 : 60;
+        const basePts = z.isBoss ? 500 : (z.isElite ? 120 : 60);
         points += basePts;
+        if (z.isBoss) {
+          try { sfxBossKill(); } catch (e) {}
+          try { triggerScreenShake(4, 4); } catch (e) {}
+          try { spawnDirtParticles(z.wx, z.wz, 16); } catch (e) {}
+          try { spawnPowerUp(z.wx, z.wz); } catch (e) {}
+        }
         if (z._targetWindow && z._targetWindow.attackers) {
           const ai = z._targetWindow.attackers.indexOf(z);
           if (ai >= 0) z._targetWindow.attackers.splice(ai, 1);

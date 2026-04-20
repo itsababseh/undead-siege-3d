@@ -1281,16 +1281,23 @@ function updateZombieMesh(z, dt) {
   let yOff = 0;
   if (z._spawnRising) {
     z._spawnTimer += dt;
-    const progress = Math.min(z._spawnTimer / z._spawnDur, 1);
-    // Ease-out cubic for natural "pulling free from earth" feel
-    const ease = 1 - Math.pow(1 - progress, 3);
-    yOff = -SPAWN_RISE_DEPTH * (1 - ease);
-    // Slight wobble as they struggle to emerge
-    const wobble = Math.sin(z._spawnTimer * 12) * 0.03 * (1 - progress);
-    mesh.rotation.z = wobble;
-    if (progress >= 1) {
+    // Safety cap: if rise animation hangs >5s (3x max normal duration),
+    // force-clear so the zombie can't be stuck underground indefinitely.
+    if (z._spawnTimer > 5) {
       z._spawnRising = false;
       yOff = 0;
+    } else {
+      const progress = Math.min(z._spawnTimer / z._spawnDur, 1);
+      // Ease-out cubic for natural "pulling free from earth" feel
+      const ease = 1 - Math.pow(1 - progress, 3);
+      yOff = -SPAWN_RISE_DEPTH * (1 - ease);
+      // Slight wobble as they struggle to emerge
+      const wobble = Math.sin(z._spawnTimer * 12) * 0.03 * (1 - progress);
+      mesh.rotation.z = wobble;
+      if (progress >= 1) {
+        z._spawnRising = false;
+        yOff = 0;
+      }
     }
   } else if (z._hasLimp) {
     yOff = Math.abs(Math.sin(z._limpPhase)) * 0.08 * z._limpSeverity;
