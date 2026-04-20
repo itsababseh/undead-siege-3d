@@ -91,7 +91,7 @@ import {
   spawnTracer, updateTracers, tracers,
   updateBloodDecals, bloodDecals,
   startZombieDeathAnim, updateDyingZombies, dyingZombies,
-  updateParticles, particles,
+  updateParticles, particles, clearParticles,
   addFloatText, floatTexts,
   resetEffects,
   setEffectsDeps,
@@ -808,8 +808,7 @@ function initGame() {
   zombies.forEach(z => removeZombieMesh(z));
   zombies.length = 0;
   
-  particles.forEach(p => { scene.remove(p.mesh); p.mesh.material.dispose(); });
-  particles.length = 0;
+  clearParticles();
   floatTexts.length = 0;
   
   for (let i = 0; i < weapons.length; i++) {
