@@ -1061,6 +1061,23 @@ function _lineIsClear(x1, z1, x2, z2) {
 // Build the list of player-target positions for spawn distance checks.
 // Host camera + every remote player so zombies don't spawn on top of
 // any lobby member.
+// Brown dust + plank fragments that puff out from a window the moment
+// its last plank falls. Caller supplies the window ref. Particles go a
+// little above floor height (0.05) and burst slightly outward toward
+// the player side of the window so it draws the eye inside the bunker.
+function _spawnBreachDust(w) {
+  const inwardX = -w.normalX;
+  const inwardZ = -w.normalZ;
+  // Two clusters: one IN the window plane (chunky planks), one a half-
+  // tile inside (wispy dust trailing in).
+  spawnDirtParticles(w.centerX, w.centerZ, 14);
+  spawnDirtParticles(
+    w.centerX + inwardX * TILE * 0.4,
+    w.centerZ + inwardZ * TILE * 0.4,
+    8
+  );
+}
+
 function _spawnTargets() {
   const out = [{ x: camera.position.x, z: camera.position.z }];
   if (netcode.isConnected()) {
@@ -1992,6 +2009,30 @@ function _update(dt) {
     // Skip movement + attack while zombie is still emerging from the ground
     if (z._spawnRising) { updateZombieMesh(z, dt); continue; }
 
+    // === CLIMB-THROUGH TWEEN (just after a window breach) ===
+    // 0.55s lerped vault from the window plane to the inside-bunker
+    // landing tile, with a sine-wave y-arc so it reads as a clamber.
+    // Position is driven by the tween — chase + window AI are skipped
+    // for this frame so they can't override z.wx / z.wz mid-vault.
+    if (z._climbing) {
+      z._climbing.t += dt;
+      const p = Math.min(1, z._climbing.t / z._climbing.dur);
+      const ease = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      z.wx = z._climbing.startX + (z._climbing.endX - z._climbing.startX) * ease;
+      z.wz = z._climbing.startZ + (z._climbing.endZ - z._climbing.startZ) * ease;
+      // Force render position to match wx/wz so the smoothing lerp in
+      // updateZombieMesh doesn't lag behind the tween.
+      z._renderX = z.wx; z._renderZ = z.wz;
+      // Sine-wave vault arc — 0 at start/end, ~0.55 at midpoint.
+      z._climbYOff = Math.sin(p * Math.PI) * 0.55;
+      if (p >= 1) {
+        z._climbing = null;
+        z._climbYOff = 0;
+      }
+      updateZombieMesh(z, dt);
+      continue;
+    }
+
     // === WINDOW AI (zombies targeting a barricaded window) ===
     // This runs on host/SP only — non-host clients get authoritative
     // positions via netcode and don't simulate zombie behavior.
@@ -2002,12 +2043,26 @@ function _update(dt) {
       // bunker so they're in walkable space (the window tile itself
       // is still mapAt=1 / wall) and clear their window state.
       if (intactPlanks(w) === 0) {
-        z.wx = w.centerX - w.normalX * TILE * 1.6;
-        z.wz = w.centerZ - w.normalZ * TILE * 1.6;
+        // Start a 0.5s climb-through tween instead of hard-teleporting.
+        // The zombie arcs from its current position (at the window) to a
+        // tile-and-a-half inside the bunker, with a sine-wave rise so it
+        // looks like it's vaulting the sill. _climbYOff drives the mesh
+        // y-lift in updateZombieMesh; while _climbing is set, the rest
+        // of the AI is suspended (handled in the per-frame branch above).
+        z._climbing = {
+          startX: z.wx, startZ: z.wz,
+          endX: w.centerX - w.normalX * TILE * 1.6,
+          endZ: w.centerZ - w.normalZ * TILE * 1.6,
+          t: 0, dur: 0.55,
+        };
         const atkIdx = w.attackers.indexOf(z);
         if (atkIdx >= 0) w.attackers.splice(atkIdx, 1);
         z._targetWindow = null;
         z._atWindow = false;
+        // Soft thud as they crash through the breach
+        try { beep(110, 'sawtooth', 0.25, 0.2); } catch (e) {}
+        updateZombieMesh(z, dt);
+        continue;
       } else {
         // Otherwise move toward the window center (outside face) until
         // we're at the window, then start breaking planks.
@@ -2024,6 +2079,19 @@ function _update(dt) {
         } else {
           // We're at the window — beat a plank off every N seconds,
           // scaling slightly with round so late-game windows fall faster
+          // First time this zombie touches the window — announce it
+          // with a low, attention-grabbing BANG so the player knows
+          // which board is under attack. Only the very first attacker
+          // on an otherwise-quiet window plays this; later attackers
+          // joining the same dogpile would just spam the audio mix.
+          if (!z._atWindow && (w.attackers.length <= 1)) {
+            try {
+              beep(70, 'sawtooth', 0.55, 0.35);   // body of the bang
+              setTimeout(() => beep(45, 'square', 0.4, 0.25), 40); // sub
+              setTimeout(() => beep(180, 'sawtooth', 0.25, 0.08), 90); // wood snap
+            } catch (e) {}
+            triggerScreenShake(0.5, 5);
+          }
           z._atWindow = true;
           z._atWindowTime = (z._atWindowTime || 0) + dt;
           z._plankBreakTimer -= dt;
@@ -2039,6 +2107,7 @@ function _update(dt) {
             const brokenIdx = breakNextPlank(w);
             if (brokenIdx >= 0) {
               try { beep(180, 'sawtooth', 0.35, 0.09); } catch (e) {}
+              if (intactPlanks(w) === 0) _spawnBreachDust(w);
             }
           } else if (z._plankBreakTimer <= 0) {
             const brokenIdx = breakNextPlank(w);
@@ -2049,6 +2118,11 @@ function _update(dt) {
                 setTimeout(() => beep(90, 'square', 0.2, 0.08), 30);
               } catch (e) {}
               triggerScreenShake(0.3, 6);
+              // BREACH! When the last plank falls, kick out a thicker
+              // brown dust burst at the window so the player can see
+              // (and hear, via the climb-through thud) where the horde
+              // just got in. Cheap re-use of spawnDirtParticles.
+              if (intactPlanks(w) === 0) _spawnBreachDust(w);
             }
             z._plankBreakTimer = Math.max(0.8, 1.8 - round * 0.05) + Math.random() * 0.3;
           }
