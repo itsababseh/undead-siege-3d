@@ -6,13 +6,13 @@
 
 <div align="center">
 
-[![Play Undead Siege 3D](https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000)](https://itsababseh.github.io/undead-siege-3d/)
+<a href="https://itsababseh.github.io/undead-siege-3d/"><img src="https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000" height="56" alt="Play Undead Siege 3D" /></a>
 
 </div>
 
 ---
 
-## 🤝 Join the Community
+## 🤝 Connect and Share
 
 > *"Games are community, and communities should be able to help games in real time be better."*
 
@@ -22,11 +22,10 @@ Drop me a message — I read everything and build improvements based on what the
 
 <div align="center">
 
-[![Twitter / X](https://img.shields.io/badge/DM%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/whatdoesababsay)&nbsp;&nbsp;&nbsp;[![LinkedIn](https://img.shields.io/badge/Connect%20on%20LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/johnababseh/)
+<a href="https://x.com/whatdoesababsay"><img src="https://img.shields.io/badge/DM%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white" height="56" alt="DM on X" /></a>&nbsp;&nbsp;&nbsp;<a href="https://www.linkedin.com/in/johnababseh/"><img src="https://img.shields.io/badge/Connect%20on%20LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" height="56" alt="Connect on LinkedIn" /></a>
 
 </div>
 
-Share your highest round, report a bug you hit, or just tell me your favourite weapon combo. Every message helps the game get better — in real time.
 
 
 ## 🔫 Features
