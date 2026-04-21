@@ -44,6 +44,8 @@ function isInActiveMatch() {
   }
 }
 window._isInActiveMatch = isInActiveMatch;
+// Bridge for powerups.js to call netcode without a circular import
+window._netcodeCallConsumePowerUp = (puId) => { netcode.callConsumePowerUp(puId); };
 
 // Watchdog state — used by the end-of-round stall guard. Updated each
 // time a zombie is removed; the per-frame check below force-rages any
@@ -130,7 +132,8 @@ import { mysteryBox, mysteryBoxMeshes, buildMysteryBox, tryMysteryBox,
 import { packAPunch, papMeshes, buildPackAPunch, tryPackAPunch,
          resetPackAPunch, setPackAPunchDeps } from './gameplay/packapunch.js';
 import { powerUps, POWERUP_TYPES, spawnPowerUp, updatePowerUps,
-         cleanupPowerUps, resetRoundPowerUps, setPowerUpDeps } from './gameplay/powerups.js';
+         cleanupPowerUps, resetRoundPowerUps, setPowerUpDeps,
+         spawnPowerUpMesh, removePowerUpMesh, applyPowerUpType } from './gameplay/powerups.js';
 import { updateHUD as _updateHUD, showCenterMsg, updateCenterMsg,
          showPause, hidePause, drawFloatTexts, setHudDeps,
          showRoundBanner, updateRoundBanner } from './ui/hud.js';
@@ -778,6 +781,7 @@ setMinimapDeps({
   mysteryBox, packAPunch, easterEgg,
   getZombies: () => zombies,
   powerUps, POWERUP_TYPES,
+  getRemotePlayers: () => netcode.getRemotePlayers(),
 });
 
 
@@ -1473,6 +1477,9 @@ const _hostSync = createHostSync({
   // so the closures see the fresh definitions at call time.
   onMatchStarted: () => { if (typeof _onMatchStarted === 'function') _onMatchStarted(); },
   onMatchEnded: () => { if (typeof _onMatchEnded === 'function') _onMatchEnded(); },
+  // Power-up MP wiring
+  spawnPowerUpMesh, removePowerUpMesh, applyPowerUpType,
+  onKillFromMain,
 });
 
 

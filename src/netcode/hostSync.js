@@ -89,6 +89,10 @@ export function createHostSync(ctx) {
     showHitmarker, showCenterMsg, showRoundBanner, addFloatText, triggerScreenShake,
     openDoorLocal,
     onMatchStarted, onMatchEnded,
+    // Power-ups in MP
+    spawnPowerUpMesh, removePowerUpMesh,
+    applyPowerUpType,
+    onKillFromMain,
   } = ctx;
 
   // Award points + death VFX when the server deletes a zombie row.
@@ -113,10 +117,52 @@ export function createHostSync(ctx) {
       sfxBossKill();
       triggerScreenShake(2.5, 5);
     }
+    // Kill streak announcement (mirrors SP shooting.js path)
+    if (onKillFromMain) try { onKillFromMain(z.isBoss); } catch(e) {}
+    // Host spawns power-up via server so all clients see it
+    if (netcode.isHost()) {
+      try { _maybeSpawnPowerUpForKill(z.wx, z.wz); } catch(e) {}
+    }
   }
 
   // Track the last-seen status so we can detect lobby↔playing transitions.
   let _lastStatus = 'lobby';
+
+  // ── Power-up spawn throttle (host only) ─────────────────────────────
+  // Mirrors the SP logic in powerups.js: random drop chance per kill,
+  // pity counter, min drops per round. Host calls spawnPowerup reducer;
+  // all clients (including host) create meshes via onPowerUpInsert.
+  let _puKillsSinceDrop = 0;
+  let _puRoundDrops = 0;
+  let _puLastTypeIdx = -1;
+  const PU_TYPES = ['instakill', 'doublepoints', 'nuke', 'maxammo'];
+
+  function _maybeSpawnPowerUpForKill(wx, wz) {
+    if (!netcode.isHost()) return;
+    const round = getRound();
+    _puKillsSinceDrop++;
+    const minDrops = round >= 5 ? 3 : round >= 2 ? 2 : 1;
+    const dropChance = Math.min(0.10 + (round - 1) * 0.02, 0.30);
+    const pity = _puKillsSinceDrop >= 18;
+    const roll = Math.random();
+    if (!pity && roll > dropChance) return;
+    // Pick type (0=instakill,1=doublepoints,2=nuke,3=maxammo)
+    // Exclude nuke rounds 1-2
+    const available = [];
+    for (let ti = 0; ti < 4; ti++) {
+      if (ti === _puLastTypeIdx) continue;
+      if (ti === 2 && round < 3) continue; // nuke locked early
+      available.push(ti);
+    }
+    if (available.length === 0) return;
+    const typeIdx = available[Math.floor(Math.random() * available.length)];
+    _puLastTypeIdx = typeIdx;
+    _puKillsSinceDrop = 0;
+    _puRoundDrops++;
+    try {
+      netcode.callSpawnPowerUp({ typeIdx, wx, wz });
+    } catch(e) { console.warn('[hostSync] callSpawnPowerUp failed', e); }
+  }
 
   // Register all subscription callbacks. Safe to call once per session.
   function register() {
@@ -173,6 +219,20 @@ export function createHostSync(ctx) {
 
     netcode.setOnZombieDelete((row) => {
       killLocalZombieByHostZid(row.hostZid);
+    });
+
+    // Power-up subscription callbacks. All clients (host + non-host) create
+    // and remove meshes here so everyone sees the same drops in sync.
+    netcode.setOnPowerUpInsert((row) => {
+      if (netcode.getGameStatus() !== 'playing') return;
+      if (spawnPowerUpMesh) {
+        try { spawnPowerUpMesh(row.puId, row.typeIdx, row.wx, row.wz); } catch(e) {}
+      }
+    });
+    netcode.setOnPowerUpDelete((row) => {
+      if (removePowerUpMesh) {
+        try { removePowerUpMesh(row.puId); } catch(e) {}
+      }
     });
 
     // Door state now lives on the lobby row (Lobby.openedDoors array).
