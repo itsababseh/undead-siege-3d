@@ -3585,9 +3585,11 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
         <div style="color:#4af;font-size:11px;letter-spacing:2px;margin-bottom:8px">🌐 GLOBAL LEADERBOARD</div>
         <div id="mpRunSummaryLb" style="font:12px monospace;line-height:1.8;color:#aaa;text-align:left;padding:0 20px">${globalHtml}</div>
       </div>
-      <button id="mpRunSummaryPlayAgain" style="margin-top:22px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;transition:all 0.3s">PLAY AGAIN</button>
+      <button id="mpRunSummaryPlayAgain" style="margin-top:22px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;transition:all 0.3s">PLAY SOLO</button>
       <br>
-      <button id="mpRunSummaryContinue" style="margin-top:10px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;transition:all 0.3s">BACK TO LOBBY</button>
+      <button id="mpRunSummaryContinue" style="margin-top:10px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;transition:all 0.3s">REJOIN LOBBY</button>
+      <br>
+      <button id="mpRunSummaryShare" style="margin-top:10px;background:none;border:2px solid #1da1f2;color:#1da1f2;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;transition:all 0.3s">🐦 SHARE ON X</button>
     `;
     const playBtn = document.getElementById('mpRunSummaryPlayAgain');
     if (playBtn) playBtn.addEventListener('click', () => {
@@ -3596,6 +3598,10 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
     });
     const btn = document.getElementById('mpRunSummaryContinue');
     if (btn) btn.addEventListener('click', dismissMpRunSummary);
+    const shareBtn = document.getElementById('mpRunSummaryShare');
+    if (shareBtn) shareBtn.addEventListener('click', () => {
+      if (typeof window._shareTwitter === 'function') window._shareTwitter(endedRound, endedKills, endedPoints);
+    });
   };
 
   renderBody();
