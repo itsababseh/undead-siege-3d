@@ -51,6 +51,58 @@ function _onKill(isBoss) {
 }
 // ──────────────────────────────────────────────────────────────────────────
 
+// ── Run Stats tracker ──────────────────────────────────────────────────────
+// Tracks per-weapon kills and shots fired for the death-screen stats card.
+// Weapon indices: 0=M1911 1=MP40 2=Trench Gun 3=Ray Gun 4=Knife (set externally)
+const _weaponKills   = [0, 0, 0, 0, 0]; // 5 slots: 4 guns + knife
+const _shotsFired    = [0, 0, 0, 0];     // 4 gun slots
+let   _knifeKills    = 0;
+
+export function resetRunStats() {
+  for (let i = 0; i < _weaponKills.length; i++) _weaponKills[i] = 0;
+  for (let i = 0; i < _shotsFired.length; i++) _shotsFired[i] = 0;
+  _knifeKills = 0;
+}
+
+export function recordKnifeKill() {
+  _knifeKills++;
+  _weaponKills[4]++;
+}
+
+export function getRunStats() {
+  const weapons = _ctx ? _ctx.weapons : null;
+  const names = weapons
+    ? weapons.map(w => w.name)
+    : ['M1911', 'MP40', 'Trench Gun', 'Ray Gun'];
+  names.push('Knife');
+
+  // Best weapon by kills
+  let bestIdx = 0;
+  for (let i = 1; i < _weaponKills.length; i++) {
+    if (_weaponKills[i] > _weaponKills[bestIdx]) bestIdx = i;
+  }
+  const bestWeapon = _weaponKills[bestIdx] > 0 ? names[bestIdx] : 'None';
+
+  // Accuracy across all gun slots (knife has no shots fired)
+  const totalShots = _shotsFired.reduce((a, b) => a + b, 0);
+  const totalGunKills = _weaponKills.slice(0, 4).reduce((a, b) => a + b, 0);
+  // One kill = avg ~3 shots for pistol, estimate accuracy as kills/shots
+  // Cap at 100% to avoid weirdness with splash/instakill
+  const accuracy = totalShots > 0
+    ? Math.min(100, Math.round((totalGunKills / totalShots) * 100))
+    : 0;
+
+  return {
+    weaponKills: [..._weaponKills],
+    shotsFired: [..._shotsFired],
+    knifeKills: _knifeKills,
+    bestWeapon,
+    accuracy,
+    names,
+  };
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 
 export function tryShoot() {
   const {
@@ -72,6 +124,8 @@ export function tryShoot() {
   if (player.mag <= 0) { sfxEmpty(); doReload(); return; }
 
   player.mag--;
+  // Track shot fired for accuracy stats
+  if (player.curWeapon >= 0 && player.curWeapon < 4) _shotsFired[player.curWeapon]++;
   player.fireTimer = w.rate * player.fireRateMult;
   sfxShoot();
   setGunKick(1);
@@ -158,6 +212,8 @@ export function tryShoot() {
           const idx = zombies.indexOf(bestZ);
           if (idx >= 0) {
             setTotalKills(getTotalKills() + 1);
+            // Track per-weapon kill for stats card
+            if (player.curWeapon >= 0 && player.curWeapon < 4) _weaponKills[player.curWeapon]++;
             const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
             const pts = player._doublePoints ? basePts * 2 : basePts;
             setPoints(getPoints() + pts);
@@ -210,6 +266,7 @@ export function tryShoot() {
             if (player._instaKill && sz2.hp > 0) sz2.hp = 0;
             if (sz2.hp <= 0) {
               setTotalKills(getTotalKills() + 1);
+              if (player.curWeapon >= 0 && player.curWeapon < 4) _weaponKills[player.curWeapon]++;
               const sPts = player._doublePoints ? 120 : 60;
               setPoints(getPoints() + sPts);
               sfxKill();

@@ -70,7 +70,8 @@ window._getLocalPlayerName = getLocalPlayerName;
 import { initBuying, tryBuy, openDoorLocal } from './gameplay/buying.js';
 import {
   initShooting, tryShoot, doReload, finishReload, switchWeapon,
-  resetKillStreak, onKillFromMain } from './gameplay/shooting.js';
+  resetKillStreak, onKillFromMain,
+  resetRunStats, getRunStats, recordKnifeKill } from './gameplay/shooting.js';
 import { initChat, tickChat, isChatInputActive, closeChatInput } from './netcode/chat.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
@@ -786,6 +787,7 @@ setMinimapDeps({
 let _deathShown = false;
 function initGame() {
   _deathShown = false;
+  try { resetRunStats(); } catch(e) {}
   // Clear any leftover MP state from a previous session
   if (typeof hideMpUnlockHint === 'function') hideMpUnlockHint();
   resetDownedState();
@@ -1831,6 +1833,7 @@ function tryKnife() {
         const idx = zombies.indexOf(bestZ);
         if (idx >= 0) {
           totalKills++;
+          try { recordKnifeKill(); } catch(e) {}
           const basePts = bestZ.isBoss ? 500 : bestZ.isElite ? 120 : 60;
           const pts = player._doublePoints ? basePts * 2 : basePts;
           points += pts;
@@ -1983,7 +1986,20 @@ function _update(dt) {
     for (const perk of perks) {
       if (perk.permanent) continue;
       if (player.perksOwned[perk.id] > 0) {
+        const prevTime = player.perksOwned[perk.id];
         player.perksOwned[perk.id] -= dt;
+        const curTime = player.perksOwned[perk.id];
+        // 15-second warning: one downward beep + amber flash on pill
+        if (prevTime > 15 && curTime <= 15) {
+          beep(440, 'sine', 0.25, 0.12);
+          beep(330, 'sine', 0.25, 0.10);
+          addFloatText(`${perk.name} FADING…`, '#fa0', 2.0);
+        }
+        // 5-second warning: rapid double beep
+        if (prevTime > 5 && curTime <= 5) {
+          beep(520, 'sine', 0.12, 0.10);
+          setTimeout(() => beep(520, 'sine', 0.12, 0.10), 150);
+        }
         if (player.perksOwned[perk.id] <= 0) {
           player.perksOwned[perk.id] = 0;
           perk.unapply();
@@ -2890,6 +2906,9 @@ function showDeath() {
   _deathShown = true;
   updatePersistentStats();
   closeRadio();
+  // Snapshot run stats for the stats card; reset for next run
+  let _runStats = null;
+  try { _runStats = getRunStats(); resetRunStats(); } catch(e) {}
   const board = saveScore(round, totalKills, points);
   // Submit to the global SpacetimeDB leaderboard. Both SP and MP death
   // paths reach here (MP session-reset path submits separately in
@@ -2973,6 +2992,33 @@ function showDeath() {
       globalLbHTML = '<div style="color:#555;text-align:center">Connecting to global leaderboard…</div>';
     }
 
+    // -- Run stats card HTML (built before innerHTML to avoid nested-backtick issues) --
+    let _statsCardHTML = '';
+    if (_runStats) {
+      const _wNames = _runStats.names || [];
+      const _wKills = _runStats.weaponKills || [];
+      let _weaponPills = '';
+      for (let _wi = 0; _wi < Math.min(_wNames.length, 4); _wi++) {
+        if (_wKills[_wi] > 0) {
+          _weaponPills += '<div style="color:#aaa;font-size:9px;letter-spacing:1px;background:rgba(255,255,255,0.05);padding:3px 8px;border-radius:3px">'
+            + _wNames[_wi] + ': <span style="color:#fc0">' + _wKills[_wi] + '&times;</span></div>';
+        }
+      }
+      if (_runStats.knifeKills > 0) {
+        _weaponPills += '<div style="color:#aaa;font-size:9px;letter-spacing:1px;background:rgba(255,255,255,0.05);padding:3px 8px;border-radius:3px">'
+          + 'Knife: <span style="color:#fc0">' + _runStats.knifeKills + '&times;</span></div>';
+      }
+      _statsCardHTML = '<div style="margin:8px auto 0;max-width:380px;width:100%;font:11px monospace;background:rgba(0,0,0,0.4);border:1px solid rgba(255,200,0,0.15);border-radius:4px;padding:10px 16px;position:relative">'
+        + '<div style="color:#fa0;letter-spacing:2px;font-size:10px;margin-bottom:8px;text-align:center">&#x1F4CA; THIS RUN</div>'
+        + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">'
+        + '<div style="text-align:center"><div style="color:#4e4;font-size:16px;font-weight:bold">' + _runStats.bestWeapon + '</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">BEST WEAPON</div></div>'
+        + '<div style="text-align:center"><div style="color:#4af;font-size:16px;font-weight:bold">' + _runStats.accuracy + '%</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">ACCURACY</div></div>'
+        + '<div style="text-align:center"><div style="color:#fc0;font-size:16px;font-weight:bold">' + _runStats.knifeKills + '</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">KNIFE KILLS</div></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">' + _weaponPills + '</div>'
+        + '</div>';
+    }
+
     blocker.innerHTML = `
       <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
       <h1 style="color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3);position:relative">YOU DIED</h1>
@@ -2986,6 +3032,7 @@ function showDeath() {
         </div>
       </div>
       <div class="menu-divider"></div>
+      ${_statsCardHTML}
       <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:10px;position:relative">
         <div style="min-width:180px">
           <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666">📂 YOUR BEST</div>
