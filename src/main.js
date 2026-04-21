@@ -4094,10 +4094,13 @@ window.addEventListener('pageshow', (e) => {
 })();
 
 window._shareTwitter = function(r, k, p) {
+  const gameUrl = 'https://itsababseh.github.io/undead-siege-3d/';
   const txt = encodeURIComponent(
-    `I survived Round ${r} in Undead Siege 3D — ${k} kills, ${p} pts! Can you beat it? 🧟 #VibeJam2026 #UndeadSiege3D`
+    `I survived Round ${r} in Undead Siege 3D — ${k} kills, ${p} pts! Can you beat it? 🧟\n\ncc @whatdoesababsay #VibeJam2026 #UndeadSiege3D`
   );
-  window.open(`https://twitter.com/intent/tweet?text=${txt}&url=${encodeURIComponent('https://itsababseh.github.io/undead-siege-3d/')}`, '_blank');
+  // url= param triggers Twitter's card crawler (og:image, og:title etc.)
+  // Keep the URL out of the text so it doesn't eat tweet characters
+  window.open(`https://twitter.com/intent/tweet?text=${txt}&url=${encodeURIComponent(gameUrl)}`, '_blank');
 };
 window._vibeJamPortal = function() {
   // Block downed players from portal-escaping their own revive
