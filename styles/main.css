@@ -242,3 +242,27 @@ canvas{display:block}
   #ammoBox .wname{font-size:10px}
   .round-banner.active .rb-line{width:clamp(40px,12vw,80px)}
 }
+
+/* Juggernog shield absorb flash */
+#shieldFlash {
+  position: fixed; inset: 0; z-index: 95; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(255,80,80,0.55) 0%, rgba(255,0,0,0.15) 60%, transparent 100%);
+  opacity: 0; transition: opacity 0.08s ease-in;
+}
+#shieldFlash.active { opacity: 1; transition: opacity 0.08s ease-in; }
+#shieldFlash.pulse  { animation: shieldPulse 0.35s ease-out forwards; }
+@keyframes shieldPulse {
+  0%   { opacity: 1; }
+  40%  { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+/* Shield broken: blue-white burst */
+#shieldFlash.broken {
+  background: radial-gradient(ellipse at center, rgba(200,220,255,0.75) 0%, rgba(100,160,255,0.25) 60%, transparent 100%);
+  animation: shieldBreak 0.55s ease-out forwards;
+}
+@keyframes shieldBreak {
+  0%   { opacity: 1; }
+  30%  { opacity: 0.9; }
+  100% { opacity: 0; }
+}

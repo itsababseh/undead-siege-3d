@@ -70,7 +70,7 @@ window._getLocalPlayerName = getLocalPlayerName;
 import { initBuying, tryBuy, openDoorLocal } from './gameplay/buying.js';
 import {
   initShooting, tryShoot, doReload, finishReload, switchWeapon,
-} from './gameplay/shooting.js';
+  resetKillStreak, onKillFromMain } from './gameplay/shooting.js';
 import { initChat, tickChat, isChatInputActive, closeChatInput } from './netcode/chat.js';
 import { loadTips, loadProgress, initLoadScreen, updateLoadBar, finishLoading } from './ui/loading.js';
 import {
@@ -947,6 +947,7 @@ function _triggerMilestoneFanfare(rank) {
 }
 
 function nextRound() {
+  try { resetKillStreak(); } catch(e) {}
   round++;
   const roundEntering = round;
   // Reset the stuck-zombie watchdog at the start of each round so the
@@ -1834,6 +1835,7 @@ function tryKnife() {
           const pts = player._doublePoints ? basePts * 2 : basePts;
           points += pts;
           sfxKill();
+          onKillFromMain(bestZ.isBoss);
           showHitmarker(true);
           spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, dmg, true);
           // S4.2: Boss death — double blood particles
@@ -2586,6 +2588,13 @@ function _update(dt) {
           triggerScreenShake(0.5, 6);
           triggerHitIndicator(z.wx, z.wz);
           addFloatText(player.shieldHits > 0 ? `SHIELD (${player.shieldHits})` : 'SHIELD BROKEN', '#ff6', 1.2);
+          // Visual: shield absorb flash
+          const _sf = document.getElementById('shieldFlash');
+          if (_sf) {
+            _sf.className = '';
+            void _sf.offsetWidth; // reflow to restart animation
+            _sf.className = player.shieldHits === 0 ? 'broken' : 'pulse';
+          }
           // When all shield hits consumed, clear Juggernog timer too
           if (player.shieldHits === 0) {
             const jugg = perks.find(p => p.id === 'juggernog');
@@ -2735,6 +2744,7 @@ function _update(dt) {
       const idx = zombies.indexOf(z);
       if (_runCull && idx >= 0) {
         totalKills++;
+        onKillFromMain(z.isBoss);
         const basePts = z.isBoss ? 500 : (z.isElite ? 120 : 60);
         points += basePts;
         if (z.isBoss) {
@@ -2875,6 +2885,7 @@ function updateMovement(dt) {
 
 // ===== DEATH SCREEN =====
 function showDeath() {
+  try { resetKillStreak(); } catch(e) {}
   if (_deathShown) return;
   _deathShown = true;
   updatePersistentStats();
@@ -2991,6 +3002,8 @@ function showDeath() {
       <br>
       <button onclick="window._vibeJamPortal()" style="margin-top:10px;background:none;border:2px solid #0f4;color:#0f4;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🌀 VIBE JAM PORTAL</button>
       <div style="margin-top:8px;padding:6px 12px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;display:inline-block"><span style="color:#fc0;font-size:10px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: Transports you to a random Vibe Jam 2026 game!</span></div>
+      <br>
+      <button onclick="window._shareTwitter(${round},${totalKills},${points})" style="margin-top:10px;background:none;border:2px solid #1da1f2;color:#1da1f2;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🐦 SHARE ON X/TWITTER</button>
     `;
     
     const rank = getPlayerRank();
@@ -4033,6 +4046,12 @@ window.addEventListener('pageshow', (e) => {
   }, 800);
 })();
 
+window._shareTwitter = function(r, k, p) {
+  const txt = encodeURIComponent(
+    `I survived Round ${r} in Undead Siege 3D — ${k} kills, ${p} pts! Can you beat it? 🧟 #VibeJam2026 #UndeadSiege3D`
+  );
+  window.open(`https://twitter.com/intent/tweet?text=${txt}&url=${encodeURIComponent('https://itsababseh.github.io/undead-siege-3d/')}`, '_blank');
+};
 window._vibeJamPortal = function() {
   // Block downed players from portal-escaping their own revive
   if (isLocallyDowned()) {

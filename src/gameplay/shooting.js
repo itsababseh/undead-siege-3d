@@ -17,6 +17,40 @@ import * as netcode from '../netcode/connection.js';
 
 let _ctx = null;
 export function initShooting(ctx) { _ctx = ctx; }
+// ── Kill Streak tracker ────────────────────────────────────────────────────
+let _streakCount = 0;
+let _streakTimer = null;
+
+export function resetKillStreak() {
+  _streakCount = 0;
+  if (_streakTimer) { clearTimeout(_streakTimer); _streakTimer = null; }
+}
+
+export function onKillFromMain(isBoss) { _onKill(isBoss); }
+
+function _onKill(isBoss) {
+  if (!_ctx) return;
+  const { addFloatText, triggerScreenShake } = _ctx;
+  _streakCount++;
+  if (_streakTimer) clearTimeout(_streakTimer);
+  _streakTimer = setTimeout(() => { _streakCount = 0; _streakTimer = null; }, 4000);
+
+  if (isBoss) return; // boss already shows its own big text
+  if (_streakCount === 2) {
+    addFloatText('DOUBLE KILL!', '#fc0', 1.6);
+  } else if (_streakCount === 3) {
+    addFloatText('TRIPLE KILL!', '#f84', 2.0);
+    triggerScreenShake(0.4, 10);
+  } else if (_streakCount === 4) {
+    addFloatText('MULTI KILL!', '#f44', 2.2);
+    triggerScreenShake(0.6, 12);
+  } else if (_streakCount >= 5) {
+    addFloatText('RAMPAGE!!', '#f0f', 2.8);
+    triggerScreenShake(1.0, 16);
+  }
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 
 export function tryShoot() {
   const {
@@ -128,6 +162,7 @@ export function tryShoot() {
             const pts = player._doublePoints ? basePts * 2 : basePts;
             setPoints(getPoints() + pts);
             sfxKill();
+            _onKill(bestZ.isBoss);
             showHitmarker(true);
             spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
             // S4.2: Boss death — double blood particles
@@ -178,6 +213,7 @@ export function tryShoot() {
               const sPts = player._doublePoints ? 120 : 60;
               setPoints(getPoints() + sPts);
               sfxKill();
+              _onKill(false);
               addFloatText(`+${sPts}`, '#0f0', 1);
               startZombieDeathAnim(sz2);
               spawnPowerUp(sz2.wx, sz2.wz);
