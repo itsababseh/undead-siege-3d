@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<a href="https://itsababseh.github.io/undead-siege-3d/"><img src="https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000" height="56" alt="Play Undead Siege 3D" /></a>
+<a href="https://itsababseh.github.io/undead-siege-3d/"><img src="https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000" height="120" alt="Play Undead Siege 3D" /></a>
 
 </div>
 
@@ -14,17 +14,15 @@
 
 ## 🤝 Connect and Share
 
-> *"Games are community, and communities should be able to help games in real time be better."*
-
-Found a bug? Hit a crazy high score? Have an idea that would make this wilder?
-
-Drop me a message — I read everything and build improvements based on what the community surfaces.
+Found a bug? Hit a crazy high score? Have an idea that would make this wilder? Drop me a message — I read everything and build improvements based on what the community surfaces.
 
 <div align="center">
 
 <a href="https://x.com/whatdoesababsay"><img src="https://img.shields.io/badge/DM%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white" height="56" alt="DM on X" /></a>&nbsp;&nbsp;&nbsp;<a href="https://www.linkedin.com/in/johnababseh/"><img src="https://img.shields.io/badge/Connect%20on%20LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" height="56" alt="Connect on LinkedIn" /></a>
 
 </div>
+
+> *"Games are community, and communities should be able to help games in real time be better."*
 
 
 
