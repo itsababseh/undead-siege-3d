@@ -83,6 +83,40 @@ function makeNameSprite(text) {
   return sp;
 }
 
+function makeDownedSprite() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 80;
+  const ctx = c.getContext('2d');
+  // Red background pill
+  ctx.fillStyle = 'rgba(180,0,0,0.85)';
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 240, 64, 16);
+  ctx.fill();
+  // Border
+  ctx.strokeStyle = '#ff4444';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 240, 64, 16);
+  ctx.stroke();
+  // Text
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+  ctx.lineWidth = 4;
+  ctx.strokeText('⬇ DOWNED', 128, 40);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('⬇ DOWNED', 128, 40);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(2.2, 0.55, 1);
+  sp.renderOrder = 1001;
+  sp.visible = false;
+  return sp;
+}
+
 // ─── Build procedural 3D soldier ─────────────────────────────────────────────
 // Returns { bodyGroup, parts } where parts holds references needed for
 // animation and disposal of per-player materials.
@@ -339,6 +373,10 @@ function createMesh(hex, name) {
   nameSprite.position.y = 2.05;
   group.add(nameSprite);
 
+  const downedSprite = makeDownedSprite();
+  downedSprite.position.y = 0.7; // ground level when downed
+  group.add(downedSprite);
+
   _scene.add(group);
 
   return {
@@ -346,6 +384,7 @@ function createMesh(hex, name) {
     bodyGroup,
     parts,
     nameSprite,
+    downedSprite,
     teamColor,
     _hex: hex,
     _downed: false,
@@ -367,6 +406,11 @@ function disposeMesh(rec) {
   // Dispose name sprite resources
   if (rec.nameSprite.material.map) rec.nameSprite.material.map.dispose();
   rec.nameSprite.material.dispose();
+  // Dispose downed sprite
+  if (rec.downedSprite) {
+    if (rec.downedSprite.material.map) rec.downedSprite.material.map.dispose();
+    rec.downedSprite.material.dispose();
+  }
 }
 
 // ─── Animation helpers ───────────────────────────────────────────────────────
@@ -416,6 +460,18 @@ function animateSoldier(rec, dt) {
   rec.bodyGroup.rotation.z = rec._downedLerp * (Math.PI / 2);
   // Shift pivot so body falls toward ground
   rec.bodyGroup.position.y = -rec._downedLerp * 0.5;
+
+  // Name tag descends as player falls — lerps from 2.05 (upright) to 0.85 (downed)
+  rec.nameSprite.position.y = 2.05 - rec._downedLerp * 1.2;
+  // Show/hide the DOWNED badge — only visible when fully or nearly fallen (lerp > 0.5)
+  if (rec.downedSprite) {
+    rec.downedSprite.visible = rec._downedLerp > 0.5;
+    // Pulse the opacity of the downed badge so it draws the eye
+    if (rec.downedSprite.visible) {
+      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(t * 3));
+      rec.downedSprite.material.opacity = pulse;
+    }
+  }
 
   // Pulsing red light when downed
   if (rec._downed) {
