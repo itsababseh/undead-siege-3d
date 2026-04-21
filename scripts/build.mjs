@@ -19,9 +19,6 @@ const ROOT = resolve(__dirname, '..');
 const DIST = resolve(ROOT, 'dist');
 
 async function main() {
-  // Don't rmdir dist/ — a running `launch.bat` may have an http.server holding
-  // it open, which would fail with EBUSY on Windows. Just overwrite the files
-  // we write; stale files are harmless.
   console.log('[build] preparing dist/');
   await mkdir(DIST, { recursive: true });
 
@@ -32,7 +29,6 @@ async function main() {
     format: 'esm',
     platform: 'browser',
     target: ['es2020'],
-    // Keep three.js external — it's loaded from CDN via the importmap in index.html
     external: ['three', 'three/addons/*'],
     write: false,
     sourcemap: false,
@@ -47,32 +43,31 @@ async function main() {
   console.log('[build] inlining bundle into index.html');
   let html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
 
-  // Replace <script type="module" src="src/main.js"></script> with inline bundle
   const scriptTag = '<script type="module" src="src/main.js"></script>';
   if (!html.includes(scriptTag)) {
     throw new Error(`Could not find script tag in index.html: ${scriptTag}`);
   }
-  // </script> inside the bundle would break the outer </script> — escape it
   const safeBundle = bundle.replace(/<\/script>/gi, '<\\/script>');
-  // IMPORTANT: pass the replacement as a FUNCTION, not a string.
-  // String.prototype.replace treats `$&`, `$'`, `` $` ``, `$1`-`$99` in the
-  // replacement string as references to the match. The minified bundle
-  // routinely contains sequences like `$&` (esbuild-mangled identifiers
-  // followed by `&`) which would expand to the matched `<script src=...>`
-  // tag — injecting a literal script tag into the middle of the JS code
-  // and producing a `SyntaxError: Unexpected token '<'`. Using a function
-  // bypasses all of that.
   html = html.replace(scriptTag, () => `<script type="module">\n${safeBundle}\n</script>`);
 
   await writeFile(resolve(DIST, 'index.html'), html, 'utf8');
   console.log(`[build] wrote dist/index.html (${(html.length / 1024).toFixed(1)} KB total)`);
 
-  // Copy static assets referenced by index.html
-  for (const asset of ['styles', 'og-image.png']) {
+  // Copy static assets referenced by index.html or OG meta tags
+  const assets = [
+    'styles',
+    'og-image.png',
+    'UndeadSiege.png',
+    'autogpt-logo-light.png',
+    'autogpt-logo-dark.png',
+  ];
+  for (const asset of assets) {
     const src = resolve(ROOT, asset);
     if (existsSync(src)) {
       await cp(src, resolve(DIST, asset), { recursive: true });
       console.log(`[build] copied ${asset}`);
+    } else {
+      console.log(`[build] skipped (not found): ${asset}`);
     }
   }
 
