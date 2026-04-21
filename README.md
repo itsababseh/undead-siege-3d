@@ -7,7 +7,7 @@
 <a href="https://itsababseh.github.io/undead-siege-3d/">
   <img src="UndeadSiege.png" alt="▶ PLAY UNDEAD SIEGE 3D NOW" width="860" />
   <br/>
-  <img src="https://img.shields.io/badge/▶%20PLAY%20NOW-FF0000?style=for-the-badge&logo=gamepad&logoColor=white&labelColor=8B0000" height="60" alt="Play Now" />
+  <img src="play-button.png" alt="▶ PLAY NOW" width="860" />
 </a>
 
 </div>
