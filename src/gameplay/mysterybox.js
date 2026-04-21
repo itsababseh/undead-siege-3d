@@ -40,7 +40,7 @@ export const mysteryBox = {
 };
 
 // Chance the box refuses this roll and yeets itself to a new tile
-const MYSTERY_BOX_OCTOPUS_CHANCE = 0.08;
+const MYSTERY_BOX_OCTOPUS_CHANCE = 0.20;
 // Octopus animation phase durations (seconds)
 const OCTO_RISE_DUR = 0.9;
 const OCTO_LUNGE_DUR = 0.4;
@@ -351,15 +351,17 @@ export function tryMysteryBox() {
   // Octopus roll — 8% chance to refuse the gamble and yeet the box
   // elsewhere. Skipped on the player's very first box use to avoid
   // rage-quits on round 2.
-  mysteryBox.rolledOctopus = mysteryBox.useCount > 1 && Math.random() < MYSTERY_BOX_OCTOPUS_CHANCE;
+  mysteryBox.rolledOctopus = Math.random() < MYSTERY_BOX_OCTOPUS_CHANCE;
   if (mysteryBox.rolledOctopus) {
     mysteryBox.resultWeaponIdx = -1;
   } else {
+    // Pistol (idx 0) is intentionally excluded — it has unlimited ammo
+    // and there is nothing to gain from the box handing it back.
+    // Loot table: Ray Gun 10%, Trench Gun 40%, MP40 50%.
     const roll = Math.random();
-    if (roll < 0.1) mysteryBox.resultWeaponIdx = 3;
-    else if (roll < 0.4) mysteryBox.resultWeaponIdx = 2;
-    else if (roll < 0.7) mysteryBox.resultWeaponIdx = 1;
-    else mysteryBox.resultWeaponIdx = 0;
+    if (roll < 0.10) mysteryBox.resultWeaponIdx = 3;       // Ray Gun
+    else if (roll < 0.50) mysteryBox.resultWeaponIdx = 2;  // Trench Gun
+    else mysteryBox.resultWeaponIdx = 1;                   // MP40
   }
 
   beep(600, 'sine', 0.15, 0.1);
@@ -388,7 +390,10 @@ export function collectMysteryBoxWeapon() {
   // currently holding, treat it as a free max-ammo refill instead of
   // a swap. Matches player expectation (it's effectively a Max Ammo
   // drop for that weapon).
-  const sameAsCurrent = (wi === _player.curWeapon);
+  // Belt-and-suspenders: pistol (idx 0) should never appear in the roll,
+  // but if it somehow slips through (e.g. old save state), treat it exactly
+  // like a same-weapon roll — just refill ammo, don't swap.
+  const sameAsCurrent = (wi === _player.curWeapon) || (wi === 0);
   // Perform the switch inline. We DON'T call shooting.js's switchWeapon
   // because that has guard clauses (state check, early returns) that
   // can silently reject the switch — the user then "collects" the gun
