@@ -807,10 +807,45 @@ function initGame() {
   player.perksOwned = {};
   mpDownedPrevWeapon = 0;
   
-  camera.position.set(12 * TILE, 1.6, 12 * TILE);
-  controls._yaw = 0;
-  controls._pitch = 0;
-  controls._applyRotation();
+  // In MP assign each player a different spawn slot so they don't
+  // stack on top of each other. Slot index = position in the lobby
+  // player list (sorted by identity hex for determinism).
+  // SP always uses the centre (slot 0 == default).
+  (function _placePlayer() {
+    // 4 separated spawn points arranged in a loose square around the
+    // map centre (tile 12,12). Each faces inward (toward the centre).
+    const MP_SLOTS = [
+      { x: 12 * TILE, z: 12 * TILE, yaw: 0 },           // centre (SP / host)
+      { x: 10 * TILE, z: 10 * TILE, yaw:  0.785 },      // NW, face SE
+      { x: 14 * TILE, z: 10 * TILE, yaw: -0.785 },      // NE, face SW
+      { x: 10 * TILE, z: 14 * TILE, yaw:  2.356 },      // SW, face NE
+      { x: 14 * TILE, z: 14 * TILE, yaw: -2.356 },      // SE, face NW
+    ];
+    let slot = 0;
+    if (isInActiveMatch()) {
+      // Sort lobby players by identity hex for a stable, deterministic
+      // index. Each client computes the same ordering, so no sync needed.
+      const myHex = netcode.getLocalIdentity
+        ? (typeof netcode.getLocalIdentity() === 'object'
+            ? netcode.getLocalIdentity()?.toHexString?.() || ''
+            : String(netcode.getLocalIdentity()))
+        : '';
+      const roster = netcode.getLobbyPlayers
+        ? netcode.getLobbyPlayers().map(p => {
+            const id = p.identity;
+            return typeof id?.toHexString === 'function' ? id.toHexString() : String(id);
+          }).sort()
+        : [];
+      const idx = roster.indexOf(myHex);
+      slot = Math.max(0, idx) + 1; // +1 so slot 0 (centre) is unused in MP
+      if (slot >= MP_SLOTS.length) slot = (slot % (MP_SLOTS.length - 1)) + 1;
+    }
+    const s = MP_SLOTS[slot] || MP_SLOTS[0];
+    camera.position.set(s.x, 1.6, s.z);
+    controls._yaw = s.yaw;
+    controls._pitch = 0;
+    controls._applyRotation();
+  })();
   
   for (const k in weaponMags) delete weaponMags[k];
   
@@ -3886,8 +3921,13 @@ function tickSpectator() {
       player.hp = player.maxHp;
       player.reloading = false;
       player.reloadTimer = 0;
-      camera.position.set(12 * TILE, 1.6, 12 * TILE);
-      controls._yaw = 0;
+      // Drop spectator into a safe tile near the centre, not exactly
+      // on top of the host. Pick the tile 2 units offset in a random
+      // direction (N/S/E/W) from centre so it doesn't stack.
+      const _specOffsets = [{x:0,z:-2},{x:2,z:0},{x:0,z:2},{x:-2,z:0}];
+      const _so = _specOffsets[Math.floor(Math.random() * _specOffsets.length)];
+      camera.position.set((12 + _so.x) * TILE, 1.6, (12 + _so.z) * TILE);
+      controls._yaw = Math.random() * Math.PI * 2;
       controls._pitch = 0;
       controls._applyRotation();
     }
