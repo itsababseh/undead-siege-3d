@@ -12,6 +12,23 @@
 
 ---
 
+## 🤝 Join the Community
+
+> *"Games are community, and communities should be able to help games in real time be better."*
+
+Found a bug? Hit a crazy high score? Have an idea that would make this wilder?
+
+Drop me a message — I read everything and build improvements based on what the community surfaces.
+
+<div align="center">
+
+[![Twitter / X](https://img.shields.io/badge/DM%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/whatdoesababsay)&nbsp;&nbsp;&nbsp;[![LinkedIn](https://img.shields.io/badge/Connect%20on%20LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/johnababseh/)
+
+</div>
+
+Share your highest round, report a bug you hit, or just tell me your favourite weapon combo. Every message helps the game get better — in real time.
+
+
 ## 🔫 Features
 
 ### Combat & Weapons
@@ -82,6 +99,11 @@
 - **Theme-Aware Branding** — Logo auto-switches between light and dark versions to match GitHub reader's theme
 
 ### Recently Polished (April 2026)
+- **Kill Streak System** — Rapid kills trigger escalating announcements: DOUBLE KILL → TRIPLE KILL → MULTI KILL → **RAMPAGE!!** with increasing screen shake and color intensity. Streak resets 4s after your last kill
+- **Juggernog Shield Visual** — Absorbing a hit now triggers a red radial pulse; shield break fires a blue-white burst so you always know the moment you become vulnerable
+- **Perk Expiry 2-Stage Warning** — At 15s remaining, an amber "FADING…" float text + descending audio cue tells you to run back to the machine. At 5s, a rapid double-beep warns you it's almost gone. The existing pill pulse at <5s remains
+- **Run Stats Card on Death Screen** — After each run you see: Best Weapon, Accuracy %, Knife Kills, and a per-weapon kill breakdown. Resets each new game so stats always reflect the current run
+- **Share on X/Twitter** — Death screen now has a one-click tweet button pre-filled with your round, kills, and points
 - **Boarded windows + climb-through tween** — 14 barricaded windows around the bunker, each with 6 individually-shattering planks. Zombies now visibly clamber through with a 0.55s sine-arc vault tween, dust puff on breach, and a low BANG when the first attacker reaches a quiet window
 - **No more "waiting for the last zombie"** — Layered fixes guarantee the gap between killing one zombie and engaging the next is ≤ ~3 seconds, on every round. Pressure boost (spawnTimer = 0 when nobody's alive), closest-window-inside spawn for the final zombie, sprint speed for the final two spawns, and a critical-end shortcut that warps any window-zombie inside when ≤2 alive
 - **Per-zombie staleness watchdog** — Replaced the over-aggressive "no kill in 12s → cull all" logic that was ending rounds when the player took >12s between kills. New version only acts on zombies that haven't actually moved in 25/40/60s, one zombie per frame
