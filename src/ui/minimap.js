@@ -5,7 +5,8 @@ import * as THREE from 'three';
 const PI2 = Math.PI * 2;
 let _camera, _TILE, _MAP_W, _MAP_H, _map, _player,
     _doors, _perkMachines, _perks, _mysteryBox, _packAPunch,
-    _easterEgg, _getZombies, _powerUps, _POWERUP_TYPES;
+    _easterEgg, _getZombies, _powerUps, _POWERUP_TYPES,
+    _getRemotePlayers;
 
 export function setMinimapDeps(deps) {
   _camera = deps.camera;
@@ -23,6 +24,7 @@ export function setMinimapDeps(deps) {
   _getZombies = deps.getZombies;
   _powerUps = deps.powerUps;
   _POWERUP_TYPES = deps.POWERUP_TYPES;
+  _getRemotePlayers = deps.getRemotePlayers || null;
 }
 
 export function drawMinimap() {
@@ -55,6 +57,43 @@ export function drawMinimap() {
   mmCtx.lineWidth = 1;
   mmCtx.beginPath(); mmCtx.moveTo(px, pz);
   mmCtx.lineTo(px + dir.x * 8, pz + dir.z * 8); mmCtx.stroke();
+
+  // Remote players (MP) — cyan dot for alive, flashing red X for downed
+  if (_getRemotePlayers) {
+    const remotes = _getRemotePlayers();
+    const now = Date.now();
+    for (const rp of remotes.values()) {
+      if (rp.spectating) continue; // spectators not yet in the world
+      const rpx = (rp.wx / (_MAP_W * _TILE)) * mmW;
+      const rpz = (rp.wz / (_MAP_H * _TILE)) * mmH;
+      if (rp.downed) {
+        // Flashing red X to indicate downed teammate — draws attention
+        const blink = Math.sin(now / 200) > 0 ? 1 : 0.3;
+        mmCtx.globalAlpha = blink;
+        mmCtx.strokeStyle = '#f44';
+        mmCtx.lineWidth = 2;
+        const s = 4;
+        mmCtx.beginPath(); mmCtx.moveTo(rpx - s, rpz - s); mmCtx.lineTo(rpx + s, rpz + s); mmCtx.stroke();
+        mmCtx.beginPath(); mmCtx.moveTo(rpx + s, rpz - s); mmCtx.lineTo(rpx - s, rpz + s); mmCtx.stroke();
+        mmCtx.globalAlpha = 1;
+        // Label "DOWN" in tiny text
+        mmCtx.fillStyle = `rgba(255,80,80,${blink})`;
+        mmCtx.font = '6px monospace';
+        mmCtx.fillText('↓', rpx - 2, rpz - 6);
+        mmCtx.globalAlpha = 1;
+      } else {
+        // Cyan dot for active teammate
+        mmCtx.fillStyle = '#0ff';
+        mmCtx.beginPath(); mmCtx.arc(rpx, rpz, 2.5, 0, PI2); mmCtx.fill();
+        // Name label (truncated to 6 chars)
+        if (rp.name) {
+          mmCtx.fillStyle = 'rgba(0,255,255,0.7)';
+          mmCtx.font = '6px monospace';
+          mmCtx.fillText(String(rp.name).slice(0, 6), rpx + 4, rpz + 2);
+        }
+      }
+    }
+  }
   
   // Doors (blinking)
   for (const door of _doors) {

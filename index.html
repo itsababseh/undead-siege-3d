@@ -57,7 +57,7 @@
     <div class="controls-info" id="controlsInfo">
       WASD move · SHIFT run · Mouse aim · Click shoot · R reload<br>
       1-4 weapons · E buy/interact · ESC pause<br>
-      🔪 F — KNIFE (melee attack)
+      🔪 F — KNIFE · Q — REVIVE teammate (MP)
     </div>
     <div style="margin-top:10px;padding:8px 16px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;max-width:340px;margin-left:auto;margin-right:auto">
       <span style="color:#fc0;font-size:11px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: The portal in-game will transport you to a random game in the <strong style="color:#fff">Vibe Jam 2026</strong> competition!</span>
@@ -157,7 +157,7 @@
 
 <!-- MP revive prompt: shown on the reviver's HUD when near a downed teammate. -->
 <div id="reviveHud" style="display:none;position:fixed;left:50%;bottom:18%;transform:translateX(-50%);z-index:49;font-family:monospace;color:#fff;text-align:center;pointer-events:none;">
-  <div id="reviveLabel" style="font-size:18px;text-shadow:0 0 6px #000;margin-bottom:6px;">Hold <b style="color:#8f8">E</b> to revive <span id="reviveTargetName">Survivor</span></div>
+  <div id="reviveLabel" style="font-size:18px;text-shadow:0 0 6px #000;margin-bottom:6px;">Hold <b style="color:#8f8">Q</b> to revive <span id="reviveTargetName">Survivor</span></div>
   <div style="width:240px;height:8px;background:rgba(0,0,0,0.6);border:1px solid #666;border-radius:4px;overflow:hidden;">
     <div id="reviveBar" style="height:100%;width:0%;background:linear-gradient(90deg,#2d5,#8f8);transition:width 0.05s linear;"></div>
   </div>

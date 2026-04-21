@@ -201,6 +201,57 @@ export function spawnPowerUp(wx, wz) {
   _killsSinceDrop = 0; // Reset pity counter on successful drop
 }
 
+// ── MP mesh-only variants ─────────────────────────────────────────────────
+// Called by hostSync subscription callbacks on ALL clients (host + non-host).
+// Creates the 3D pick-up mesh for a server-spawned power-up, keyed by puId
+// so we can remove it when the server deletes the row.
+const _mpPowerUpMeshes = new Map(); // puId.toString() -> { mesh, lightSlot, bobPhase, typeIdx }
+
+export function spawnPowerUpMesh(puId, typeIdx, wx, wz) {
+  const key = String(puId);
+  if (_mpPowerUpMeshes.has(key)) return; // already exists
+  if (typeIdx < 0 || typeIdx >= POWERUP_TYPES.length) return;
+  const type = POWERUP_TYPES[typeIdx];
+  const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(type.color),
+    emissive: new THREE.Color(type.color), emissiveIntensity: 0.5,
+    transparent: true, opacity: 0.85,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(wx, 0.8, wz);
+  _scene.add(mesh);
+  const lightSlot = acquirePowerUpLight();
+  if (lightSlot) {
+    lightSlot.light.color.setHex(new THREE.Color(type.color).getHex());
+    lightSlot.light.intensity = 2;
+    lightSlot.light.position.set(wx, 1.2, wz);
+  }
+  // Also push into the local powerUps array so the existing updatePowerUps
+  // loop handles bob animation AND player proximity pickup for the local player.
+  // We tag it with puId so removePowerUpMesh can find and splice it out.
+  const pu = { typeIdx, wx, wz, mesh, lightSlot, life: 20,
+               bobPhase: Math.random() * Math.PI * 2, _mpPuId: key };
+  powerUps.push(pu);
+  _mpPowerUpMeshes.set(key, pu);
+}
+
+export function removePowerUpMesh(puId) {
+  const key = String(puId);
+  const pu = _mpPowerUpMeshes.get(key);
+  if (!pu) return;
+  _mpPowerUpMeshes.delete(key);
+  const idx = powerUps.indexOf(pu);
+  if (idx >= 0) powerUps.splice(idx, 1);
+  try { _scene.remove(pu.mesh); pu.mesh.material.dispose(); pu.mesh.geometry.dispose(); } catch(e) {}
+  releasePowerUpLight(pu.lightSlot);
+}
+
+export function applyPowerUpType(typeIdx) {
+  if (typeIdx < 0 || typeIdx >= POWERUP_TYPES.length) return;
+  POWERUP_TYPES[typeIdx].apply();
+}
+
 export function updatePowerUps(dt) {
   for (let i = powerUps.length - 1; i >= 0; i--) {
     const pu = powerUps[i];
@@ -228,6 +279,20 @@ export function updatePowerUps(dt) {
       beep(600, 'sine', 0.1, 0.12);
       setTimeout(() => beep(900, 'sine', 0.15, 0.12), 100);
       triggerScreenShake(0.3, 10);
+
+      // In MP: tell the server this power-up was consumed so it's removed
+      // from the table and all other clients see it despawn.
+      if (pu._mpPuId) {
+        try {
+          // Import netcode lazily — powerups.js doesn't import it at module
+          // level to avoid a circular dependency. Use the window bridge.
+          if (window._netcodeCallConsumePowerUp) {
+            window._netcodeCallConsumePowerUp(BigInt(pu._mpPuId));
+          }
+        } catch(e) {}
+        // Remove from the MP mesh map so removePowerUpMesh doesn't double-free
+        _mpPowerUpMeshes.delete(pu._mpPuId);
+      }
 
       _scene.remove(pu.mesh);
       pu.mesh.material.dispose(); pu.mesh.geometry.dispose();

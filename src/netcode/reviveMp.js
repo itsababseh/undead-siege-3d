@@ -194,7 +194,7 @@ export function tickRevive(dt) {
   // Quick Revive perk multiplies the fill rate (default 1x, perk = 4x
   // which means ~0.75s total instead of 3s).
   const speedMult = _ctx.getReviveSpeedMult ? _ctx.getReviveSpeedMult() : 1;
-  if (_ctx.keys['e']) {
+  if (_ctx.keys['q']) {
     _reviveProgress = Math.min(1, _reviveProgress + (dt * speedMult) / REVIVE_TIME_SEC);
   } else {
     _reviveProgress = Math.max(0, _reviveProgress - dt * 2);
