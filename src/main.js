@@ -140,6 +140,12 @@ import { updateHUD as _updateHUD, showCenterMsg, updateCenterMsg,
 import { drawMinimap, setMinimapDeps } from './ui/minimap.js';
 import { initAtmosphere, updateAtmosphere } from './effects/atmosphere.js';
 import { initPostProcessing, renderPostProcessing, resizePostProcessing } from './effects/postprocessing.js';
+import { initFlicker, updateFlicker } from './effects/flicker.js';
+import { initIntro, startIntro, updateIntro, endIntro,
+         isIntroActive, getIntroTimer, INTRO_KEYFRAMES } from './ui/intro.js';
+import { initSpectator, tickSpectator } from './netcode/spectator.js';
+import { initDeathScreen, showDeath, isDeathShown, resetDeathShown } from './ui/deathScreen.js';
+import { initScoreboard, incrementLocalDowns, resetLocalDowns } from './ui/scoreboard.js';
 
 
 // PointerLockControls removed — using custom FPS camera to prevent roll drift
@@ -310,9 +316,18 @@ addLight(6, 18, 0xffaa77, 2.5, 25);
 addLight(18, 18, 0xffbb88, 2.5, 25);
 addLight(12, 12, 0xffeedd, 3, 30);
 
-const playerLight = new THREE.PointLight(0xffeedd, 2.8, 28);
-playerLight.position.copy(camera.position);
-scene.add(playerLight);
+// Player-following "torch" light REMOVED. Two problems with it:
+//   1. At camera height (1.6) it painted a bright tracking oval on
+//      the ceiling directly above the player.
+//   2. At shin height (0.6) the grazing falloff across the flat tiled
+//      floor produced visible contour bands that shifted as the
+//      camera moved — looked like pink streaks on the ground.
+// The map's static wall lights + ambient already illuminate the
+// arena well enough; the personal torch just added visual noise.
+// Kept as a no-op stub so the two per-frame `playerLight.position.set`
+// calls below don't need removing (they now operate on a detached
+// light that nothing renders, which costs nothing).
+const playerLight = new THREE.PointLight(0xffeedd, 0, 0);
 
 const muzzleLight = new THREE.PointLight(0xffcc44, 0, 12);
 scene.add(muzzleLight);
@@ -333,175 +348,15 @@ const DOWNED_CAM_Y = 0.55;          // near-ground view
 let mpDownedPrevWeapon = 0;         // remembered so we can restore on revive
 
 // ===== INTRO CINEMATIC =====
-// 5-second opening: camera dolly through the bunker with radio static
-// + building zombie groans + subtitle. Plays only on fresh SP starts.
-// Players can skip with any key or click once >0.4s has elapsed
-// (small grace so accidental key presses from menu don't insta-skip).
-const INTRO_DURATION = 5.0;
-let introTimer = 0;
-let introStartYaw = 0;
-let introStartPitch = 0;
-// Spline points: camera dolly through the bunker. Stays BELOW the
-// ceiling (at world y=3.2) so we never render through the roof.
-// Lands at the SP spawn pose (50, 1.6, 50) looking along +Z into the
-// main arena. x/y/z/yaw/pitch eased via smoothstep between keyframes.
-const INTRO_KEYFRAMES = [
-  // t=0    : near ceiling, offset to one side, looking inward
-  { t: 0.00, x: 40, y: 2.9, z: 38, yaw: 0.55, pitch: -0.22 },
-  // t=0.25 : slide toward spawn, tilt up a bit
-  { t: 0.25, x: 45, y: 2.5, z: 42, yaw: 0.35, pitch: -0.15 },
-  // t=0.65 : mid-trek, almost player height
-  { t: 0.65, x: 49, y: 1.9, z: 47, yaw: 0.12, pitch: -0.05 },
-  // t=1    : lands on normal FP spawn pose
-  { t: 1.00, x: 50, y: 1.6, z: 50, yaw: 0.0, pitch: 0.0 },
-];
-// Procedural cubic ease between keyframes
-function _introLerp(tNorm) {
-  for (let i = 0; i < INTRO_KEYFRAMES.length - 1; i++) {
-    const a = INTRO_KEYFRAMES[i], b = INTRO_KEYFRAMES[i + 1];
-    if (tNorm >= a.t && tNorm <= b.t) {
-      const localT = (tNorm - a.t) / (b.t - a.t);
-      // smoothstep
-      const k = localT * localT * (3 - 2 * localT);
-      return {
-        x: a.x + (b.x - a.x) * k,
-        y: a.y + (b.y - a.y) * k,
-        z: a.z + (b.z - a.z) * k,
-        yaw: a.yaw + (b.yaw - a.yaw) * k,
-        pitch: a.pitch + (b.pitch - a.pitch) * k,
-      };
-    }
-  }
-  return INTRO_KEYFRAMES[INTRO_KEYFRAMES.length - 1];
-}
-let _introSubtitleEl = null;
-let _introPrevHudHidden = false;
-let _introLetterboxEl = null;
-let _introSkipHintEl = null;
-function _buildIntroSubtitle() {
-  if (_introSubtitleEl) return;
-  // Subtitle line in lower third — large, glowing, hard to miss
-  _introSubtitleEl = document.createElement('div');
-  _introSubtitleEl.id = 'introSubtitle';
-  _introSubtitleEl.style.cssText = `
-    position:fixed;left:50%;bottom:25%;transform:translateX(-50%);
-    z-index:120;pointer-events:none;font-family:'Courier New',monospace;
-    color:#cfe9ff;letter-spacing:4px;font-size:clamp(16px,2.5vw,26px);
-    text-align:center;text-shadow:0 0 14px rgba(68,170,255,0.85),0 0 28px rgba(0,0,0,0.95);
-    opacity:0;transition:opacity 0.45s ease-in-out;max-width:90vw;font-weight:bold`;
-  document.body.appendChild(_introSubtitleEl);
-  // Cinematic letterbox bars — top and bottom, fade in fast, fade out at end
-  _introLetterboxEl = document.createElement('div');
-  _introLetterboxEl.id = 'introLetterbox';
-  _introLetterboxEl.style.cssText = `
-    position:fixed;inset:0;pointer-events:none;z-index:118;opacity:0;
-    transition:opacity 0.4s ease-in-out;
-    background:linear-gradient(to bottom,
-      rgba(0,0,0,1) 0%, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 10%,
-      rgba(0,0,0,0) 90%, rgba(0,0,0,1) 90%, rgba(0,0,0,1) 100%)`;
-  document.body.appendChild(_introLetterboxEl);
-  // "PRESS ANY KEY TO SKIP" — appears after 1s
-  _introSkipHintEl = document.createElement('div');
-  _introSkipHintEl.id = 'introSkipHint';
-  _introSkipHintEl.style.cssText = `
-    position:fixed;right:20px;bottom:20px;z-index:122;pointer-events:none;
-    font:11px 'Courier New',monospace;color:rgba(255,255,255,0.55);
-    letter-spacing:2px;opacity:0;transition:opacity 0.4s ease-in`;
-  _introSkipHintEl.textContent = '[ANY KEY] SKIP';
-  document.body.appendChild(_introSkipHintEl);
-}
-let _introGroanTimer = 0;
-function _startIntroCinematic() {
-  console.log('[intro] cinematic starting');
-  state = 'intro';
-  introTimer = 0;
-  _introGroanTimer = 0;
-  _buildIntroSubtitle();
-  // Hide HUD during intro
-  const hud = document.getElementById('hud');
-  _introPrevHudHidden = hud.classList.contains('hidden');
-  hud.classList.add('hidden');
-  // Show letterbox bars immediately for cinematic frame
-  if (_introLetterboxEl) _introLetterboxEl.style.opacity = '1';
-  if (_introSkipHintEl) _introSkipHintEl.style.opacity = '0';
-  // Position camera at first keyframe immediately
-  const kf0 = INTRO_KEYFRAMES[0];
-  camera.position.set(kf0.x, kf0.y, kf0.z);
-  introStartYaw = controls._yaw;
-  introStartPitch = controls._pitch;
-  controls._yaw = kf0.yaw;
-  controls._pitch = kf0.pitch;
-  controls._applyRotation();
-  // Hide gun during intro (restored on end)
-  if (gunGroup) gunGroup.visible = false;
-}
-function _endIntroCinematic() {
-  if (state !== 'intro') return;
-  console.log('[intro] cinematic ending');
-  // Clear subtitle + letterbox + skip hint
-  if (_introSubtitleEl) _introSubtitleEl.style.opacity = '0';
-  if (_introLetterboxEl) _introLetterboxEl.style.opacity = '0';
-  if (_introSkipHintEl) _introSkipHintEl.style.opacity = '0';
-  // Restore HUD visibility
-  if (!_introPrevHudHidden) document.getElementById('hud').classList.remove('hidden');
-  // Restore gun visibility (updateGunModel will re-toggle individual models)
-  if (gunGroup) gunGroup.visible = true;
-  // Snap camera to final pose — nextRound will hand off to playing state
-  const kfEnd = INTRO_KEYFRAMES[INTRO_KEYFRAMES.length - 1];
-  camera.position.set(kfEnd.x, kfEnd.y, kfEnd.z);
-  controls._yaw = kfEnd.yaw;
-  controls._pitch = kfEnd.pitch;
-  controls._applyRotation();
-  nextRound();
-}
-function _updateIntroCinematic(dt) {
-  introTimer += dt;
-  const tNorm = Math.min(1, introTimer / INTRO_DURATION);
-  const pose = _introLerp(tNorm);
-  camera.position.set(pose.x, pose.y, pose.z);
-  controls._yaw = pose.yaw;
-  controls._pitch = pose.pitch;
-  controls._applyRotation();
-  // Subtitle timeline
-  if (_introSubtitleEl) {
-    if (introTimer < 1.0) {
-      _introSubtitleEl.textContent = '[ RADIO ] ...static...';
-      _introSubtitleEl.style.opacity = '0.6';
-    } else if (introTimer < 3.0) {
-      _introSubtitleEl.textContent = '[ COMMAND ] We have a situation.';
-      _introSubtitleEl.style.opacity = '1';
-    } else if (introTimer < 4.5) {
-      _introSubtitleEl.textContent = 'Survivor, you are our last hope.';
-      _introSubtitleEl.style.opacity = '1';
-    } else {
-      _introSubtitleEl.style.opacity = '0';
-    }
-  }
-  // Skip hint appears after 1s — gives the cinematic a chance to land
-  // before telling the player they can skip
-  if (_introSkipHintEl && introTimer >= 1.0 && _introSkipHintEl.style.opacity !== '1') {
-    _introSkipHintEl.style.opacity = '1';
-  }
-  // Distant zombie idle sounds build in frequency over the 5 seconds.
-  // sfxZombieIdle is a positional SFX that takes (wx, wz, camX, camZ).
-  // Simulate a zombie ~15 units away from the camera by seeding with
-  // a random offset each fire.
-  _introGroanTimer -= dt;
-  if (_introGroanTimer <= 0) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 15;
-    const zx = camera.position.x + Math.cos(angle) * dist;
-    const zz = camera.position.z + Math.sin(angle) * dist;
-    try { sfxZombieIdle(zx, zz, camera.position.x, camera.position.z); } catch (e) {}
-    _introGroanTimer = 1.0 - introTimer * 0.08; // accelerates
-    if (_introGroanTimer < 0.35) _introGroanTimer = 0.35;
-  }
-  // One distant horde swell halfway through for atmosphere
-  if (introTimer > 2.0 && introTimer - dt <= 2.0) {
-    try { playDistantHorde && playDistantHorde(); } catch (e) {}
-  }
-  if (introTimer >= INTRO_DURATION) _endIntroCinematic();
-}
+// Implementation lives in src/ui/intro.js. Wired once here and driven
+// from the game loop / input handlers below. gunGroup is passed as a
+// getter because it's populated lazily during scene build.
+initIntro({
+  camera,
+  controls,
+  getGunGroup: () => gunGroup,
+  onEnd: () => nextRound(),
+});
 // MP revive + downed state lives in src/netcode/reviveMp.js. main.js
 // just calls onLocalHpZero / tickDowned / tickRevive from its update
 // loop and doesn't track the downed flag itself.
@@ -758,9 +613,39 @@ const spawnPts = [
   {x:22,z:17,door:'east'},{x:20.5,z:14,door:'east'},{x:21,z:17.5,door:'east'},
 ];
 
-// Build mystery box & PaP
+// ===== EAGER WORLD PRELOAD =====
+// Build the entire static world now, while the menu is showing. Before
+// this change the full scene construction (walls, floors, props,
+// generators, windows, mystery box, PaP) ran synchronously inside
+// initGame() on ENLIST click, producing a visible freeze and follow-up
+// stutters as the first-render frame lazily uploaded textures and
+// compiled shaders. Doing it here means:
+//   1. The construction cost is absorbed by the menu-loading phase
+//      (the user already sees a progress bar).
+//   2. When ENLIST runs, initGame() only resets entity/state data —
+//      no geometry is rebuilt.
+//   3. Shader programs can be pre-compiled BEFORE the intro cinematic
+//      starts, eliminating the random per-frame hitches caused by
+//      just-in-time compile when new materials enter the view frustum.
 buildMysteryBox();
 buildPackAPunch();
+buildMap();
+buildProps();
+buildPerkMachines();
+buildWindows();
+buildGenerators();
+// Vibe-jam portals are kept dynamic (rebuilt per-run) because they
+// track the current spawn pose.
+
+// Shader warmup runs inside _startGame behind the opaque black
+// transition overlay — NOT here. Doing it on module load was partly
+// visible through the menu (blocker is rgba(0,0,0,0.92) so the canvas
+// leaks 8% through), and it wasn't catching every shader variant the
+// intro dollies through anyway (first ~4 frames of the intro still
+// triggered 400–900ms compile spikes). Moving the warmup to happen
+// immediately AFTER initGame() (same scene state the intro will use)
+// and BEFORE the overlay fades out guarantees every program is
+// compiled by the time the cinematic renders its first live frame.
 updateLoadBar(65, 'Tuning radio frequencies...');
 
 // ===== HUD & MINIMAP DEPENDENCY INJECTION =====
@@ -788,9 +673,8 @@ setMinimapDeps({
 
 
 // ===== GAME INIT =====
-let _deathShown = false;
 function initGame() {
-  _deathShown = false;
+  resetDeathShown();
   try { resetRunStats(); } catch(e) {}
   // Clear any leftover MP state from a previous session
   if (typeof hideMpUnlockHint === 'function') hideMpUnlockHint();
@@ -865,19 +749,20 @@ function initGame() {
   resetPaPCamo();
   resetMysteryBox();
   cleanupPowerUps();
-  
-  buildMysteryBox();
-  buildPackAPunch();
-  
+
+  // NOTE: the world geometry (walls, props, perk machines, windows,
+  // generators, mystery box, PaP) is built ONCE at module load up
+  // above. We only reset STATE here — no rebuild. This keeps ENLIST
+  // and FIGHT AGAIN nearly free instead of re-running the whole
+  // scene construction every time.
   easterEgg.generators.forEach(g => g.activated = false);
   easterEgg.activatedOrder = [];
   easterEgg.allActivated = false;
   easterEgg.catalystReady = false;
   easterEgg.catalystUsed = false;
   easterEgg.questComplete = false;
-  buildGenerators();
   closeRadio();
-  
+
   muzzleSparks.forEach(s => { scene.remove(s.mesh); s.mesh.material.dispose(); });
   muzzleSparks.length = 0;
   dyingZombies.forEach(dz => {
@@ -893,22 +778,22 @@ function initGame() {
   bloodDecals.length = 0;
   resetEffects();
   document.getElementById('roundFlash').style.display = 'none';
-  
+
   map.length = 0;
   map.push(...mapData);
   doors.forEach(d => { d.opened = false; });
   doorsOpenedCount = 0;
-  
-  buildMap();
-  buildProps();
-  buildPerkMachines();
-  buildWindows();
 
+  // Windows keep their meshes but need planks restored on restart.
+  resetAllPlanks();
+
+  // Portals are dynamic (track spawn pose) — cleanup + recreate each run.
   cleanupVibeJamPortals();
   initVibeJamPortals();
   
   round = 0; points = 500; totalKills = 0;
   zToSpawn = 0; zSpawned = 0; maxAlive = 0; spawnTimer = 0;
+  resetLocalDowns();
 
   // Tell the server we're starting/restarting a game. Flips our
   // Player.alive flag back to true so the all-dead-reset check
@@ -917,12 +802,18 @@ function initGame() {
     try { netcode.callReportPlayerAlive(true); } catch (e) {}
   }
 
-  // Intro cinematic — plays ONCE per page load (SP only). MP, portal
-  // resume, and FIGHT AGAIN after death all skip to avoid annoying
-  // the player with a re-run.
-  if (!_skipIntro && !_introPlayedThisSession && !netcode.isConnected()) {
+  // Intro cinematic — plays ONCE per page load, in BOTH SP and MP.
+  // In MP every player's client hits initGame() when the lobby status
+  // flips 'lobby' → 'playing', so everyone sees the dolly at the same
+  // moment. Each player can skip their own (any key / click / button)
+  // — the host's simulation only starts producing zombies after their
+  // own intro ends (via nextRound), so there's no divergence risk.
+  // Still skipped by the portal-resume and FIGHT-AGAIN paths via
+  // _skipIntro, and re-plays suppressed by _introPlayedThisSession.
+  if (!_skipIntro && !_introPlayedThisSession) {
     _introPlayedThisSession = true;
-    _startIntroCinematic();
+    state = 'intro';
+    startIntro();
   } else {
     _skipIntro = false;
     nextRound();
@@ -1061,7 +952,20 @@ window.__onMpRevived = () => {
 // If the MP refocus hint is up when we go down, hide it — the red
 // DOWNED overlay should be the only thing on screen. The downed
 // overlay is larger than the hint and the hint would peek out above it.
-window.__onMpDownedStart = () => { hideMpUnlockHint(); };
+window.__onMpDownedStart = () => {
+  hideMpUnlockHint();
+  // Cancel any in-progress knife swing so the knife mesh doesn't stay
+  // floating on the screen through the downed overlay. Without this,
+  // knifing a zombie the same frame you go down leaves the knife
+  // lunging in mid-air until the downed player is revived.
+  knifeAnimTimer = 0;
+  knifeCooldown = 0;
+  if (knifeModel) {
+    knifeModel.visible = false;
+    knifeModel.position.set(0, 0, 0);
+    knifeModel.rotation.set(0, 0, 0);
+  }
+};
 
 function clearAllTimedPerks() {
   for (const p of perks) {
@@ -1405,6 +1309,17 @@ function spawnZombie() {
     hasLimp = false;
   }
   spd *= speedMult;
+  // Hard cap: no non-boss zombie may exceed 95% of player sprint speed
+  // (player.speed * SPRINT_MULT * 0.95 ≈ 11 u/s). This guarantees a
+  // player who's actively sprinting can always out-distance any single
+  // zombie even on late rounds — otherwise the tier + fast-branch +
+  // final-two stack can produce 14-16+ u/s zombies that outrun sprint.
+  // Bosses are excluded from the cap — they're designed to be tanky,
+  // not fast (their default speedMult 0.7 already keeps them slow).
+  if (!isBoss) {
+    const ZOMBIE_MAX_SPEED = player.speed * SPRINT_MULT * 0.95;
+    spd = Math.min(spd, ZOMBIE_MAX_SPEED);
+  }
 
   const _aiSpeedMult = isBoss ? 0.7 : (0.85 + Math.random() * 0.3);
   const z = {
@@ -1546,7 +1461,7 @@ document.addEventListener('keydown', e => {
   }
   // Skip intro cinematic on any key (after small grace to prevent
   // accidental-skip from menu clicks lingering)
-  if (state === 'intro' && introTimer > 1.0) { _endIntroCinematic(); return; }
+  if (isIntroActive() && getIntroTimer() > 0.2) { endIntro(); return; }
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (gameKeys.includes(k)) e.preventDefault();
@@ -1598,11 +1513,16 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 renderer.domElement.addEventListener('click', () => {
-  // Clicks while downed do nothing — you can't resume yourself, you
-  // need a teammate revive (or a session reset).
-  if (isLocallyDowned()) return;
+  // While downed, a click shouldn't resume the game (can't self-revive),
+  // but it SHOULD re-lock the pointer if the player alt-tabbed out and
+  // came back. Without this, you'd come back to a downed screen with a
+  // free cursor and no way to look around while waiting for a revive.
+  if (isLocallyDowned()) {
+    if (!controls.isLocked) { try { controls.lock(); } catch (e) {} }
+    return;
+  }
   // Clicks during the intro cinematic skip it (after small grace)
-  if (state === 'intro' && introTimer > 1.0) { _endIntroCinematic(); return; }
+  if (isIntroActive() && getIntroTimer() > 0.2) { endIntro(); return; }
   if ((state === 'playing' || state === 'roundIntro') && paused) {
     paused = false; hidePause();
     controls.lock();
@@ -1990,7 +1910,7 @@ function _update(dt) {
       if (wD.auto) tryShoot(); else { if (!player._lastFiring) tryShoot(); }
     }
     player._lastFiring = isFiringDown;
-    playerLight.position.copy(camera.position);
+    playerLight.position.set(camera.position.x, 0.6, camera.position.z);
   } else if (!_iAmDowned) {
     updateMovement(dt);
 
@@ -2017,7 +1937,7 @@ function _update(dt) {
   // continue to act even though the host can't move/shoot.
   if (!_iAmDowned) {
     player.fireTimer = Math.max(0, player.fireTimer - dt);
-    playerLight.position.copy(camera.position);
+    playerLight.position.set(camera.position.x, 0.6, camera.position.z);
 
     if (player.hpRegen && player.hp < player.maxHp && player.hp > 0) {
       player.hpRegenTimer += dt;
@@ -2379,6 +2299,7 @@ function _update(dt) {
               if (player.hp <= 0) {
                 player.hp = 0;
                 clearAllTimedPerks();
+                incrementLocalDowns();
                 if (!onLocalHpZero()) {
                   state = 'dead';
                   sfxPlayerDeath();
@@ -2678,6 +2599,9 @@ function _update(dt) {
           clearAllTimedPerks();
           // MP: onLocalHpZero() enters the downed/crawl state so
           // teammates can revive. Returns true when it took over.
+          // Scoreboard tally — count a down whether we're going into the
+          // MP downed state or the SP game-over screen.
+          incrementLocalDowns();
           if (onLocalHpZero()) {
             // Prepare MP last-stand crawl: remember what gun we had so
             // we can restore it on revive, then force-equip the pistol.
@@ -2942,228 +2866,23 @@ function updateMovement(dt) {
 }
 
 // ===== DEATH SCREEN =====
-function showDeath() {
-  try { resetKillStreak(); } catch(e) {}
-  if (_deathShown) return;
-  _deathShown = true;
-  updatePersistentStats();
-  closeRadio();
-  // Snapshot run stats for the stats card; reset for next run
-  let _runStats = null;
-  try { _runStats = getRunStats(); resetRunStats(); } catch(e) {}
-  const board = saveScore(round, totalKills, points);
-  // Submit to the global SpacetimeDB leaderboard. Both SP and MP death
-  // paths reach here (MP session-reset path submits separately in
-  // hostSync to handle the all-died case with the full squad roster).
-  // If we're not yet connected, kick off a connect; the submit retries
-  // are handled by the reducer call (and the next death will have a
-  // live connection).
-  if (round > 0) {
-    const submitScore = () => {
-      try {
-        netcode.callSubmitHighScore({
-          name: getLocalPlayerName(),
-          round, points, kills: totalKills,
-        });
-        console.log('[score] submitted', { round, points, kills: totalKills });
-      } catch (e) {
-        console.warn('[score] submit failed', e);
-      }
-    };
-    if (netcode.isConnected()) {
-      submitScore();
-    } else {
-      // Kick off a connect attempt for next time; retry once if it lands quickly.
-      if (netcode.getStatus() !== 'connecting') {
-        try { netcode.connect(); } catch (e) {}
-      }
-      // Retry submission in 2s in case the connection lands quickly
-      setTimeout(() => { if (netcode.isConnected()) submitScore(); }, 2000);
-    }
-  }
-  
-  const veil = document.getElementById('deathVeil');
-  veil.style.background = 'rgba(0,0,0,0.85)';
-
-  setTimeout(() => {
-    const blocker = document.getElementById('blocker');
-    blocker.classList.remove('hidden');
-    blocker.style.opacity = '0';
-
-    // Hide HUD elements during death screen
-    document.getElementById('pointsBox').style.display = 'none';
-    document.getElementById('ammoBox').style.display = 'none';
-    document.getElementById('roundBox').style.display = 'none';
-    document.getElementById('hpBarWrap').style.display = 'none';
-    document.getElementById('killsLabel').style.display = 'none';
-    document.getElementById('minimap').style.display = 'none';
-    document.getElementById('weaponSwitcher').style.display = 'none';
-    document.getElementById('perkIcons').style.display = 'none';
-
-    let lbHTML = '';
-    board.slice(0, 5).forEach((e, i) => {
-      const isThis = e.round === round && e.kills === totalKills && e.points === points;
-      lbHTML += `<div style="color:${isThis?'#fc0':'#aaa'};${isThis?'font-weight:bold':''}">
-        ${i+1}. R${e.round} · ${e.kills} kills · ${e.points} pts${isThis?' ← YOU':''}
-      </div>`;
-    });
-
-    // Global leaderboard from SpacetimeDB (top 5). Rendered next to
-    // the local board so you can see where this run lands in the
-    // world ranking right after the death screen opens.
-    let globalLbHTML = '';
-    if (netcode.isConnected()) {
-      const globals = netcode.getHighScores().slice(0, 5);
-      if (globals.length === 0) {
-        globalLbHTML = '<div style="color:#555;text-align:center">No global scores yet — yours is being submitted!</div>';
-      } else {
-        const myName = getLocalPlayerName();
-        globalLbHTML = globals.map((s, i) => {
-          const mine = s.name === myName && s.round === round && s.points === points && s.kills === totalKills;
-          const isSquad = typeof s.name === 'string' && s.name.includes(', ');
-          const color = mine ? '#fc0' : (isSquad ? '#8fcfff' : '#aaf');
-          const prefix = isSquad ? '👥 ' : '';
-          // Full name shown (no 12-char truncation) so squad rosters are visible
-          const name = String(s.name || 'Anon').slice(0, 50);
-          return `<div style="color:${color};${mine?'font-weight:bold':''};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${name.replace(/"/g,'&quot;')}">
-            ${i+1}. ${prefix}${name} · R${s.round} · ${s.points} pts${mine?' ← YOU':''}
-          </div>`;
-        }).join('');
-      }
-    } else {
-      globalLbHTML = '<div style="color:#555;text-align:center">Connecting to global leaderboard…</div>';
-    }
-
-    // -- Run stats card HTML (built before innerHTML to avoid nested-backtick issues) --
-    let _statsCardHTML = '';
-    if (_runStats) {
-      const _wNames = _runStats.names || [];
-      const _wKills = _runStats.weaponKills || [];
-      let _weaponPills = '';
-      for (let _wi = 0; _wi < Math.min(_wNames.length, 4); _wi++) {
-        if (_wKills[_wi] > 0) {
-          _weaponPills += '<div style="color:#aaa;font-size:9px;letter-spacing:1px;background:rgba(255,255,255,0.05);padding:3px 8px;border-radius:3px">'
-            + _wNames[_wi] + ': <span style="color:#fc0">' + _wKills[_wi] + '&times;</span></div>';
-        }
-      }
-      if (_runStats.knifeKills > 0) {
-        _weaponPills += '<div style="color:#aaa;font-size:9px;letter-spacing:1px;background:rgba(255,255,255,0.05);padding:3px 8px;border-radius:3px">'
-          + 'Knife: <span style="color:#fc0">' + _runStats.knifeKills + '&times;</span></div>';
-      }
-      _statsCardHTML = '<div style="margin:8px auto 0;max-width:380px;width:100%;font:11px monospace;background:rgba(0,0,0,0.4);border:1px solid rgba(255,200,0,0.15);border-radius:4px;padding:10px 16px;position:relative">'
-        + '<div style="color:#fa0;letter-spacing:2px;font-size:10px;margin-bottom:8px;text-align:center">&#x1F4CA; THIS RUN</div>'
-        + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">'
-        + '<div style="text-align:center"><div style="color:#4e4;font-size:16px;font-weight:bold">' + _runStats.bestWeapon + '</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">BEST WEAPON</div></div>'
-        + '<div style="text-align:center"><div style="color:#4af;font-size:16px;font-weight:bold">' + _runStats.accuracy + '%</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">ACCURACY</div></div>'
-        + '<div style="text-align:center"><div style="color:#fc0;font-size:16px;font-weight:bold">' + _runStats.knifeKills + '</div><div style="font-size:8px;color:#888;letter-spacing:1px;margin-top:2px">KNIFE KILLS</div></div>'
-        + '</div>'
-        + '<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">' + _weaponPills + '</div>'
-        + '</div>';
-    }
-
-    blocker.innerHTML = `
-      <div class="menu-bg"><canvas id="menuBgCanvas"></canvas></div>
-      <h1 style="color:#c00;text-shadow:0 0 60px #c00,0 0 120px rgba(200,0,0,0.3);position:relative">YOU DIED</h1>
-      <div class="sub" style="position:relative">SURVIVED ${round} ROUND${round!==1?'S':''}</div>
-      <div class="menu-divider"></div>
-      <div style="color:#888;font-size:14px;margin:10px 0;line-height:2;text-align:center;position:relative">
-        <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap">
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${round}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">ROUND</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${totalKills}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">KILLS</div></div>
-          <div style="text-align:center"><div style="color:#fc0;font-size:22px;font-weight:bold">${points}</div><div style="font-size:9px;color:#aaa;letter-spacing:2px;margin-top:2px">POINTS</div></div>
-        </div>
-      </div>
-      <div class="menu-divider"></div>
-      ${_statsCardHTML}
-      <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:10px;position:relative">
-        <div style="min-width:180px">
-          <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#666">📂 YOUR BEST</div>
-          <div style="font-size:12px;line-height:1.8">${lbHTML}</div>
-        </div>
-        <div style="min-width:220px">
-          <div style="margin:8px 0;font-size:11px;letter-spacing:2px;color:#4af">🌐 GLOBAL TOP 5</div>
-          <div style="font-size:12px;line-height:1.8">${globalLbHTML}</div>
-        </div>
-      </div>
-      <button onclick="window._startGame()" style="margin-top:16px;background:none;border:2px solid #c00;color:#c00;padding:12px 40px;font:bold 16px 'Courier New';cursor:pointer;letter-spacing:3px;position:relative;overflow:hidden;transition:all 0.3s">FIGHT AGAIN</button>
-      <br>
-      <button onclick="window._deathMultiplayer()" style="margin-top:10px;background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">⚔️ MULTIPLAYER</button>
-      <br>
-      <button onclick="window._vibeJamPortal()" style="margin-top:10px;background:none;border:2px solid #0f4;color:#0f4;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🌀 VIBE JAM PORTAL</button>
-      <div style="margin-top:8px;padding:6px 12px;border:1px solid #fc0;background:rgba(255,204,0,0.08);border-radius:4px;display:inline-block"><span style="color:#fc0;font-size:10px;letter-spacing:1px;text-shadow:0 0 6px rgba(255,204,0,0.4)">⚠️ CAUTION: Transports you to a random Vibe Jam 2026 game!</span></div>
-      <br>
-      <button onclick="window._shareTwitter(${round},${totalKills},${points})" style="margin-top:10px;background:none;border:2px solid #1da1f2;color:#1da1f2;padding:10px 32px;font:bold 13px 'Courier New';cursor:pointer;letter-spacing:2px;position:relative;overflow:hidden;transition:all 0.3s">🐦 SHARE ON X/TWITTER</button>
-    `;
-    
-    const rank = getPlayerRank();
-    const rankEl = document.createElement('div');
-    rankEl.style.cssText = 'margin-top:10px;text-align:center;position:relative;';
-    rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#aaa;font-size:10px">${rank.desc}</div>`;
-    blocker.appendChild(rankEl);
-    
-    document.getElementById('hud').classList.add('hidden');
-    restartMenuBackground();
-    requestAnimationFrame(() => {
-      blocker.style.transition = 'opacity 0.8s ease-in';
-      blocker.style.opacity = '1';
-      veil.style.background = 'rgba(0,0,0,0)';
-    });
-  }, 1000);
-}
-
+// Implementation in src/ui/deathScreen.js. initDeathScreen wires it
+// here; showDeath / isDeathShown / resetDeathShown are re-imported at
+// the top of main.js for use from the update loop and initGame().
+initDeathScreen({ gameState, getLocalPlayerName });
+// Hold-TAB scoreboard overlay — builds its DOM and input handlers here.
+// getLocalStats is a thunk so we always read the live `points`, `round`,
+// `totalKills` values (they're let-bound and mutate as the game runs).
+initScoreboard({
+  getLocalPlayerName,
+  getLocalStats: () => ({ points, round, kills: totalKills }),
+  netcode,
+});
 // ===== FLICKER LIGHTS =====
-// Each light gets independent stochastic flicker state.
-// Modes: 0=normal drift, 1=struggling (rapid stutter), 2=blackout
-(function initFlickerState() {
-  for (let i = 0; i < lights.length; i++) {
-    const l = lights[i];
-    l._baseIntensity = l.intensity;
-    l._flickMode    = 0;          // 0=drift, 1=struggle, 2=blackout
-    l._flickTimer   = Math.random() * 4; // time until next mode change
-    l._flickVal     = 1.0;        // current multiplier
-    l._stutterT     = 0;          // stutter phase accumulator
-    l._stutterSpeed = 18 + Math.random() * 22; // Hz for struggle mode
-    // Stagger so not all lights change mode simultaneously
-    l._phaseOffset  = Math.random() * 6.28;
-  }
-})();
-
-function updateLights(dt) {
-  for (let i = 0; i < lights.length; i++) {
-    const l = lights[i];
-    l._flickTimer -= dt;
-
-    if (l._flickTimer <= 0) {
-      // Mostly normal drift now, with very occasional brief struggle.
-      // Blackouts removed entirely — too dark for gameplay.
-      const roll = Math.random();
-      if (roll < 0.9) {
-        l._flickMode  = 0; // normal drift
-        l._flickTimer = 3 + Math.random() * 6;
-      } else {
-        l._flickMode  = 1; // struggling bulb (rare, brief)
-        l._flickTimer = 0.1 + Math.random() * 0.25;
-        l._stutterSpeed = 14 + Math.random() * 28;
-        l._stutterT = 0;
-      }
-    }
-
-    if (l._flickMode === 0) {
-      // Smooth horror drift: slow sine + small high-freq noise jitter
-      // Range raised to ~[0.85, 1.0] so rooms stay bright enough to see.
-      const t = performance.now() / 1000;
-      const slow = Math.sin(t * 1.1 + l._phaseOffset) * 0.06;
-      const fast = Math.sin(t * 9.3 + l._phaseOffset * 2.1) * 0.03;
-      l._flickVal = 0.93 + slow + fast;
-    } else {
-      // Struggling: stays between ~0.55 and 1.0 (no dark flickers)
-      l._stutterT += dt * l._stutterSpeed;
-      l._flickVal = (Math.sin(l._stutterT * 6.2832) > 0) ? (0.75 + Math.random() * 0.25) : (0.55 + Math.random() * 0.15);
-    }
-
-    l.intensity = l._baseIntensity * Math.max(0, l._flickVal);
-  }
-}
+// Implementation lives in src/effects/flicker.js. initFlicker() seeds
+// per-light state; updateFlicker(dt) runs once per frame from the main
+// game loop below.
+initFlicker({ lights });
 
 // ===== MAIN GAME LOOP =====
 let lastTime = performance.now();
@@ -3185,17 +2904,24 @@ function gameLoop(time) {
   if (state === 'menu' || state === 'mpLobby') { profEndFrame(); return; }
 
   // Intro cinematic: camera-only path. Game logic + HUD disabled until
-  // the 5-second dolly ends. Lights and atmosphere still render so the
-  // scene is visible.
+  // the 5-second dolly ends. Route through the post-processing stack
+  // (bloom / vignette / grade / grain) so the intro matches the darker
+  // in-game look — without it the intro looked brightly-lit and the
+  // game suddenly went dim when play started, a jarring transition.
   if (state === 'intro') {
-    _updateIntroCinematic(dt);
-    // Still render the scene to the screen
-    profBegin('render'); try { renderer.render(scene, camera); } finally { profEnd(); }
+    updateIntro(dt);
+    // Intro module sets _active=false when the dolly finishes; fall
+    // through to normal rendering on the frame it hands off to nextRound().
+    if (!isIntroActive() && state === 'intro') {
+      // Safety: shouldn't happen (onEnd calls nextRound which sets
+      // state), but if it does just render empty scene this frame.
+    }
+    profBegin('render'); try { renderPostProcessing(); } finally { profEnd(); }
     profEndFrame();
     return;
   }
 
-  update(dt);
+  profBegin('update'); try { update(dt); } finally { profEnd(); }
   controls._applyRotation();
   updateCenterMsg(dt);
   updateRoundBanner(dt);
@@ -3205,23 +2931,22 @@ function gameLoop(time) {
   gunKick = Math.max(0, gunKick - dt * 6);
   dmgFlash = Math.max(0, dmgFlash - dt * 4);
   muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 20);
-  updateGunModel(dt, gunKick);
-  updatePaPCamo();
-  updateLights(dt);
+  profBegin('gun'); try { updateGunModel(dt, gunKick); updatePaPCamo(); } finally { profEnd(); }
+  updateFlicker(dt);
   updateHitmarker(dt);
   updateScreenShake(dt);
   updateMuzzleSparks(dt);
   updateTracers(dt);
-  updateDyingZombies(dt);
+  profBegin('dyingZombies'); try { updateDyingZombies(dt); } finally { profEnd(); }
   updateBloodDecals(dt);
   updateRoundTransition(dt);
   updateDamageVignette(dt);
   updateLowHealthEffect(dt, state);
   updateHitIndicators(dt);
-  animateVibeJamPortals(dt, state);
-  if (!_deathShown) {
-    _updateHUD(dmgFlash, switchWeapon);
-    drawMinimap();
+  profBegin('atmosphere'); try { animateVibeJamPortals(dt, state); } finally { profEnd(); }
+  if (!isDeathShown()) {
+    profBegin('hud'); try { _updateHUD(dmgFlash, switchWeapon); } finally { profEnd(); }
+    profBegin('minimap'); try { drawMinimap(); } finally { profEnd(); }
     drawFloatTexts(floatTexts);
   }
   
@@ -3244,10 +2969,20 @@ window._startGame = function() {
   _startingGame = true;
   paused = false;
   hidePause();
-  
+
+  // Show the black transition overlay BEFORE the heavy init work runs.
+  // initGame() builds the map, props, windows, generators, perk machines,
+  // mystery box, PaP and portals synchronously, and the first render
+  // after that compiles shaders + uploads textures to the GPU. Without
+  // the overlay painted first, the user sees a huge visible hitch; with
+  // it, the hitch happens behind a black screen.
   const trans = document.getElementById('gameTransition');
-  trans.classList.remove('active');
-  
+  if (trans) {
+    trans.style.transition = 'none';
+    trans.classList.add('active');
+    trans.style.opacity = '1';
+  }
+
   stopMenuBackground();
   const blocker = document.getElementById('blocker');
   blocker.style.opacity = '';
@@ -3277,12 +3012,99 @@ window._startGame = function() {
 
   initAudio();
   startBackgroundMusic();
-  
-  try { initGame(); } catch (e) { console.error('initGame error:', e); }
-  
-  if (!isMobile) { controls.lock(); }
-  
-  _startingGame = false;
+
+  // Wait two animation frames so the browser actually paints the black
+  // overlay before we run the heavy work. rAF x2 is the reliable
+  // pattern: the first rAF queues, the second fires after paint.
+  // The entire warmup happens behind the fully-opaque transition
+  // overlay so the user never sees the preload frames.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try { initGame(); } catch (e) { console.error('initGame error:', e); }
+
+    // ---- Shader warmup ----
+    // initGame() has now set up the exact scene state the intro will
+    // use (state = 'intro', camera at keyframe 0). Walk the camera
+    // through every intro keyframe and render the FULL composer chain
+    // a couple of times at each pose. Each unique camera pose can
+    // force Three.js to compile new shader permutations; rendering
+    // them all now — while the black overlay covers the screen — means
+    // the intro's first live frames are already cached. Without this
+    // the profiler shows 400–900ms spikes on the first ~4 frames of
+    // the cinematic, 100% in post-processing render.
+    try {
+      const savedPos = camera.position.clone();
+      const savedYaw = controls._yaw;
+      const savedPitch = controls._pitch;
+      const poses = INTRO_KEYFRAMES.concat([
+        { x: 12 * TILE, y: 1.6, z: 12 * TILE, yaw: 0, pitch: 0 },
+      ]);
+      for (const p of poses) {
+        camera.position.set(p.x, p.y, p.z);
+        controls._yaw = p.yaw;
+        controls._pitch = p.pitch;
+        controls._applyRotation();
+        // Two passes per keyframe: first triggers compile, second
+        // exercises the cached program path.
+        try { renderer.compile(scene, camera); } catch (e) {}
+        try { renderPostProcessing(); } catch (e) {}
+        try { renderPostProcessing(); } catch (e) {}
+      }
+
+      // Pre-warm gameplay-specific shaders: zombies + blood particles
+      // only enter the scene once gameplay starts, so their materials
+      // haven't been compiled yet by the keyframe passes above. Spawn
+      // a throwaway zombie near the player, fire a blood burst and a
+      // damage number on it, render a couple frames so every particle
+      // / sprite program compiles, then clean it all up.
+      try {
+        const WARMUP_X = 12 * TILE + 2;
+        const WARMUP_Z = 12 * TILE + 2;
+        const warmZ = {
+          hostZid: 0n,
+          wx: WARMUP_X, wz: WARMUP_Z,
+          hp: 1, maxHp: 1, spd: 0, dmg: 0,
+          atkTimer: 1, flash: 0, radius: 0.8,
+          isBoss: false, isElite: false,
+          _animOffset: 0, _hasLimp: false, _limpPhase: 0, _limpSeverity: 0,
+          _baseSpd: 0, _spawnRising: false, stuckCheck: null,
+          _speedMult: 1, _staggerSeed: 0,
+          _lunging: false, _lungeTimer: 0, _lungeWindup: false, _lungeCooldown: 0,
+          _targetWindow: null, _atWindow: false, _plankBreakTimer: 0,
+        };
+        createZombieMesh(warmZ);
+        // Position camera to actually see the warmup zombie.
+        camera.position.set(WARMUP_X - 3, 1.6, WARMUP_Z);
+        controls._yaw = Math.PI / 2;
+        controls._pitch = 0;
+        controls._applyRotation();
+        try { spawnBloodParticles(WARMUP_X, 1.2, WARMUP_Z, 8); } catch (e) {}
+        try { spawnDmgNumber(WARMUP_X, 1.8, WARMUP_Z, 100, false); } catch (e) {}
+        try { renderer.compile(scene, camera); } catch (e) {}
+        try { renderPostProcessing(); } catch (e) {}
+        try { renderPostProcessing(); } catch (e) {}
+        removeZombieMesh(warmZ);
+      } catch (e) { console.warn('[warmup] entity warmup failed', e); }
+
+      // Restore to intro keyframe 0 so the cinematic starts cleanly.
+      camera.position.copy(savedPos);
+      controls._yaw = savedYaw;
+      controls._pitch = savedPitch;
+      controls._applyRotation();
+    } catch (e) { console.warn('[warmup] failed', e); }
+
+    if (!isMobile) { controls.lock(); }
+
+    // Wait one more paint frame so the first real intro frame renders
+    // behind the still-opaque overlay too, then fade the overlay out.
+    requestAnimationFrame(() => {
+      if (trans) {
+        trans.style.transition = 'opacity 0.35s ease-out';
+        trans.classList.remove('active');
+        trans.style.opacity = '0';
+      }
+      _startingGame = false;
+    });
+  }));
 };
 
 document.getElementById('startBtn').addEventListener('click', window._startGame);
@@ -3636,6 +3458,13 @@ function showMpRunSummary(endedRound, endedKills, endedPoints) {
     const playBtn = document.getElementById('mpRunSummaryPlayAgain');
     if (playBtn) playBtn.addEventListener('click', () => {
       dismissMpRunSummary();
+      // "PLAY SOLO" means DROP the MP lobby first, otherwise the next
+      // _startGame() call still runs inside the connected lobby and
+      // the player re-enters multiplayer instead of singleplayer.
+      // Also clear the once-per-session intro guard so the cinematic
+      // plays again on this fresh SP run.
+      try { netcode.disconnect(); } catch (e) {}
+      _introPlayedThisSession = false;
       if (typeof window._startGame === 'function') window._startGame();
     });
     const btn = document.getElementById('mpRunSummaryContinue');
@@ -3895,71 +3724,9 @@ let _pendingMpAction = null;
 })();
 
 // ===== SPECTATOR CAMERA + OVERLAY =====
-//
-// When the server says we're spectating (we joined mid-match), the main
-// update loop skips normal input + movement and this block takes over
-// the camera each frame.
-const _spectatorOverlay = document.getElementById('spectatorOverlay');
-const _spectatorTargetEl = document.getElementById('spectatorTarget');
-let _wasSpectating = false;
-
-function tickSpectator() {
-  if (!netcode.isConnected()) {
-    if (_spectatorOverlay && _spectatorOverlay.style.display !== 'none') {
-      _spectatorOverlay.style.display = 'none';
-    }
-    _wasSpectating = false;
-    return false;
-  }
-  const spec = netcode.isLocalPlayerSpectating();
-  if (!spec) {
-    if (_wasSpectating) {
-      // Transition spectating → live: drop us into the match at a
-      // spawn point with a fresh HP/ammo setup (but KEEP points/round).
-      _wasSpectating = false;
-      if (_spectatorOverlay) _spectatorOverlay.style.display = 'none';
-      player.hp = player.maxHp;
-      player.reloading = false;
-      player.reloadTimer = 0;
-      // Drop spectator into a safe tile near the centre, not exactly
-      // on top of the host. Pick the tile 2 units offset in a random
-      // direction (N/S/E/W) from centre so it doesn't stack.
-      const _specOffsets = [{x:0,z:-2},{x:2,z:0},{x:0,z:2},{x:-2,z:0}];
-      const _so = _specOffsets[Math.floor(Math.random() * _specOffsets.length)];
-      camera.position.set((12 + _so.x) * TILE, 1.6, (12 + _so.z) * TILE);
-      controls._yaw = Math.random() * Math.PI * 2;
-      controls._pitch = 0;
-      controls._applyRotation();
-    }
-    return false;
-  }
-  _wasSpectating = true;
-  if (_spectatorOverlay && _spectatorOverlay.style.display !== 'block') {
-    _spectatorOverlay.style.display = 'block';
-  }
-  // Snap camera to the first live (non-spectator, non-downed) remote
-  // player so the spectator sees what they're doing.
-  let target = null;
-  let targetName = '';
-  for (const rp of netcode.getRemotePlayers().values()) {
-    if (rp.spectating) continue;
-    if (rp.downed) continue;
-    target = rp;
-    targetName = rp.name || 'Survivor';
-    break;
-  }
-  if (target) {
-    camera.position.set(target.wx, 1.6, target.wz);
-    // Face the same direction as the target (approximate — remote ry
-    // is updated via subscription).
-    controls._yaw = target.ry || 0;
-    controls._applyRotation();
-    if (_spectatorTargetEl) _spectatorTargetEl.textContent = `Watching ${targetName}`;
-  } else if (_spectatorTargetEl) {
-    _spectatorTargetEl.textContent = 'No live teammates — waiting…';
-  }
-  return true;
-}
+// Implementation in src/netcode/spectator.js. tickSpectator() is called
+// from the update loop inside the MP branch.
+initSpectator({ camera, controls, player, netcode, TILE });
 
 // ===== PORTAL RETURN (SP pause / MP rejoin) =====
 // Before the portal navigates the tab to vibej.am, snapshot enough state

@@ -138,6 +138,11 @@ function rowToPlayer(row) {
     ry: row.ry,
     hp: row.hp,
     points: row.points,
+    // Per-match scoreboard counters. Default to 0 for defensiveness
+    // against old rows that predate the schema change — but post
+    // republish both fields should always be present.
+    kills: row.kills ?? 0,
+    downs: row.downs ?? 0,
     online: row.online,
     alive: row.alive,
     downed: row.downed,

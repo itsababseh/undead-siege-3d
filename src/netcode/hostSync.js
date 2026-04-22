@@ -159,8 +159,13 @@ export function createHostSync(ctx) {
     _puLastTypeIdx = typeIdx;
     _puKillsSinceDrop = 0;
     _puRoundDrops++;
+    // puId is the PowerUp table's primary key — not auto-increment, so
+    // the client must generate a unique u64 and pass it. Reusing
+    // makeHostZid() for random 64-bit IDs; collisions would require
+    // spawning billions per session.
+    const puId = makeHostZid();
     try {
-      netcode.callSpawnPowerUp({ typeIdx, wx, wz });
+      netcode.callSpawnPowerUp({ puId, typeIdx, wx, wz });
     } catch(e) { console.warn('[hostSync] callSpawnPowerUp failed', e); }
   }
 

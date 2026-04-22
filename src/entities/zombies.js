@@ -10,6 +10,38 @@ let _scene, _camera;
 export function setZombieDeps(scene, camera) {
   _scene = scene; _camera = camera;
   initEyeLightPool();
+  initBossFx();
+}
+
+// ===== SHARED BOSS FX (light + ground shadow) =====
+// Same rationale as the eye-light pool: creating a new PointLight the
+// first time a boss spawns mid-match forces Three.js to recompile every
+// material in the scene to accommodate the new light count. That
+// produces a massive frame hitch exactly when the boss appears.
+//
+// Bosses are one-at-a-time by design (they spawn as the last zombie of
+// every 5th round) so a single shared light + a single shared ground
+// shadow mesh is enough. Both are created once at setZombieDeps time,
+// parked off-screen with intensity 0 / invisible. updateZombieMesh
+// positions them under the current boss; removeZombieMesh hides them.
+let _bossLight = null;
+let _bossShadow = null;
+function initBossFx() {
+  if (_bossLight || !_scene) return;
+  _bossLight = new THREE.PointLight(0xff4400, 0, 6);
+  _bossLight.position.set(0, -1000, 0);
+  _scene.add(_bossLight);
+
+  const shadowGeo = new THREE.PlaneGeometry(2.5, 2.5);
+  shadowGeo.rotateX(-Math.PI / 2);
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.35,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
+  _bossShadow = new THREE.Mesh(shadowGeo, shadowMat);
+  _bossShadow.position.set(0, -1000, 0);
+  _bossShadow.visible = false;
+  _scene.add(_bossShadow);
 }
 
 // ===== SHARED EYE LIGHT POOL =====
@@ -1239,26 +1271,15 @@ function createZombieMesh(z) {
   group.add(hpSprite);
 
   // === BOSS VISUAL DISTINCTION (S4.2) ===
-  let bossLight = null, bossShadow = null;
+  // Light + shadow come from the shared pool in initBossFx() — don't
+  // allocate per-boss. Allocating a new PointLight here at spawn time
+  // would bump Three.js's light count and force a full shader recompile
+  // across every material in the scene, which is what caused the
+  // visible frame hitch when a boss appeared.
   if (z.isBoss) {
-    // Red/orange PointLight attached to the boss group
-    bossLight = new THREE.PointLight(0xff4400, 0.8, 6);
-    bossLight.position.set(0, spriteH * 0.5, 0);
-    group.add(bossLight);
-
-    // Tint the boss sprite slightly red
-    planeMat.color.set(0xff8888);
-
-    // Ground shadow circle below the boss
-    const shadowGeo = new THREE.PlaneGeometry(2.5, 2.5);
-    shadowGeo.rotateX(-Math.PI / 2);
-    const shadowMat = new THREE.MeshBasicMaterial({
-      color: 0x000000, transparent: true, opacity: 0.35,
-      depthWrite: false, side: THREE.DoubleSide,
-    });
-    bossShadow = new THREE.Mesh(shadowGeo, shadowMat);
-    bossShadow.position.y = 0.05;
-    group.add(bossShadow);
+    planeMat.color.set(0xff8888); // red tint on sprite
+    if (_bossLight) _bossLight.intensity = 0.8;
+    if (_bossShadow) _bossShadow.visible = true;
   }
 
   _scene.add(group);
@@ -1266,7 +1287,6 @@ function createZombieMesh(z) {
   zombieMeshes.set(z, {
     group, mesh, planeMat, tex, frameCanvas,
     hpSprite, hpCanvas, hpTex, spriteSheet, spriteH,
-    bossLight, bossShadow,
   });
   return group;
 }
@@ -1275,7 +1295,7 @@ function updateZombieMesh(z, dt) {
   const data = zombieMeshes.get(z);
   if (!data) return;
   const { group, mesh, planeMat, tex, frameCanvas,
-    hpSprite, hpCanvas, hpTex, spriteSheet } = data;
+    hpSprite, hpCanvas, hpTex, spriteSheet, spriteH } = data;
 
   // === SPAWN RISING ANIMATION ===
   let yOff = 0;
@@ -1360,17 +1380,21 @@ function updateZombieMesh(z, dt) {
   // Eye light flicker is now driven by the shared pool in updateZombieEyeLightPool
 
   // === BOSS LIGHT FLICKER (S4.2) — Phase 3 rapid flicker ===
-  if (z.isBoss && data.bossLight) {
+  // Light + shadow are shared (see initBossFx). Position them under
+  // this boss each frame and drive flicker based on phase. Only one
+  // boss at a time by design (last zombie of every 5th round), so the
+  // single pair works.
+  if (z.isBoss && _bossLight && _bossShadow) {
+    _bossLight.position.set(z.wx, spriteH * 0.5, z.wz);
+    _bossShadow.position.set(z.wx, 0.05, z.wz);
     const phase = z._bossPhase || 1;
     if (phase >= 3) {
-      // Rapid flicker in enraged phase
-      data.bossLight.intensity = 0.6 + Math.random() * 1.2;
-      data.bossLight.color.setHex(Math.random() > 0.3 ? 0xff4400 : 0xff2200);
+      _bossLight.intensity = 0.6 + Math.random() * 1.2;
+      _bossLight.color.setHex(Math.random() > 0.3 ? 0xff4400 : 0xff2200);
     } else if (phase >= 2) {
-      // Subtle pulse in phase 2
-      data.bossLight.intensity = 0.8 + Math.sin(performance.now() * 0.005) * 0.3;
+      _bossLight.intensity = 0.8 + Math.sin(performance.now() * 0.005) * 0.3;
     } else {
-      data.bossLight.intensity = 0.8;
+      _bossLight.intensity = 0.8;
     }
   }
 
@@ -1483,6 +1507,19 @@ function removeZombieMesh(z) {
     if (data.hpTex) data.hpTex.dispose();
     if (data.tex) data.tex.dispose();
     zombieMeshes.delete(z);
+  }
+  // Boss just died: park the shared FX off-screen. The actual Three.js
+  // objects stay in the scene so there's no light-count churn on the
+  // next boss spawn.
+  if (z && z.isBoss) {
+    if (_bossLight) {
+      _bossLight.intensity = 0;
+      _bossLight.position.set(0, -1000, 0);
+    }
+    if (_bossShadow) {
+      _bossShadow.visible = false;
+      _bossShadow.position.set(0, -1000, 0);
+    }
   }
 }
 

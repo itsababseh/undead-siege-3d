@@ -14,11 +14,16 @@
 
 const WINDOW_SIZE = 60;
 
+// Enable ONLY via the ?profile=1 URL flag. Previously a localStorage
+// toggle was also honoured, but that meant once a dev set it during
+// testing it persisted forever in their browser — including after
+// release builds shipped — with no visible cue. Explicit URL flag is
+// the one source of truth: add ?profile=1 to turn on, remove to turn
+// off. Never sticky.
 const ENABLED = (() => {
   try {
     const url = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
     if (url.get('profile') === '1') return true;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('undead.profile') === '1') return true;
   } catch (e) {}
   return false;
 })();
@@ -68,11 +73,37 @@ export function profEnd() {
   frameAccum.set(name, (frameAccum.get(name) || 0) + (performance.now() - t0));
 }
 
+// Any frame longer than this triggers a detailed console warning with
+// per-section breakdown. 25ms ≈ missed 40fps. Good threshold for
+// catching spikes without spamming on normal 16.7ms frames.
+const SPIKE_THRESHOLD_MS = 25;
+let spikeLog = []; // rolling [{ t, totalMs, sections }]
+export function getRecentSpikes() { return spikeLog; }
+
 export function profEndFrame() {
   if (!ENABLED) return;
   const totalMs = performance.now() - frameStartT;
   pushSample(FRAME_KEY, totalMs);
   for (const [name, ms] of frameAccum) pushSample(name, ms);
+
+  // Spike catcher: if this frame blew past the threshold, dump a
+  // per-section breakdown to the console so it's obvious WHICH
+  // subsystem took the hit. Surface the top 5 sections sorted by ms.
+  if (totalMs > SPIKE_THRESHOLD_MS) {
+    const rows = [];
+    for (const [name, ms] of frameAccum) rows.push({ name, ms });
+    rows.sort((a, b) => b.ms - a.ms);
+    const top = rows.slice(0, 5);
+    const unaccounted = totalMs - rows.reduce((s, r) => s + r.ms, 0);
+    console.warn(
+      `[spike] ${totalMs.toFixed(1)}ms frame — top: ` +
+      top.map(r => `${r.name}=${r.ms.toFixed(1)}ms`).join('  ') +
+      `  (unaccounted=${unaccounted.toFixed(1)}ms)`
+    );
+    spikeLog.push({ t: performance.now(), totalMs, sections: top });
+    if (spikeLog.length > 50) spikeLog.shift();
+  }
+
   const now = performance.now();
   if (visible && now - lastRender > 200) {
     renderOverlay();

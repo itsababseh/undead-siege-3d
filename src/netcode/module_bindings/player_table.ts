@@ -24,4 +24,6 @@ export default __t.row({
   downed: __t.bool(),
   spectating: __t.bool(),
   lastSeen: __t.timestamp().name("last_seen"),
+  kills: __t.i32(),
+  downs: __t.i32(),
 });

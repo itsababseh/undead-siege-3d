@@ -48,6 +48,18 @@ export const Player = table(
     downed: t.bool(),
     spectating: t.bool(),
     lastSeen: t.timestamp(),
+    // Per-match counters, appended AT THE END of the column list on
+    // purpose — SpacetimeDB flags any insertion/reorder among
+    // existing columns as a breaking migration, and we don't want to
+    // wipe live HighScore rows just to add two counters. `.default(0)`
+    // lets existing rows auto-fill the new columns without requiring
+    // --clear-database. kills is incremented server-side inside
+    // damage_zombie when a shot reduces zombie HP to 0; downs is
+    // incremented inside report_player_downed each time the local
+    // client reports going down. Both reset in resetLobbyMatch so a
+    // new match starts fresh.
+    kills: t.i32().default(0),
+    downs: t.i32().default(0),
   }
 );
 

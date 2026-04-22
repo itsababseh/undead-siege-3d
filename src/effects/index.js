@@ -558,74 +558,69 @@ function triggerHitIndicator(zombieX, zombieZ) {
 }
 
 function updateHitIndicators(dt) {
-  hitDirCtx.clearRect(0, 0, hitDirCanvas.width, hitDirCanvas.height);
-  
-  const cx = hitDirCanvas.width / 2;
-  const cy = hitDirCanvas.height / 2;
-  // Distance from center to edge where arcs are drawn
-  const radiusX = hitDirCanvas.width * 0.38;
-  const radiusY = hitDirCanvas.height * 0.38;
-  const arcLen = 0.55; // radians, width of the arc
-  
+  const w = hitDirCanvas.width;
+  const h = hitDirCanvas.height;
+  hitDirCtx.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // CoD-style directional damage overlay: a big red radial gradient
+  // whose centre sits JUST PAST the screen edge in the direction of
+  // the attacker. The brightest red hugs the edge closest to the hit
+  // and fades across the screen away from it. Stacks additively when
+  // multiple attackers are hitting from similar directions.
+  //
+  // The previous implementation drew a small crescent arc at an
+  // interior radius (~38% of the screen) — it looked like a
+  // hovering red badge rather than screen-edge damage feedback.
   for (let i = hitIndicators.length - 1; i >= 0; i--) {
     const hi = hitIndicators[i];
-    hi.life -= dt * 1.2; // fade over ~0.8 seconds
-    
+    hi.life -= dt * 1.0; // fade over ~1.0s
+
     if (hi.life <= 0) {
       hitIndicators.splice(i, 1);
       continue;
     }
-    
-    // The angle points FROM center TOWARD the attacker
-    // In screen space: 0 = top, PI/2 = right, PI = bottom, -PI/2 = left
-    const screenAngle = -hi.angle; // negate because screen Y is inverted
-    
-    // Calculate position on an ellipse at the screen edge
-    const edgeX = cx + Math.sin(screenAngle) * radiusX;
-    const edgeY = cy - Math.cos(screenAngle) * radiusY;
-    
-    // Alpha based on remaining life (quick fade in, slow fade out)
-    const fadeIn = Math.min(1, (1 - hi.life) * 8); // quick fade in
-    const fadeOut = Math.min(1, hi.life * 2.5);     // slower fade out  
-    const alpha = fadeIn * fadeOut * hi.intensity * 0.85;
-    
+
+    // Screen-space angle. 0 = up, PI/2 = right, PI = down, -PI/2 = left.
+    //
+    // hi.angle comes from atan2(dx, dz) - yaw in triggerHitIndicator.
+    // With Three.js's default camera-looks-down-minus-Z convention, a
+    // zombie directly IN FRONT of the player produces atan2(0, -1) = PI
+    // and a zombie to their RIGHT produces +PI/2 — which means the raw
+    // world angle is rotated 180° from what the screen wants AND the
+    // horizontal is inverted relative to screen space. The conversion
+    // `PI - hi.angle` folds both of those in: front→0 (up),
+    // right→PI/2 (right), left→-PI/2 (left), behind→PI (down).
+    const screenAng = Math.PI - hi.angle;
+    const ex = Math.sin(screenAng);
+    const ey = -Math.cos(screenAng);
+
+    // Position the gradient center offscreen in the hit direction —
+    // just past the far edge so the red peak lands ON the screen edge
+    // the player is being hit from.
+    const edgeDist = Math.max(w, h) * 0.55;
+    const gx = cx + ex * edgeDist;
+    const gy = cy + ey * edgeDist;
+
+    // Quick fade in, slow fade out for a punchy-but-not-spammy feel.
+    const fadeIn = Math.min(1, (1 - hi.life) * 6);
+    const fadeOut = Math.min(1, hi.life * 2.2);
+    const alpha = fadeIn * fadeOut * hi.intensity * 0.75;
     if (alpha < 0.01) continue;
-    
-    hitDirCtx.save();
-    hitDirCtx.translate(edgeX, edgeY);
-    hitDirCtx.rotate(screenAngle);
-    
-    // Draw a CoD-style crescent/arc shape
-    // The arc points inward toward the attacker direction
-    const arcRadius = Math.min(hitDirCanvas.width, hitDirCanvas.height) * 0.12;
-    
-    // Outer arc
-    hitDirCtx.beginPath();
-    hitDirCtx.arc(0, 0, arcRadius, -arcLen, arcLen);
-    // Inner arc (smaller radius, reversed direction to close the shape)
-    const innerRadius = arcRadius * 0.55;
-    hitDirCtx.arc(0, 0, innerRadius, arcLen, -arcLen, true);
-    hitDirCtx.closePath();
-    
-    // Red gradient fill
-    const grad = hitDirCtx.createRadialGradient(0, 0, innerRadius, 0, 0, arcRadius * 1.3);
-    grad.addColorStop(0, `rgba(220, 20, 0, ${alpha})`);
-    grad.addColorStop(0.5, `rgba(180, 0, 0, ${alpha * 0.8})`);
-    grad.addColorStop(1, `rgba(120, 0, 0, 0)`);
+
+    const radius = Math.max(w, h) * 0.95;
+    const grad = hitDirCtx.createRadialGradient(gx, gy, 0, gx, gy, radius);
+    grad.addColorStop(0,    `rgba(200,  20,  10, ${alpha})`);
+    grad.addColorStop(0.25, `rgba(170,   0,   0, ${alpha * 0.75})`);
+    grad.addColorStop(0.55, `rgba(110,   0,   0, ${alpha * 0.3})`);
+    grad.addColorStop(1,    `rgba(0,     0,   0, 0)`);
+
     hitDirCtx.fillStyle = grad;
-    hitDirCtx.fill();
-    
-    // Brighter core for emphasis
-    hitDirCtx.beginPath();
-    hitDirCtx.arc(0, 0, arcRadius * 0.92, -arcLen * 0.7, arcLen * 0.7);
-    hitDirCtx.arc(0, 0, innerRadius * 1.15, arcLen * 0.7, -arcLen * 0.7, true);
-    hitDirCtx.closePath();
-    hitDirCtx.fillStyle = `rgba(255, 40, 20, ${alpha * 0.6})`;
-    hitDirCtx.fill();
-    
-    hitDirCtx.restore();
-    
-    // Decay intensity for stacked hits
+    hitDirCtx.fillRect(0, 0, w, h);
+
+    // Decay intensity so a flurry of hits from the same direction
+    // doesn't saturate into a solid red wall.
     hi.intensity = Math.max(0.5, hi.intensity - dt * 0.3);
   }
 }

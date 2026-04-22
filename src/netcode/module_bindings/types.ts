@@ -59,6 +59,8 @@ export const Player = __t.object("Player", {
   downed: __t.bool(),
   spectating: __t.bool(),
   lastSeen: __t.timestamp(),
+  kills: __t.i32(),
+  downs: __t.i32(),
 });
 export type Player = __Infer<typeof Player>;
 

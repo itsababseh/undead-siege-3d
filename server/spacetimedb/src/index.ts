@@ -98,11 +98,17 @@ function resetLobbyMatch(ctx: any, lobbyId: bigint) {
     });
   }
   // Clear spectator/downed flags for everyone in this lobby so the next
-  // match starts fresh.
+  // match starts fresh. Also zero per-match scoreboard counters
+  // (kills + downs) — they're match-scoped, not lifetime.
   for (const p of ctx.db.player.player_lobby_id.filter(lobbyId)) {
-    if (p.spectating || p.downed || !p.alive) {
-      ctx.db.player.identity.update({ ...p, spectating: false, downed: false, alive: true });
-    }
+    ctx.db.player.identity.update({
+      ...p,
+      spectating: false,
+      downed: false,
+      alive: true,
+      kills: 0,
+      downs: 0,
+    });
   }
 }
 
@@ -208,6 +214,8 @@ export const onConnect = spacetimedb.clientConnected((ctx) => {
     ry: 0,
     hp: 100,
     points: 500,
+    kills: 0,
+    downs: 0,
     online: true,
     alive: true,
     downed: false,
@@ -481,7 +489,12 @@ export const report_player_alive = spacetimedb.reducer(
 export const report_player_downed = spacetimedb.reducer((ctx) => {
   const row = ctx.db.player.identity.find(ctx.sender);
   if (!row) return;
-  ctx.db.player.identity.update({ ...row, downed: true, hp: 0 });
+  // Bump the downs counter for the scoreboard. Counts every trip into
+  // the downed state during this match, including ones that end in a
+  // revive (so "how many times did this player go down?" reads right).
+  ctx.db.player.identity.update({
+    ...row, downed: true, hp: 0, downs: row.downs + 1,
+  });
   if (row.lobbyId && !anyUpPlayersInLobby(ctx, row.lobbyId)) {
     resetLobbyMatch(ctx, row.lobbyId);
   }
@@ -652,7 +665,14 @@ export const damage_zombie = spacetimedb.reducer(
     const newHp = z.hp - damage;
     if (newHp <= 0) {
       ctx.db.zombie.hostZid.delete(hostZid);
-      ctx.db.player.identity.update({ ...shooter, points: shooter.points + 100 });
+      // Award points + increment the shooter's kill count for the
+      // hold-TAB scoreboard. kills resets in resetLobbyMatch on match
+      // end so each match starts fresh.
+      ctx.db.player.identity.update({
+        ...shooter,
+        points: shooter.points + 100,
+        kills: shooter.kills + 1,
+      });
     } else {
       ctx.db.zombie.hostZid.update({ ...z, hp: newHp, flashLevel: 1.0 });
     }

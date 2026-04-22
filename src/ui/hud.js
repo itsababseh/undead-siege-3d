@@ -172,7 +172,14 @@ export function updateHUD(dmgFlash, switchWeaponFn) {
       const perk = _perks[pm.perkIdx];
       const bx = (pm.tx+0.5)*_TILE, bz = (pm.tz+0.5)*_TILE;
       if (Math.hypot(bx-px, bz-pz) < _TILE*2) {
-        if (_player.perksOwned[perk.id] > 0) buyText = `${perk.name} (${Math.ceil(_player.perksOwned[perk.id])}s left)`;
+        if (_player.perksOwned[perk.id] > 0) {
+          // Permanent perks (Health) store 1e9 as their "timer" so the
+          // expiry loop never decrements them. Don't print that as
+          // seconds — just say ACTIVE.
+          buyText = perk.permanent
+            ? `${perk.name} (ACTIVE)`
+            : `${perk.name} (${Math.ceil(_player.perksOwned[perk.id])}s left)`;
+        }
         else if (round < perk.minRound) buyText = `${perk.name} - Unlocks Round ${perk.minRound}`;
         else buyText = `${keyLabel} ${perk.name} (${perk.desc}) - $${perk.cost}`;
         break;
@@ -333,7 +340,11 @@ export function showPause() {
   document.getElementById('pauseOverlay').style.display = 'flex';
   let perkInfo = '';
   for (const p of _perks) {
-    if (_player.perksOwned[p.id] > 0) perkInfo += `${p.name} (${Math.ceil(_player.perksOwned[p.id])}s) · `;
+    if (_player.perksOwned[p.id] > 0) {
+      perkInfo += p.permanent
+        ? `${p.name} · `
+        : `${p.name} (${Math.ceil(_player.perksOwned[p.id])}s) · `;
+    }
   }
   document.getElementById('pausePerks').textContent = perkInfo ? `PERKS: ${perkInfo.slice(0,-3)}` : '';
 }

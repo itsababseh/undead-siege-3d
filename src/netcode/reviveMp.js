@@ -194,7 +194,12 @@ export function tickRevive(dt) {
   // Quick Revive perk multiplies the fill rate (default 1x, perk = 4x
   // which means ~0.75s total instead of 3s).
   const speedMult = _ctx.getReviveSpeedMult ? _ctx.getReviveSpeedMult() : 1;
-  if (_ctx.keys['q']) {
+  // E doubles as the buy/interact key elsewhere. Buy uses keyPressed()
+  // (first-press edge), revive uses a held key (continuous fill), so
+  // there's no conflict — you can't accidentally buy by holding E near
+  // a downed teammate, and you can't accidentally revive by tapping E
+  // at a wall-buy that isn't next to a downed teammate.
+  if (_ctx.keys['e']) {
     _reviveProgress = Math.min(1, _reviveProgress + (dt * speedMult) / REVIVE_TIME_SEC);
   } else {
     _reviveProgress = Math.max(0, _reviveProgress - dt * 2);
