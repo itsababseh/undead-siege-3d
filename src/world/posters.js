@@ -462,10 +462,18 @@ function makePosterTexture(poster) {
     ctx.fillText('✦', ox, oy);
   }
 
-  // Title
-  ctx.font = 'bold 22px DejaVu Serif, serif';
+  // Title — auto-shrink to fit, since emoji glyphs widen titles
+  // unpredictably across browsers / OSes.
   ctx.fillStyle = '#d4a030';
   ctx.textAlign = 'center';
+  const titleFamily = '"DejaVu Serif", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Noto Emoji", serif';
+  let titleSize = 22;
+  ctx.font = `bold ${titleSize}px ${titleFamily}`;
+  const maxTitleW = W - 60;
+  while (ctx.measureText(poster.title).width > maxTitleW && titleSize > 12) {
+    titleSize -= 1;
+    ctx.font = `bold ${titleSize}px ${titleFamily}`;
+  }
   ctx.fillText(poster.title, W / 2, 40);
 
   // Divider rule
@@ -482,7 +490,7 @@ function makePosterTexture(poster) {
   ctx.beginPath(); ctx.moveTo(40, 50 + illH + 12); ctx.lineTo(W - 40, 50 + illH + 12); ctx.stroke();
 
   // Quote lines
-  ctx.font = 'italic 17px DejaVu Serif, serif';
+  ctx.font = 'italic 17px "DejaVu Serif", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Noto Emoji", serif';
   ctx.fillStyle = '#c8a878';
   ctx.textAlign = 'center';
   let qy = 50 + illH + 30;
@@ -512,18 +520,20 @@ function makePosterTexture(poster) {
 // ---------------------------------------------------------------------------
 // Face → rotation (Y axis) and wall-normal direction.
 //
-// face = the direction the poster FACES (i.e. the direction the player
-// must look to read it). So if the wall is to the NORTH of the floor
-// tile, the poster hangs on that wall and faces SOUTH.
+// face = the direction the poster's FRONT normal points (i.e. the direction
+// FROM the wall TOWARD the player).  So if the wall is to the NORTH of the
+// floor tile, the poster hangs on that wall's south face and its normal
+// points SOUTH (+Z).
 //
-// FACE_ROT makes the PlaneGeometry normal point in the +face direction.
-// Three.js PlaneGeometry default normal is +Z (south).
-//   face='S' (normal +Z): rotY=0
-//   face='N' (normal -Z): rotY=PI
-//   face='E' (normal +X): rotY=-PI/2
-//   face='W' (normal -X): rotY= PI/2
+// FACE_ROT makes the PlaneGeometry's front normal point in the +face
+// direction.  Three.js PlaneGeometry default front normal is +Z.
+// Using Y-rotation:  (0,0,1) → (sin θ, 0, cos θ)
+//   face='S' (normal +Z): rotY = 0
+//   face='N' (normal -Z): rotY = PI
+//   face='E' (normal +X): rotY = +PI/2   ← (was -PI/2, caused mirrored text)
+//   face='W' (normal -X): rotY = -PI/2   ← (was +PI/2, caused mirrored text)
 // ---------------------------------------------------------------------------
-const FACE_ROT = { N: Math.PI, S: 0, E: -Math.PI / 2, W: Math.PI / 2 };
+const FACE_ROT = { N: Math.PI, S: 0, E: Math.PI / 2, W: -Math.PI / 2 };
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -542,7 +552,7 @@ export function buildPosters(scene, TILE) {
   }
   _posterObjs.length = 0;
 
-  const EPS = 0.06;       // distance poster sits off the wall surface
+  const EPS = 0.12;       // distance poster sits off the wall surface (doubled to kill z-fighting on mobile)
   const LIGHT_OFF = 0.9;  // distance light sits in front of poster
 
   for (const p of POSTERS) {
@@ -554,14 +564,21 @@ export function buildPosters(scene, TILE) {
       roughness: 0.85,
       metalness: 0.05,
       transparent: false,
-      // DoubleSide so the poster is visible even if the player clips
-      // through the wall in multiplayer rollback / spectator cases.
-      side: THREE.DoubleSide,
+      // FrontSide: text is never shown mirrored.  The rotations above
+      // guarantee the front normal faces the player, so the back (inside
+      // the wall) never needs to render.  This also avoids the "reverse
+      // text" bug that DoubleSide produced when a rotation was off.
+      side: THREE.FrontSide,
       // Emissive so it still pops in dark corners where PointLights
       // haven't reached yet (mobile forward renderer light budget).
       emissive: 0x1a0f05,
       emissiveIntensity: 0.35,
       emissiveMap: tex,
+      // Nudge the poster in front of the wall on the depth buffer so
+      // mobile GPUs (Adreno / Mali with 16-bit depth) never z-fight.
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     });
     const mesh = new THREE.Mesh(geo, mat);
 
