@@ -445,64 +445,6 @@ function updateRoundTransition(dt) {
   slowMoFactor = roundTransitionPhase === 'none' ? 1 : 1;
 }
 
-
-// --- Boss Kill-Cam (time-freeze + radial flash) ---
-// Called when boss (or ultra-rare headshot milestone) dies. Triggers
-// a short slow-mo burst + red-tinted radial flash so the kill reads
-// as a "clip this!" moment for Vibe Jam voters.
-let killCamTimer = 0;
-let killCamDuration = 0;
-let killCamStrength = 0;       // 0..1, extra colour pop
-let killCamTimeScale = 1;      // multiplier applied by main loop (1 = real-time)
-
-function triggerBossKillCam(kind) {
-  // kind: 'boss' (heavy) | 'elite' (medium) | 'headshot' (quick)
-  const cfg = kind === 'boss'
-    ? { dur: 0.65, strength: 1.0, slow: 0.18 }
-    : kind === 'elite'
-    ? { dur: 0.35, strength: 0.7, slow: 0.35 }
-    : { dur: 0.18, strength: 0.5, slow: 0.55 };
-  killCamTimer = cfg.dur;
-  killCamDuration = cfg.dur;
-  killCamStrength = cfg.strength;
-  killCamTimeScale = cfg.slow;
-
-  // Visual: radial red-orange flash overlay
-  const el = document.getElementById('killCamFlash');
-  if (el) {
-    el.style.transition = 'none';
-    el.style.opacity = String(cfg.strength);
-    // Force reflow so the next frame's transition animates
-    void el.offsetWidth;
-    el.style.transition = `opacity ${cfg.dur}s ease-out`;
-    el.style.opacity = '0';
-  }
-}
-
-// Called every frame in REAL-time (not dt-scaled) so the countdown
-// is consistent regardless of what the rest of the game does.
-function updateKillCam(realDt) {
-  if (killCamTimer <= 0) { killCamTimeScale = 1; return; }
-  killCamTimer -= realDt;
-  if (killCamTimer <= 0) {
-    killCamTimer = 0;
-    killCamTimeScale = 1;
-    killCamStrength = 0;
-  } else {
-    // Ease time-scale back toward 1 in the last 40% of the window
-    const t = killCamTimer / killCamDuration;
-    const slow = killCamTimeScale; // already the "deepest" slow
-    // Curve: stay at `slow` until 40% remaining, then linearly return to 1
-    if (t < 0.4) {
-      killCamTimeScale = slow + (1 - slow) * (1 - t / 0.4);
-    } else {
-      killCamTimeScale = slow;
-    }
-  }
-}
-
-function getTimeScale() { return killCamTimer > 0 ? killCamTimeScale : 1; }
-
 // --- Damage Vignette (red edge pulse when hurt) ---
 let vignetteIntensity = 0;
 
@@ -858,7 +800,6 @@ export {
   triggerDamageVignette, updateDamageVignette, vignetteIntensity,
   updateLowHealthEffect,
   triggerRoundTransition, updateRoundTransition, roundTransitionPhase,
-  triggerBossKillCam, updateKillCam, getTimeScale,
   // Hitmarker
   showHitmarker, updateHitmarker,
   // Hit indicators

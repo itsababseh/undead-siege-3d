@@ -150,7 +150,7 @@ export function tryShoot() {
     shootDir.x += spreadX; shootDir.y += spreadY;
     shootDir.normalize();
 
-    let bestZ = null, bestD = Infinity, bestYAtClosest = 0, bestZHeight = 2.2;
+    let bestZ = null, bestD = Infinity;
     for (const z of zombies) {
       if (z._spawnRising) continue; // invulnerable while emerging from ground
       const zScale = z.isBoss ? 1.6 : z.isElite ? 1.2 : 1;
@@ -174,7 +174,7 @@ export function tryShoot() {
         const cz = camera.position.z + dzS * t;
         if (mapAt(cx, cz) !== 0) { blocked = true; break; }
       }
-      if (!blocked && tClosest < bestD) { bestD = tClosest; bestZ = z; bestYAtClosest = yAtClosest; bestZHeight = zHeight; }
+      if (!blocked && tClosest < bestD) { bestD = tClosest; bestZ = z; }
     }
 
     // Tracer round (S3.1) — fire from muzzle toward hit or max range
@@ -205,11 +205,7 @@ export function tryShoot() {
         try { netcode.callDamageZombie(bestZ.hostZid, dmg); }
         catch (e) { console.warn('[mp] damageZombie failed', e); }
       } else {
-        // Headshot detection: hit Y in top 40% of zombie height = crit (2x dmg)
-        const _headThreshold = bestZHeight * 0.6;
-        const _isHeadshot = bestYAtClosest >= _headThreshold;
-        const _finalDmg = _isHeadshot ? w.dmg * 2 : w.dmg;
-        bestZ.hp -= _finalDmg;
+        bestZ.hp -= w.dmg;
         if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
 
         if (bestZ.hp <= 0) {
@@ -224,15 +220,7 @@ export function tryShoot() {
             sfxKill();
             _onKill(bestZ.isBoss);
             showHitmarker(true);
-            spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, _finalDmg, true);
-            if (_isHeadshot && !bestZ.isBoss) {
-              // Headshot callout + bonus points + quick kill-cam flash
-              setPoints(getPoints() + (player._doublePoints ? 60 : 30));
-              addFloatText('💀 HEADSHOT +30', '#ff3', 1.6);
-              try { _ctx.triggerBossKillCam && _ctx.triggerBossKillCam('headshot'); } catch(e){}
-            } else if (bestZ.isElite && !bestZ.isBoss) {
-              try { _ctx.triggerBossKillCam && _ctx.triggerBossKillCam('elite'); } catch(e){}
-            }
+            spawnDmgNumber(bestZ.wx, 2.2, bestZ.wz, w.dmg, true);
             // S4.2: Boss death — double blood particles
             if (w.isRayGun) spawnEnergyParticles(bestZ.wx, 1, bestZ.wz, bestZ.isBoss ? 30 : 15);
             else spawnBloodParticles(bestZ.wx, 1, bestZ.wz, bestZ.isBoss ? 16 : 8);
@@ -241,7 +229,7 @@ export function tryShoot() {
             startZombieDeathAnim(bestZ);
             spawnBloodSplatter(bestZ.wx, 1.2, bestZ.wz);
             spawnPowerUp(bestZ.wx, bestZ.wz);
-            triggerScreenShake(bestZ.isBoss ? 2.0 : bestZ.isElite ? 0.8 : 0.35, 8);
+            triggerScreenShake(bestZ.isBoss ? 1.5 : bestZ.isElite ? 0.5 : 0.15, 8);
             // Detach from window attacker list if this zombie was
             // pounding planks when it died.
             if (bestZ._targetWindow && bestZ._targetWindow.attackers) {
@@ -255,8 +243,6 @@ export function tryShoot() {
               // S4.2: Longer, more intense screen shake on boss death
               triggerScreenShake(4, 4);
               spawnDirtParticles(bestZ.wx, bestZ.wz, 16);
-              // Juice: time-freeze kill-cam for the signature Vibe Jam clip
-              try { _ctx.triggerBossKillCam && _ctx.triggerBossKillCam('boss'); } catch(e){}
             }
           }
         }

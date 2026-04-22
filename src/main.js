@@ -84,7 +84,6 @@ import {
 import {
   spawnDmgNumber,
   triggerScreenShake, updateScreenShake,
-  triggerBossKillCam, updateKillCam, getTimeScale,
   triggerDamageVignette, updateDamageVignette,
   updateLowHealthEffect,
   triggerRoundTransition, updateRoundTransition,
@@ -593,7 +592,6 @@ initShooting({
   showHitmarker, addFloatText,
   startZombieDeathAnim, removeZombieMesh,
   triggerScreenShake,
-  triggerBossKillCam,
   spawnTracer,
   weaponMags,
   getPoints: () => points,
@@ -2893,14 +2891,8 @@ let lastTime = performance.now();
 
 function gameLoop(time) {
   requestAnimationFrame(gameLoop);
-  const realDt = Math.min((time - lastTime) / 1000, 0.05);
+  const dt = Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
-  // Kill-cam time dilation: slow all game systems (except the kill-cam
-  // itself and the UI) when a boss / headshot kill is landing. Real-time
-  // dt is preserved for kill-cam countdown so it still resolves crisply.
-  updateKillCam(realDt);
-  const _timeScale = getTimeScale();
-  const dt = realDt * _timeScale;
   profBeginFrame();
 
   // Multiplayer runs on the menu too so the connect button works
