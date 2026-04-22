@@ -115,6 +115,7 @@ import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals,
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
 import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';
 import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
+import { buildPosters } from './world/posters.js';
 import {
   windows, windowSpecs, PLANKS_PER_WINDOW,
   buildWindows, cleanupWindows, resetAllPlanks,
@@ -630,6 +631,7 @@ const spawnPts = [
 buildMysteryBox();
 buildPackAPunch();
 buildMap();
+buildPosters(scene, TILE);
 buildProps();
 buildPerkMachines();
 buildWindows();
