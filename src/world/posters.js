@@ -11,9 +11,13 @@ import * as THREE from 'three';
 // y: world-space height of poster centre (default 1.55)
 // ---------------------------------------------------------------------------
 const POSTERS = [
+  // Coords are FLOOR tile indices (fx, fz) — the tile the player stands in.
+  // `face` is the wall direction the poster hangs on (i.e. which direction
+  // the player must look to read it). buildPosters() handles all positioning.
+  //
   // 1 — Get Better Mom  (NW locked room, north wall, faces south)
   {
-    wx: 4.5, wz: 1, face: 'S', y: 1.55,
+    fx: 3, fz: 2, face: 'S', y: 1.55,
     title: 'GET BETTER, MOM',
     quote: [
       '"Your strength, commitment to family,',
@@ -25,7 +29,7 @@ const POSTERS = [
   },
   // 2 — Memorial poster  (NW locked room, west wall, faces east)
   {
-    wx: 1, wz: 5.5, face: 'E', y: 1.55,
+    fx: 2, fz: 5, face: 'E', y: 1.55,
     title: 'REST IN PEACE',
     quote: [
       'Claire  🕊  2021',
@@ -39,7 +43,7 @@ const POSTERS = [
   },
   // 3 — Luke & Mo wedding  (main arena north wall, faces south)
   {
-    wx: 15, wz: 1, face: 'S', y: 1.55,
+    fx: 15, fz: 1, face: 'S', y: 1.55,
     title: 'CONGRATS LUKE & MO 💍',
     quote: [
       '"Finding your life partner is the',
@@ -51,7 +55,7 @@ const POSTERS = [
   },
   // 4 — AutoGPT / Toran  (main arena east wall, faces west)
   {
-    wx: 23, wz: 12, face: 'W', y: 1.55,
+    fx: 22, fz: 12, face: 'W', y: 1.55,
     title: 'JOINED AUTOGPT · JUNE 2024',
     quote: [
       '"Democratizing AI and making it',
@@ -62,9 +66,9 @@ const POSTERS = [
     attr: '— John A.',
     drawIllustration: drawCircuitBrain,
   },
-  // 5 — Elia & Chloe  (east chamber, north wall, faces south)
+  // 5 — Elia & Chloe  (east room, east wall, faces west)
   {
-    wx: 21, wz: 10, face: 'S', y: 1.55,
+    fx: 22, fz: 11, face: 'W', y: 1.55,
     title: 'ELIA & CHLOE 🌟',
     quote: [
       '"The younger generation is the future.',
@@ -74,9 +78,9 @@ const POSTERS = [
     attr: '— Uncle John',
     drawIllustration: drawStars,
   },
-  // 6 — Schools  (south corridor, south wall, faces north)
+  // 6 — Schools  (south wall, faces north)
   {
-    wx: 6, wz: 23, face: 'N', y: 1.55,
+    fx: 6, fz: 22, face: 'N', y: 1.55,
     title: 'MY SCHOOLS 🏫',
     quote: [
       'Go Panthers  ·  Go Mustangs  ·  Go Bears',
@@ -87,9 +91,9 @@ const POSTERS = [
     attr: null,
     drawIllustration: drawMascots,
   },
-  // 7 — Sunday Ball  (main arena south wall, faces north)
+  // 7 — Sunday Ball  (south wall, faces north)
   {
-    wx: 17, wz: 23, face: 'N', y: 1.55,
+    fx: 14, fz: 22, face: 'N', y: 1.55,
     title: 'SUNDAY BALL  EST. 2020 🏀',
     quote: [
       '"Covid made the world close off',
@@ -101,7 +105,7 @@ const POSTERS = [
   },
   // 8 — Nacs anniversary  (west corridor, west wall, faces east)
   {
-    wx: 1, wz: 16, face: 'E', y: 1.55,
+    fx: 1, fz: 15, face: 'E', y: 1.55,
     title: 'HAPPY ANNIVERSARY, NACS ❤',
     quote: [
       'April 21, 2022',
@@ -113,9 +117,9 @@ const POSTERS = [
     attr: '— John A.',
     drawIllustration: drawCrackedHeart,
   },
-  // 9 — Pat & Bentley  (boss-spawn area, south wall of east room, faces north)
+  // 9 — Pat & Bentley  (east room, east wall, faces west)
   {
-    wx: 21, wz: 18, face: 'N', y: 1.55,
+    fx: 22, fz: 14, face: 'W', y: 1.55,
     title: 'WE GOT BETTER TODAY, PAT 🤝',
     quote: [
       'Thanks Bentley for the gameplay help.',
@@ -506,24 +510,29 @@ function makePosterTexture(poster) {
 }
 
 // ---------------------------------------------------------------------------
-// Face → rotation (Y axis) and wall-offset direction
+// Face → rotation (Y axis) and wall-normal direction.
+//
+// face = the direction the poster FACES (i.e. the direction the player
+// must look to read it). So if the wall is to the NORTH of the floor
+// tile, the poster hangs on that wall and faces SOUTH.
+//
+// FACE_ROT makes the PlaneGeometry normal point in the +face direction.
+// Three.js PlaneGeometry default normal is +Z (south).
+//   face='S' (normal +Z): rotY=0
+//   face='N' (normal -Z): rotY=PI
+//   face='E' (normal +X): rotY=-PI/2
+//   face='W' (normal -X): rotY= PI/2
 // ---------------------------------------------------------------------------
 const FACE_ROT = { N: Math.PI, S: 0, E: -Math.PI / 2, W: Math.PI / 2 };
-const FACE_OFF = {
-  N: { dx: 0, dz:  0.04 },
-  S: { dx: 0, dz: -0.04 },
-  E: { dx:  0.04, dz: 0 },
-  W: { dx: -0.04, dz: 0 },
-};
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-const _posterMeshes = [];
+const _posterObjs = [];
 
 export function buildPosters(scene, TILE) {
   // Clean up from a previous call (e.g. game restart)
-  for (const obj of _posterMeshes) {
+  for (const obj of _posterObjs) {
     scene.remove(obj);
     if (obj.geometry) obj.geometry.dispose();
     if (obj.material) {
@@ -531,7 +540,10 @@ export function buildPosters(scene, TILE) {
       obj.material.dispose();
     }
   }
-  _posterMeshes.length = 0;
+  _posterObjs.length = 0;
+
+  const EPS = 0.06;       // distance poster sits off the wall surface
+  const LIGHT_OFF = 0.9;  // distance light sits in front of poster
 
   for (const p of POSTERS) {
     const tex = makePosterTexture(p);
@@ -542,28 +554,55 @@ export function buildPosters(scene, TILE) {
       roughness: 0.85,
       metalness: 0.05,
       transparent: false,
+      // DoubleSide so the poster is visible even if the player clips
+      // through the wall in multiplayer rollback / spectator cases.
+      side: THREE.DoubleSide,
+      // Emissive so it still pops in dark corners where PointLights
+      // haven't reached yet (mobile forward renderer light budget).
+      emissive: 0x1a0f05,
+      emissiveIntensity: 0.35,
+      emissiveMap: tex,
     });
     const mesh = new THREE.Mesh(geo, mat);
 
-    const off = FACE_OFF[p.face];
-    mesh.position.set(
-      p.wx * TILE + off.dx,
-      p.y,
-      p.wz * TILE + off.dz,
-    );
+    // Floor-tile centre in world coords
+    const cx = (p.fx + 0.5) * TILE;
+    const cz = (p.fz + 0.5) * TILE;
+    // Half-tile step toward the wall (the wall face lines up with the
+    // floor-tile boundary, so step HALF a tile from the tile centre).
+    const HALF = TILE / 2;
+
+    let px = cx, pz = cz;
+    let lx = cx, lz = cz;
+    switch (p.face) {
+      case 'S': // wall to NORTH → poster on wall's south face, facing +Z
+        px = cx;              pz = cz - HALF + EPS;
+        lx = cx;              lz = cz - HALF + LIGHT_OFF;
+        break;
+      case 'N': // wall to SOUTH → poster on wall's north face, facing -Z
+        px = cx;              pz = cz + HALF - EPS;
+        lx = cx;              lz = cz + HALF - LIGHT_OFF;
+        break;
+      case 'E': // wall to WEST → poster on wall's east face, facing +X
+        px = cx - HALF + EPS; pz = cz;
+        lx = cx - HALF + LIGHT_OFF; lz = cz;
+        break;
+      case 'W': // wall to EAST → poster on wall's west face, facing -X
+        px = cx + HALF - EPS; pz = cz;
+        lx = cx + HALF - LIGHT_OFF; lz = cz;
+        break;
+    }
+    mesh.position.set(px, p.y, pz);
     mesh.rotation.y = FACE_ROT[p.face];
+    mesh.renderOrder = 1; // draw after walls to dodge z-fighting
+    mesh.userData.isPoster = true;
     scene.add(mesh);
-    _posterMeshes.push(mesh);
+    _posterObjs.push(mesh);
 
     // Warm spotlight in front of poster
-    const light = new THREE.PointLight(0xffe8a0, 0.7, 3.2);
-    const lOff = FACE_OFF[p.face];
-    light.position.set(
-      p.wx * TILE + lOff.dx * 14,
-      p.y + 0.1,
-      p.wz * TILE + lOff.dz * 14,
-    );
+    const light = new THREE.PointLight(0xffe8a0, 1.4, 4.5, 1.8);
+    light.position.set(lx, p.y + 0.15, lz);
     scene.add(light);
-    _posterMeshes.push(light);
+    _posterObjs.push(light);
   }
 }
