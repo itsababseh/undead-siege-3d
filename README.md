@@ -66,21 +66,25 @@ Found a bug? Hit a crazy high score? Have an idea that would make this wilder? D
 
 ### World & Exploration
 - **Full 3D Environment** — Three.js-powered with textured walls, floors, cinematic fog, and atmospheric lighting
-- **Buyable Doors** — West Wing (1250 pts) & East Chamber (2000 pts) unlock new areas with fresh spawn points
-- **Easter Egg Quest** — Activate generators in the correct sequence, collect the catalyst, complete the ritual
-- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo with stylized animated pill UI. Drop rate scales with the round and a pity timer guarantees one every 18 kills so dry streaks are impossible
+- **Buyable Doors** — West Wing (1250 pts) & East Chamber (2000 pts) unlock new areas with fresh spawn points. The west door clears BOTH the door cell AND the green barracks wall behind it in one open, so you can actually enter — no more 1-tile pocket where zombies got trapped
+- **9 Cinematic Wall Posters** — Hand-drawn easter-egg posters scattered around the map (Get Better Mom, Sunday Ball, AutoGPT homage, etc.). Each gets its own warm point-light so they're legible in dark corners. Personal memories baked into the bunker walls — find them all
+- **Power-Up Drops** — Nuke, Insta-Kill, Double Points, Max Ammo with stylized animated pill UI. Drop rate scales with the round and a pity timer guarantees one every 18 kills so dry streaks are impossible. Power-ups now drop in MP too (was SP-only)
 - **Vibe Jam Portals** — Interdimensional caution-tape portal built into the wall that transports you to other Vibe Jam 2026 games. Hit browser back to resume your run — SP resumes paused on the same round, MP attempts to rejoin the lobby or shows the squad-wipe summary
 - **Subtle Cinematic Vignette** — Always-on film-style edge falloff that doesn't darken gameplay
 - **Progressive Low-HP Tint** — Screen edges tint red as your HP drops (quadratic curve below 60%). Critical heartbeat pulse kicks in under 15%
 
 ### Multiplayer (real-time up to 5 players)
-- **Lobby System** — Create public/private, join by invite code, or browse the public lobby list
-- **Host Authority** — One client per lobby runs zombie AI and streams positions at 20 Hz; HP is server-authoritative via SpacetimeDB
-- **Synced Weapon Models** — Remote players' soldier models show the actual weapon they're holding (pistol, SMG, shotgun, ray gun)
-- **Downed & Revive** — Go down when HP hits 0, teammates hold E within 3 units to revive; 2-second post-revive grace window
-- **Spectator Mode** — Mid-match joiners spectate until the next round starts
+- **Lobby System** — Create public/private, join by invite code, or browse the public lobby list. Invite links survive a refresh — the join target is mirrored to sessionStorage so even an auth-handshake hiccup doesn't strand you on the menu
+- **Host Authority + Migration** — One client per lobby runs zombie AI and streams positions at 20 Hz; HP is server-authoritative via SpacetimeDB. If the host quits or crashes, any non-host's heartbeat-claim succeeds within ~10s and authority migrates seamlessly. The new host's local zombies are flipped to authoritative ownership (no echoed-position fight); the ex-host's zombies become server-driven mirrors. A `⚠ HOST DISCONNECTED — finding new host…` overlay surfaces during the gap, then a "X is now the host" toast confirms migration
+- **Player Names** — Push to the server on connect (no more "Survivor" everywhere). If you never set a name, an auto-generated `Player-####` is stored on first run so squads always have distinct identifiers
+- **Synced Weapon Models + Downed Visual** — Remote players' soldier models show the actual weapon they're holding. When a teammate goes down, their model drops prone with a `DOWNED` badge above the body and the name tag follows the prone position
+- **Downed & Revive** — Go down when HP hits 0, teammates hold E (or tap the on-screen `REVIVE` button on mobile) within 3 units; 2-second post-revive grace window. Quick Revive perk multiplies the fill rate 4×. Zombies immediately drop the downed player from their target list and re-pick a live teammate the next frame
+- **Squad-Wipe Screen** — Full run summary + global leaderboard placement + **PLAY SOLO**, **REJOIN LOBBY**, and **Share on X** buttons
+- **Spectator Camera** — Mid-match joiners spectate until the next round starts. Camera now smoothly follows the watched teammate (lerped position + shortest-arc yaw) instead of frame-snapping. Press **A / D** to cycle through teammates, or tap left/right side of the screen on mobile. The current target name + position (`2/3`) shows in the overlay
+- **Separated Spawn Points** — Each player drops in at a different offset tile so the squad doesn't stack on the host
+- **Kill Streaks + Juggernog Flash in MP** — All visual juice (kill-streak banners, shield-absorb flash, screen shake) work in MP, not just SP
+- **Ray Gun Splash in MP** — Squad-mode players now get the same splash damage on a Ray Gun direct hit that solo players have always had (per-tick damage routed through the server reducer for HP authority)
 - **In-Game Chat** — Press T to type, filtered UI, per-lobby scoped
-- **Squad Wipe Summary** — Full run stats + global leaderboard placement shown when the whole squad goes down
 - **Global MP Leaderboard** — Squad rosters with all player names stored together; top 5 shown on main menu with 👥 prefix for multi-player runs
 
 ### Quality of Life
@@ -91,13 +95,26 @@ Found a bug? Hit a crazy high score? Have an idea that would make this wilder? D
 - **Minimap** — Real-time tactical overview with zombie positions, doors, perks, and interactable icons
 - **Player Ranks** — Earn military ranks (Recruit → Corporal → Sergeant → …) based on cumulative performance
 - **Local + Global Leaderboards** — Personal top-5 cached in localStorage; global top-5 streamed from SpacetimeDB
-- **Mobile Support** — Full touch controls with virtual joystick, fire button, reload button, and weapon switcher
+- **Mobile Support** — Full touch controls with virtual joystick, fire button, reload button, weapon switcher, and a **REVIVE** button that appears when a downed teammate is in range. Right-side controls auto-shift inboard on widescreen / foldable landscape devices (aspect ratio ≥ 2:1) so the fire button stays thumb-reachable
 - **Procedural Audio** — Every SFX synthesized via Web Audio API (no audio files needed, instant load)
 - **Ambient Soundscape** — Dynamic eerie atmosphere that adapts to proximity and gameplay state
 - **Radio Transmissions** — Story-driven audio logs triggered on specific rounds
 - **Theme-Aware Branding** — Logo auto-switches between light and dark versions to match GitHub reader's theme
 
 ### Recently Polished (April 2026)
+- **MP host migration + auto-rejoin** — Host quitting / crashing no longer freezes the world. Authority migrates to the next-claiming client within ~10s, local zombie ownership flips cleanly, and a "host disconnected, finding new host…" overlay tells the squad what's happening
+- **Mobile MP revive button** — Touch-equivalent of holding E. Auto-appears when a downed teammate is in range; tap-and-hold fills the bar
+- **Spectator camera quality pass** — Smooth lerped position + yaw follow (no more frame-snap), A/D cycles teammates on desktop, tap left/right cycles on mobile
+- **Mobile fire button widescreen layout** — Foldables and Pro Max landscape get a thumb-reachable cluster instead of a fire button stranded at the screen edge
+- **Invite link survives a refresh** — `?invite=CODE` is mirrored to sessionStorage and re-attempted on every page load until the join confirms; the auth-handshake hiccup that used to drop joins is fixed
+- **Ray Gun splash in MP** — Squads now get the splash damage SP players have always had; per-tick damage routed through the server reducer
+- **Player names propagate on connect** — No more "Survivor" everywhere; auto-generated `Player-####` fallback for users who never typed a name
+- **MP zombies switch targets the moment a teammate goes down** — Roster-change detection forces every zombie to re-pick its chase target on the next frame instead of waiting up to a full second
+- **West door access fixed** — Opening the west wing now clears BOTH the door and the green barracks wall behind it, so zombies and players can actually enter the room
+- **Generators removed** — The undiscoverable easter-egg quest was cut. The BLUE gen at (22,16) had been physically blocking the e-14 window's repair prompt
+- **Posters #4 and #9 fixed** — Both were floating in front of east-wall windows; moved one row down so they read on solid wall
+- **MP rotation fix at match start + after revive** — `pointerlockerror` listener + delayed checks surface the click-to-refocus hint when pointer-lock requests fail silently due to the no-user-gesture browser rule (the cause of "I can't turn my camera at the start of an MP round")
+- **MP "fill your name ↑" arrow direction fixed** — Used to point up; the input is below; flipped to ↓
 - **Kill Streak System** — Rapid kills trigger escalating announcements: DOUBLE KILL → TRIPLE KILL → MULTI KILL → **RAMPAGE!!** with increasing screen shake and color intensity. Streak resets 4s after your last kill
 - **Juggernog Shield Visual** — Absorbing a hit now triggers a red radial pulse; shield break fires a blue-white burst so you always know the moment you become vulnerable
 - **Perk Expiry 2-Stage Warning** — At 15s remaining, an amber "FADING…" float text + descending audio cue tells you to run back to the machine. At 5s, a rapid double-beep warns you it's almost gone. The existing pill pulse at <5s remains
@@ -174,19 +191,29 @@ undead-siege-3d/
 │   │   └── postprocessing.js      # Bloom + film vignette
 │   ├── gameplay/                  # Mystery box, Pack-a-Punch, power-ups, buying, shooting
 │   ├── world/
-│   │   ├── map.js                 # Per-color merged wall meshes + floor/ceiling
+│   │   ├── map.js                 # Per-color merged wall meshes + floor/ceiling + door-tile extraction
 │   │   ├── windows.js             # 14 barricaded windows + plank state + repair
+│   │   ├── posters.js             # 9 cinematic wall posters (easter-egg art)
 │   │   ├── textures.js            # Procedural canvas textures
 │   │   ├── props.js               # Crates, barrels, ambient props
-│   │   ├── story.js               # Generators + radio-transmission script
+│   │   ├── story.js               # Radio-transmission script
 │   │   └── portal.js              # Vibe Jam interdimensional portals
 │   ├── ui/
 │   │   ├── hud.js                 # Ammo box, HP bar, perk pills, float text
 │   │   ├── menu.js                # Main menu + MP lobby UI
 │   │   ├── minimap.js             # Real-time tactical map
 │   │   ├── loading.js             # Boot loader + tips
+│   │   ├── intro.js               # 5-second intro cinematic
+│   │   ├── deathScreen.js         # Death + run-summary card + share buttons
+│   │   ├── scoreboard.js          # MP scoreboard / squad-wipe screen
 │   │   └── profiler.js            # Dev-mode FPS + per-subsystem timing overlay
-│   └── netcode/                   # SpacetimeDB client, host sync, revive, remote players, chat
+│   └── netcode/
+│       ├── connection.js          # SpacetimeDB client + host accessors (incl. host-migration helpers)
+│       ├── hostSync.js            # Host-authoritative zombie sync + host-change detection
+│       ├── remotePlayers.js       # Remote-player models + name tags + downed badge
+│       ├── reviveMp.js            # Downed/revive flow + mobile revive button
+│       ├── spectator.js           # Smooth-follow spectator camera + teammate cycling
+│       └── chat.js                # In-game chat (T to type, lobby-scoped)
 ├── server/                        # Rust SpacetimeDB module (multiplayer backend)
 └── scripts/build.mjs              # esbuild bundler → dist/index.html
 ```
