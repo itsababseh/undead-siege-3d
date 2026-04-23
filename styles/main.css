@@ -185,6 +185,20 @@ canvas{display:block}
   #weaponSwitcher{right:calc(15px + env(safe-area-inset-right))}
   #ammoBox{right:calc(10px + env(safe-area-inset-right))}
 }
+/* Widescreen / landscape phone fire button — when the aspect ratio
+   exceeds 2.0 (iPhone Pro Max landscape, foldables, etc.) the default
+   right:20px puts the fire button uncomfortably far from the thumb.
+   Pull every right-side mobile control inboard so they cluster
+   around where a player's right thumb naturally rests. Joystick on
+   the left is unaffected — left-thumb position is reachable on any
+   aspect ratio. The 2.0 threshold matches the user's report and
+   excludes regular 16:9 phones (which work fine at the default). */
+@media (orientation:landscape) and (min-aspect-ratio: 2/1){
+  #fireBtn   { right:max(72px, calc(8vw + env(safe-area-inset-right))) }
+  #reloadBtn { right:max(190px, calc(8vw + 110px + env(safe-area-inset-right))) }
+  #buyBtn    { right:max(190px, calc(8vw + 110px + env(safe-area-inset-right))) }
+  #reviveBtn { right:max(72px, calc(8vw + env(safe-area-inset-right))) !important }
+}
 /* Floating damage numbers */
 .dmg-num{position:fixed;pointer-events:none;z-index:15;font-family:'Courier New',monospace;font-weight:bold;text-shadow:0 0 6px rgba(0,0,0,0.9),0 0 2px #000;animation:dmgFloat 0.8s ease-out forwards}
 @keyframes dmgFloat{0%{opacity:1;transform:translate(-50%,0) scale(1.2)}30%{opacity:1;transform:translate(-50%,-30px) scale(1)}100%{opacity:0;transform:translate(-50%,-60px) scale(0.7)}}

@@ -1485,6 +1485,11 @@ const _hostSync = createHostSync({
   // Power-up MP wiring
   spawnPowerUpMesh, removePowerUpMesh, applyPowerUpType,
   onKillFromMain,
+  // Host migration callback — fires when the lobby host changes.
+  // Surfaces the auto-rejoin overlay + announces the new host.
+  onHostChanged: (prevHex, newHex, becameHost, lostHost) => {
+    try { _onHostChanged(prevHex, newHex, becameHost, lostHost); } catch (e) {}
+  },
 });
 
 
@@ -1666,6 +1671,71 @@ function hideMpUnlockHint() {
   if (_mpHintEl) _mpHintEl.style.display = 'none';
 }
 
+// ===== HOST MIGRATION OVERLAY =====
+// Surfaces during the gap between the previous host going silent and
+// the server reassigning hostIdentity to a non-host's claim_host call.
+// Hidden the moment _onHostChanged fires (migration completed).
+let _hostMigrationEl = null;
+function _ensureHostMigrationEl() {
+  if (_hostMigrationEl) return _hostMigrationEl;
+  _hostMigrationEl = document.createElement('div');
+  _hostMigrationEl.id = 'hostMigrationOverlay';
+  _hostMigrationEl.style.cssText = `
+    position:fixed;left:50%;top:30%;transform:translateX(-50%);
+    z-index:55;pointer-events:none;display:none;
+    background:rgba(20,8,8,0.92);border:2px solid #c00;border-radius:6px;
+    padding:14px 26px;font:bold 14px monospace;color:#fcc;
+    letter-spacing:2px;text-shadow:0 0 8px rgba(255,80,80,0.7);
+    box-shadow:0 0 24px rgba(200,40,40,0.45);text-align:center;min-width:280px`;
+  _hostMigrationEl.innerHTML =
+    '⚠ HOST DISCONNECTED ⚠<br/>' +
+    '<span style="font-size:11px;color:#fa8;letter-spacing:1.5px;">finding new host…</span>';
+  document.body.appendChild(_hostMigrationEl);
+  return _hostMigrationEl;
+}
+function showHostMigrationOverlay() { _ensureHostMigrationEl().style.display = 'block'; }
+function hideHostMigrationOverlay() { if (_hostMigrationEl) _hostMigrationEl.style.display = 'none'; }
+
+// Threshold (seconds since last hostHeartbeat) before we consider the
+// host disconnected and surface the auto-rejoin overlay. Server-side
+// timeout is 10s — we show UI a couple seconds earlier so the player
+// has feedback before the reassignment actually happens.
+const HOST_STALE_UI_THRESHOLD_SEC = 6;
+function _tickHostMigrationUI() {
+  // Only relevant during an active MP match where we're not the host
+  // and not downed (downed overlay covers the screen).
+  if (!isInActiveMatch() || netcode.isHost() || isLocallyDowned()
+      || (state !== 'playing' && state !== 'roundIntro')) {
+    hideHostMigrationOverlay();
+    return;
+  }
+  const stale = netcode.getHostStaleSec();
+  if (stale > HOST_STALE_UI_THRESHOLD_SEC && stale < Infinity) {
+    showHostMigrationOverlay();
+  } else {
+    hideHostMigrationOverlay();
+  }
+}
+
+// Called by hostSync when the lobby's hostIdentity changes. Hide the
+// disconnect overlay immediately + announce the new host. Zombie
+// ownership flip already happened inline in hostSync before this.
+function _onHostChanged(prevHex, newHex, becameHost, lostHost) {
+  hideHostMigrationOverlay();
+  if (becameHost) {
+    addFloatText('YOU ARE NOW THE HOST', '#fc8', 3);
+  } else if (newHex) {
+    const name = netcode.getPlayerNameByHex(newHex);
+    if (name) addFloatText(`${name.toUpperCase()} IS NOW THE HOST`, '#fca', 2.5);
+    else addFloatText('NEW HOST ELECTED', '#fca', 2);
+  }
+  if (lostHost) {
+    // We were host but got reassigned — usually because our connection
+    // glitched. No special UI; the AI authority flip already happened
+    // and gameplay continues from the new host's stream.
+  }
+}
+
 function keyPressed(k) { return keys[k] && !prevKeys[k]; }
 
 // ===== MOBILE CONTROLS =====
@@ -1740,6 +1810,23 @@ if (isMobile) {
     if (isLocallyDowned()) return;
     tryBuy();
   });
+  // Mobile revive button — hold to fill the revive bar (touch
+  // equivalent of holding E on desktop). reviveMp.js reads this via
+  // window._mobileReviveHeld through the keys-shim getter installed
+  // in initReviveMp ctx. Show/hide is driven from reviveMp.js's per-
+  // frame check (sets display:flex when a downed teammate is in range).
+  const _reviveBtn = document.getElementById('reviveBtn');
+  if (_reviveBtn) {
+    const holdOn  = e => { e.preventDefault(); window._mobileReviveHeld = true; };
+    const holdOff = e => { e.preventDefault(); window._mobileReviveHeld = false; };
+    _reviveBtn.addEventListener('touchstart', holdOn);
+    _reviveBtn.addEventListener('touchend', holdOff);
+    _reviveBtn.addEventListener('touchcancel', holdOff);
+    // Mouse fallback (helpful for browser dev / desktop touch testing)
+    _reviveBtn.addEventListener('mousedown', holdOn);
+    _reviveBtn.addEventListener('mouseup', holdOff);
+    _reviveBtn.addEventListener('mouseleave', holdOff);
+  }
   
   const touchSensitivity = 0.004;
   renderer.domElement.addEventListener('touchstart', e => {
@@ -1928,7 +2015,9 @@ function _update(dt) {
     // no movement/shooting/buying. When the round ends the server flips
     // our spectating flag, tickSpectator detects the transition, and we
     // drop into the game next frame.
-    if (tickSpectator()) {
+    // Pass dt + the live keys map so spectator camera can smooth the
+    // follow lerp and let A/D cycle through teammates while watching.
+    if (tickSpectator(dt, keys)) {
       return;
     }
     tickRevive(dt);
@@ -2970,6 +3059,10 @@ function gameLoop(time) {
   netcode.broadcastLocalWeapon(player.curWeapon | 0);
   profBegin('remotePlayers'); try { updateRemotePlayers(dt, netcode.getRemotePlayers()); } finally { profEnd(); }
   tickChat();
+  // Surface the "host disconnected, finding new host…" overlay during
+  // the gap between heartbeat lapse and server-side hostIdentity
+  // reassignment. Hidden by _onHostChanged the moment migration lands.
+  _tickHostMigrationUI();
 
   if (state === 'menu' || state === 'mpLobby') { profEndFrame(); return; }
 
@@ -3641,6 +3734,10 @@ function dismissMpRunSummary() {
   // flip between mpMenu and mpLobby views automatically.
   netcode.setOnMyLobbyChange((newLobbyId) => {
     if (newLobbyId && newLobbyId !== 0n) {
+      // Server confirmed our lobby assignment — any pending invite-link
+      // join has succeeded. Clear the sessionStorage stash so future
+      // refreshes don't re-attempt to join a lobby we're already in.
+      try { _clearPendingInvite(); } catch (e) {}
       if (state === 'mpMenu' || state === 'menu') {
         showLobbyPanel();
       } else if (state === 'mpLobby') {
@@ -3796,30 +3893,64 @@ let _pendingMpAction = null;
 })();
 
 // ── URL ?invite=CODE bootstrap ────────────────────────────────────
-(() => {
-  const params = new URLSearchParams(window.location.search);
-  const code = (params.get('invite') || '').trim().toUpperCase();
+// Hardened against page refreshes during the auth-handshake window:
+//
+//   1. The invite code is mirrored into sessionStorage on first load.
+//      If the page reloads BEFORE the join lands, we still know what
+//      lobby the user wanted, even if the URL got stripped by some
+//      other code path or the share link they used was edited.
+//
+//   2. The bootstrap runs on EVERY page load AND every transition to
+//      'connected' status. The 'connected' branch in onStatus already
+//      drains _pendingMpAction; this just re-arms it after a refresh
+//      so the drain succeeds on the next connect.
+//
+//   3. The sessionStorage entry is cleared ONLY after we observe our
+//      lobbyId become non-zero (i.e. join actually succeeded). Until
+//      then, every refresh re-attempts. Shipped via setOnMyLobbyChange
+//      so the cleanup runs whenever the server confirms our lobby
+//      assignment, regardless of which code path triggered the join.
+const _INVITE_KEY = 'undead.pendingInvite';
+function _readPendingInvite() {
+  try {
+    const urlCode = (new URLSearchParams(window.location.search).get('invite') || '').trim().toUpperCase();
+    if (urlCode) return urlCode;
+    const stashed = (sessionStorage.getItem(_INVITE_KEY) || '').trim().toUpperCase();
+    return stashed || '';
+  } catch (e) { return ''; }
+}
+function _stashPendingInvite(code) {
+  try { sessionStorage.setItem(_INVITE_KEY, code); } catch (e) {}
+}
+function _clearPendingInvite() {
+  try { sessionStorage.removeItem(_INVITE_KEY); } catch (e) {}
+}
+function _attemptInviteJoin() {
+  const code = _readPendingInvite();
   if (!code) return;
-  // Wait for the page-load dust to settle, then auto-connect + auto-join.
-  setTimeout(() => {
-    const nm = getLocalPlayerName();
-    if (!nm || nm === 'Survivor') {
-      // Name not set — can't auto-join. Highlight the name input and
-      // leave the code in the MP join input so clicking MULTIPLAYER +
-      // JOIN BY CODE finishes it.
-      if (_menuNameInputEl) _menuNameInputEl.focus();
-      if (_mpJoinCodeInput) _mpJoinCodeInput.value = code;
-      return;
+  _stashPendingInvite(code); // ensure it survives any URL rewrite
+  // No name-required gate any more — getLocalPlayerName auto-generates
+  // a Player-#### so the join can always proceed. The user can still
+  // edit their name later from the MP menu.
+  _pendingMpAction = () => {
+    try { netcode.callJoinLobbyByCode(code); } catch (e) {
+      console.warn('[mp] auto-join via invite failed', e);
     }
-    _pendingMpAction = () => netcode.callJoinLobbyByCode(code);
-    if (netcode.isConnected()) {
-      _pendingMpAction();
-      _pendingMpAction = null;
-    } else if (netcode.getStatus() !== 'connecting') {
-      netcode.connect();
-    }
-  }, 100);
-})();
+  };
+  if (netcode.isConnected()) {
+    _pendingMpAction();
+    _pendingMpAction = null;
+  } else if (netcode.getStatus() !== 'connecting') {
+    netcode.connect();
+  }
+}
+// Initial run (waits for the page-load dust to settle).
+setTimeout(_attemptInviteJoin, 100);
+// Re-arm if the player ever fully drops back to disconnected (e.g.
+// they refresh, click LEAVE MP, then we get a stash hit on next
+// connect). 'connected' status is also handled inline in onStatus
+// via the existing _pendingMpAction drain — no double-fire risk.
+// Successful joins clear the stash via setOnMyLobbyChange below.
 
 // ===== SPECTATOR CAMERA + OVERLAY =====
 // Implementation in src/netcode/spectator.js. tickSpectator() is called
