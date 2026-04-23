@@ -151,6 +151,15 @@ function _buildDom() {
 
 export function startIntro() {
   console.log('[intro] cinematic starting');
+  // If a previous run somehow left _active=true (e.g. portal resume
+  // raced with initGame's startIntro, or a skip-key edge missed its
+  // own endIntro), reset the overlay cleanly first. Without this the
+  // old subtitle / letterbox / skip button can persist on-screen
+  // while gameplay is running underneath (the "intro visible but I
+  // can shoot" bug).
+  if (_active) {
+    try { endIntro(); } catch (e) { /* swallow — we'll overwrite below */ }
+  }
   _active = true;
   _timer = 0;
   _groanTimer = 0;
