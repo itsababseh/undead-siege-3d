@@ -1902,6 +1902,10 @@ function getKnifeDamage() {
 
 function tryKnife() {
   if (state !== 'playing' && state !== 'roundIntro') return;
+  // Same intro-desync gate — no knifing during the cinematic even if
+  // the render loop has somehow drifted off state='intro' while the
+  // overlay is still up.
+  if (isIntroActive()) return;
   if (knifeCooldown > 0) return;
   knifeCooldown = KNIFE_COOLDOWN;
   knifeAnimTimer = KNIFE_ANIM_DUR;
@@ -2071,7 +2075,8 @@ function _update(dt) {
     }
     if (keyPressed('r')) doReload();
     const isFiringDown = mouseDown || mobileFiring;
-    if (isFiringDown && state === 'playing') {
+    // Same intro-desync gate as the standing fire path above.
+    if (isFiringDown && state === 'playing' && !isIntroActive()) {
       const wD = weapons[0];
       if (wD.auto) tryShoot(); else { if (!player._lastFiring) tryShoot(); }
     }
@@ -2157,7 +2162,13 @@ function _update(dt) {
 
     const w = weapons[player.curWeapon];
     const isFiring = mouseDown || mobileFiring;
-    if (isFiring && state === 'playing') {
+    // Double gate — state === 'playing' AND intro not active. The
+    // render loop's state=='intro' early-return already blocks this
+    // path in the normal flow, but if the intro overlay is still up
+    // from a desync (see desync-guard in animate loop) we still
+    // shouldn't fire bullets. Same check on the downed-crawl fire
+    // path below.
+    if (isFiring && state === 'playing' && !isIntroActive()) {
       if (w.auto) { tryShoot(); }
       else { if (!player._lastFiring) tryShoot(); }
     }
@@ -3104,6 +3115,17 @@ function gameLoop(time) {
     profBegin('render'); try { renderPostProcessing(); } finally { profEnd(); }
     profEndFrame();
     return;
+  }
+  // DESYNC GUARD: if the intro overlay is still active (letterbox /
+  // subtitle / skip hint visible, gun hidden) but state has drifted
+  // off 'intro' — e.g. portal-resume + MP match-start raced, or a
+  // previous intro somehow left `_active=true` — we'd end up running
+  // full gameplay under the intro overlay (reported as "I'm in the
+  // intro but shooting with no gun visible"). Force-end the intro so
+  // the overlay clears and the gun comes back. Safe to call from any
+  // state: endIntro() no-ops when _active is already false.
+  if (isIntroActive() && state !== 'intro') {
+    try { endIntro(); } catch (e) { console.warn('[intro] desync force-end failed', e); }
   }
 
   profBegin('update'); try { update(dt); } finally { profEnd(); }
