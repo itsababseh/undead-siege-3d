@@ -27,12 +27,26 @@ export function initDeathScreen(ctx) {
 }
 
 export function isDeathShown() { return _shown; }
-export function resetDeathShown() { _shown = false; }
+export function resetDeathShown() {
+  _shown = false;
+  // Restore body touch-action so gameplay doesn't get unwanted
+  // browser scroll/zoom gestures. See note in showDeath().
+  try { document.body.style.touchAction = ''; } catch (e) {}
+}
 
 export function showDeath() {
   try { resetKillStreak(); } catch(e) {}
   if (_shown) return;
   _shown = true;
+  // Re-enable touch scrolling on the body for the death screen. The
+  // `body { touch-action: none }` rule is there for gameplay (stops
+  // the browser from pinch-zooming / swiping away mid-round) but it
+  // also prevents the user from scrolling the death-screen blocker
+  // on mobile — which on anything shorter than ~720px viewport
+  // clips FIGHT AGAIN out of reach ("stuck on the you-died screen"
+  // bug). Restored to 'none' in resetDeathShown() so gameplay isn't
+  // affected on FIGHT AGAIN / MAIN MENU.
+  try { document.body.style.touchAction = 'pan-y'; } catch (e) {}
   updatePersistentStats();
   closeRadio();
   const round = _gameState.round;

@@ -1,7 +1,20 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-action:none}
 canvas{display:block}
-#blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s}
+#blocker{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 0.5s;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:20px 12px}
+/* Short-viewport fallback (mobile landscape, small tablets): the death
+   screen is ~700px of stacked content — YOU DIED, stats, two-column
+   leaderboard, FOUR buttons (FIGHT AGAIN / MP / PORTAL / SHARE), and
+   the rank footer. At < ~700px viewport height flex-center clips the
+   buttons out of the viewport AND the lack of scroll makes them
+   unreachable ("stuck on the you-died screen" bug). Switch to
+   flex-start + scroll so the top is always visible and the user can
+   swipe down to reach FIGHT AGAIN. */
+@media (max-height: 720px){
+  #blocker{justify-content:flex-start;padding:16px 10px 40px}
+  #blocker h1{margin-bottom:2px}
+  #blocker .sub{margin-bottom:8px}
+}
 #blocker.hidden{opacity:0 !important;pointer-events:none !important}
 /* When the HUD root has .hidden (during intro cinematic, death, etc.) fade out instantly */
 #hud.hidden{opacity:0 !important;pointer-events:none !important}
