@@ -187,7 +187,23 @@ export function tryShoot() {
     }
 
     if (bestZ) {
-      const mpActive = netcode.isConnected();
+      // CRITICAL: "MP" must mean "in an actual lobby", not just
+      // "connected to the server". The death screen + MULTIPLAYER
+      // button auto-connect to populate the high-score leaderboard,
+      // so a SP player who ever clicked either has an open netcode
+      // socket. If we route damage to callDamageZombie() in that
+      // state the reducer call lands on the server but operates on
+      // no row (SP zombies don't have server-side rows), and the
+      // local SP code path under `else` never runs — so the zombie's
+      // HP never decrements and they appear invincible. Mirrors the
+      // isInActiveMatch() check in main.js.
+      const mpActive = (() => {
+        if (!netcode.isConnected()) return false;
+        try {
+          const id = netcode.getMyLobbyId();
+          return id && id !== 0n;
+        } catch (e) { return false; }
+      })();
 
       sfxHit();
       bestZ.flash = 1;
