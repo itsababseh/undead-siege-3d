@@ -153,6 +153,9 @@
   <div style="font-size:48px;font-weight:bold;color:#4af;text-shadow:0 0 20px #4af,0 0 40px rgba(68,170,255,0.6);letter-spacing:4px;">SPECTATING</div>
   <div style="margin-top:12px;font-size:18px;color:#acf;">You'll drop in at the start of the next round.</div>
   <div id="spectatorTarget" style="margin-top:20px;font-size:14px;color:#888;"></div>
+  <div id="spectatorSwitchHint" style="margin-top:14px;font-size:12px;color:#7af;letter-spacing:2px;display:none;">
+    ◄ A / D ►&nbsp;&nbsp;or&nbsp;&nbsp;TAP SCREEN&nbsp;&nbsp;to switch teammate
+  </div>
 </div>
 
 <!-- MP revive prompt: shown on the reviver's HUD when near a downed teammate. -->
@@ -245,6 +248,17 @@
   <div id="fireBtn">FIRE</div>
   <div id="reloadBtn">R</div>
   <div id="buyBtn">E</div>
+  <!-- Hold-to-revive button for mobile MP. Hidden by default; the
+       revive system shows it via display:flex while a downed
+       teammate is in range. Tap-and-hold mirrors holding E on desktop. -->
+  <div id="reviveBtn" style="display:none;position:absolute;right:24px;bottom:160px;
+       width:88px;height:88px;border-radius:50%;
+       background:linear-gradient(180deg,rgba(255,200,80,0.85),rgba(220,80,40,0.85));
+       border:3px solid #fff;box-shadow:0 0 18px rgba(255,160,80,0.6);
+       color:#fff;font:bold 13px/88px monospace;text-align:center;
+       letter-spacing:2px;text-shadow:0 1px 3px rgba(0,0,0,0.8);
+       user-select:none;-webkit-user-select:none;touch-action:none;
+       align-items:center;justify-content:center;z-index:50;">REVIVE</div>
   <div id="weaponSwitcher"></div>
 </div>
 

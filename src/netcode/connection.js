@@ -307,6 +307,40 @@ export function isHost() {
   return identityHex(lobby.hostIdentity) === identityHex(_localIdentity);
 }
 
+// Hex string of the current host's identity (or null). Lets callers
+// detect host transitions (compare frame-to-frame; non-equal = migration).
+export function getHostIdentityHex() {
+  const lobby = getMyLobby();
+  if (!lobby || !lobby.hostIdentity) return null;
+  try { return identityHex(lobby.hostIdentity); } catch (e) { return null; }
+}
+
+// True identity hex of the local client (or null pre-connect).
+export function getLocalIdentityHex() {
+  return _localIdentity ? identityHex(_localIdentity) : null;
+}
+
+// Seconds since the host last sent a heartbeat. Returns Infinity when
+// no host or no lobby. Used by the auto-rejoin UI to show "host
+// disconnected, finding new host…" when the heartbeat lapses.
+export function getHostStaleSec() {
+  const lobby = getMyLobby();
+  if (!lobby || !lobby.hostLastSeen) return Infinity;
+  try {
+    const lastMicros = BigInt(lobby.hostLastSeen.microsSinceUnixEpoch);
+    const nowMicros = BigInt(Date.now()) * 1000n;
+    const ageMicros = Number(nowMicros - lastMicros);
+    return ageMicros / 1_000_000;
+  } catch (e) { return Infinity; }
+}
+
+// Identity hex → display name lookup. Used by the migration UI to
+// announce "X is now the host".
+export function getPlayerNameByHex(hex) {
+  const p = _players.get(hex);
+  return p ? (p.name || 'Survivor') : null;
+}
+
 export function getGameStatus() {
   const lobby = getMyLobby();
   return lobby?.status || 'lobby';

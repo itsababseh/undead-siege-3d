@@ -93,6 +93,11 @@ export function createHostSync(ctx) {
     spawnPowerUpMesh, removePowerUpMesh,
     applyPowerUpType,
     onKillFromMain,
+    // Host migration callback — fires when the lobby's host identity
+    // changes between subscription deltas. Receives (prevHex, newHex,
+    // becameHost: bool, lostHost: bool). UI can show toasts; gameplay
+    // re-keys zombie ownership inline below before the callback fires.
+    onHostChanged,
   } = ctx;
 
   // Award points + death VFX when the server deletes a zombie row.
@@ -127,6 +132,12 @@ export function createHostSync(ctx) {
 
   // Track the last-seen status so we can detect lobby↔playing transitions.
   let _lastStatus = 'lobby';
+  // Tracks the previous lobby's host identity hex so we can detect
+  // host migration (server reassigns hostIdentity after the original
+  // host's heartbeat lapses). On change: flip every local zombie's
+  // _remote flag to match new ownership so the new host's AI loop
+  // owns positions cleanly instead of fighting echoed server updates.
+  let _lastKnownHostHex = null;
 
   // ── Power-up spawn throttle (host only) ─────────────────────────────
   // Mirrors the SP logic in powerups.js: random drop chance per kill,
@@ -301,6 +312,57 @@ export function createHostSync(ctx) {
             } catch (e) { console.warn('[netcode] submitHighScore on reset failed', e); }
           }
           if (onMatchEnded) { try { onMatchEnded(); } catch (e) { console.warn('[mp] onMatchEnded', e); } }
+        }
+      }
+
+      // ---- Host migration detection -------------------------------
+      // The lobby row carries the current host's identity. When the
+      // original host's heartbeat lapses (>10s server timeout), any
+      // non-host's claim_host call succeeds and the server flips
+      // hostIdentity here. We need to:
+      //   - Flip the LOCAL zombie array's _remote ownership flag so
+      //     the new host's AI owns the positions (otherwise echoed
+      //     server updates fight the AI every frame), and the
+      //     ex-host's zombies become server-driven mirrors.
+      //   - Tell main.js so it can show "X is now the host" UI and
+      //     hide the "host disconnected" overlay from auto-rejoin.
+      const newHostHex = (() => {
+        try { return row.hostIdentity ? netcode.getHostIdentityHex() : null; }
+        catch (e) { return null; }
+      })();
+      if (newHostHex !== _lastKnownHostHex) {
+        const prevHex = _lastKnownHostHex;
+        _lastKnownHostHex = newHostHex;
+        const localHex = netcode.getLocalIdentityHex();
+        const becameHost = !!(newHostHex && localHex && newHostHex === localHex);
+        const lostHost  = !!(prevHex && localHex && prevHex === localHex && !becameHost);
+        if (becameHost) {
+          // We just took over. Every zombie was being mirrored from
+          // the old host's stream — adopt them as our own, clear
+          // lerp targets so the AI moves them from their current
+          // visible position, and reset stall/stuck probes so the
+          // watchdog doesn't immediately classify them as stuck.
+          for (const z of zombies) {
+            z._remote = false;
+            z._targetWx = undefined;
+            z._targetWz = undefined;
+            z._stallProbe = null;
+            z.stuckCheck = null;
+          }
+        } else if (lostHost) {
+          // We had host but the server reassigned (probably because
+          // we lost connection long enough to time out). Become a
+          // mirror — give back authority so the new host's stream
+          // owns positions cleanly.
+          for (const z of zombies) {
+            z._remote = true;
+            z._targetWx = z.wx;
+            z._targetWz = z.wz;
+          }
+        }
+        if (onHostChanged) {
+          try { onHostChanged(prevHex, newHostHex, becameHost, lostHost); }
+          catch (e) { console.warn('[mp] onHostChanged cb failed', e); }
         }
       }
 

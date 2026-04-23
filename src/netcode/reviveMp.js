@@ -70,6 +70,13 @@ export function resetDownedState() {
   if (ov) ov.style.display = 'none';
   const hud = getHud();
   if (hud) hud.style.display = 'none';
+  // Also drop the mobile revive button + held flag so a stale state
+  // from the prior match doesn't carry over.
+  if (typeof document !== 'undefined') {
+    const btn = document.getElementById('reviveBtn');
+    if (btn) btn.style.display = 'none';
+  }
+  if (typeof window !== 'undefined') window._mobileReviveHeld = false;
 }
 
 /**
@@ -153,12 +160,26 @@ export function tickDowned() {
  * the progress bar based on whether E is held, and fires the reducer on
  * completion.
  */
+// Hide-helpers for the mobile revive button (no-op on desktop). The
+// button lives in index.html and is wired in main.js; reviveMp owns
+// the visibility because it's the only thing that knows whether a
+// downed teammate is in range right now.
+function _setMobileReviveBtnVisible(show) {
+  const btn = (typeof document !== 'undefined') && document.getElementById('reviveBtn');
+  if (!btn) return;
+  btn.style.display = show ? 'flex' : 'none';
+  // Drop the held flag whenever the button hides so a stale held state
+  // doesn't auto-fill once a new teammate goes down.
+  if (!show && typeof window !== 'undefined') window._mobileReviveHeld = false;
+}
+
 export function tickRevive(dt) {
   if (!_inActiveMatch()) {
     _reviveProgress = 0;
     _reviveTargetHex = null;
     const hud = getHud();
     if (hud && hud.style.display !== 'none') hud.style.display = 'none';
+    _setMobileReviveBtnVisible(false);
     return;
   }
 
@@ -177,6 +198,7 @@ export function tickRevive(dt) {
     _reviveProgress = 0;
     _reviveTargetHex = null;
     if (hud && hud.style.display !== 'none') hud.style.display = 'none';
+    _setMobileReviveBtnVisible(false);
     return;
   }
 
@@ -190,6 +212,7 @@ export function tickRevive(dt) {
     const nameEl = getTargetName();
     if (nameEl) nameEl.textContent = nearest.name || 'Survivor';
   }
+  _setMobileReviveBtnVisible(true);
 
   // Quick Revive perk multiplies the fill rate (default 1x, perk = 4x
   // which means ~0.75s total instead of 3s).
@@ -199,7 +222,11 @@ export function tickRevive(dt) {
   // there's no conflict — you can't accidentally buy by holding E near
   // a downed teammate, and you can't accidentally revive by tapping E
   // at a wall-buy that isn't next to a downed teammate.
-  if (_ctx.keys['e']) {
+  // Mobile: window._mobileReviveHeld is set by the reviveBtn touch
+  // handlers in main.js. Either input source counts as "held".
+  const heldDesktop = !!_ctx.keys['e'];
+  const heldMobile = (typeof window !== 'undefined') && !!window._mobileReviveHeld;
+  if (heldDesktop || heldMobile) {
     _reviveProgress = Math.min(1, _reviveProgress + (dt * speedMult) / REVIVE_TIME_SEC);
   } else {
     _reviveProgress = Math.max(0, _reviveProgress - dt * 2);
