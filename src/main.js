@@ -4145,7 +4145,7 @@ window.addEventListener('pageshow', (e) => {
 window._shareTwitter = function(r, k, p) {
   const gameUrl = 'https://itsababseh.github.io/undead-siege-3d/';
   const txt = encodeURIComponent(
-    `I survived Round ${r} in Undead Siege 3D — ${k} kills, ${p} pts! Can you beat it? 🧟\n\ncc @whatdoesababsay #VibeJam2026 #UndeadSiege3D`
+    `I survived Round ${r} in Undead Siege 3D — ${k} kills, ${p} pts! Can you beat it? 🧟\n\ncc @whatdoesababsay @Auto_GPT #VibeJam2026 #UndeadSiege3D`
   );
   // url= param triggers Twitter's card crawler (og:image, og:title etc.)
   // Keep the URL out of the text so it doesn't eat tweet characters
