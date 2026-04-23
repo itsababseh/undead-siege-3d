@@ -220,6 +220,31 @@ export function tryShoot() {
         const dmg = player._instaKill ? 999999 : w.dmg;
         try { netcode.callDamageZombie(bestZ.hostZid, dmg); }
         catch (e) { console.warn('[mp] damageZombie failed', e); }
+        // Ray Gun splash in MP — same radius/falloff math as SP, but
+        // every per-zombie damage tick goes through the server reducer
+        // so HP / death stay authoritative. Local VFX (particles +
+        // damage numbers) still fire on the shooter's client; remote
+        // clients see the HP drop via subscription. Skipped in MP-SP
+        // pre-fix would have been a long-standing 'splash doesn't
+        // work for the squad' bug.
+        if (w.splashRadius) {
+          const splashDmg = Math.floor(w.dmg * 0.5);
+          const sx = bestZ.wx, sz = bestZ.wz;
+          for (const sz2 of zombies) {
+            if (sz2 === bestZ || sz2._spawnRising) continue;
+            if (!sz2.hostZid) continue;
+            const sd = Math.hypot(sz2.wx - sx, sz2.wz - sz);
+            if (sd > w.splashRadius) continue;
+            const falloff = 1 - (sd / w.splashRadius);
+            const dmgAmt = player._instaKill ? 999999 : Math.floor(splashDmg * falloff);
+            if (dmgAmt <= 0) continue;
+            sz2.flash = 0.5;
+            spawnEnergyParticles(sz2.wx, 1, sz2.wz, 3);
+            spawnDmgNumber(sz2.wx, 1.6 + Math.random() * 0.3, sz2.wz, dmgAmt, false);
+            try { netcode.callDamageZombie(sz2.hostZid, dmgAmt); }
+            catch (e) { console.warn('[mp] splash damageZombie failed', e); }
+          }
+        }
       } else {
         bestZ.hp -= w.dmg;
         if (player._instaKill && bestZ.hp > 0) bestZ.hp = 0;
@@ -263,7 +288,10 @@ export function tryShoot() {
           }
         }
 
-        // Ray Gun splash damage — hurts nearby zombies. SP only.
+        // Ray Gun splash damage (SP path) — hurts nearby zombies.
+        // The MP path above runs an equivalent loop that routes each
+        // splash hit through netcode.callDamageZombie() instead of
+        // touching local HP, so squads also see splash kills.
         if (w.splashRadius) {
           const splashDmg = Math.floor(w.dmg * 0.5);
           const sx = bestZ.wx, sz = bestZ.wz;
