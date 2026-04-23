@@ -1336,9 +1336,17 @@ function spawnZombie() {
   let dmg = Math.floor((10 + round * 3) * (1 + tier * 0.3));
   
   let isBoss = false, isElite = false;
+  // Per-5-round boss tier. bossTier = 0 at round 5 (the first boss
+  // round), 1 at round 10, 2 at round 15, etc. Used below to scale
+  // BOTH the HP mult and the speed mult so late-game bosses are
+  // meaningfully tougher without regressing the round-5 feel. The
+  // slope per tier is: HP +7× per tier (was +5×), speed +0.035 per
+  // tier on top of the 0.7 base (capped at 0.88 so a hard speed cap
+  // below keeps the player's sprint always faster — see boss cap).
+  const bossTier = Math.max(0, Math.floor((round - 5) / 5));
   if (round % 5 === 0 && zSpawned === zToSpawn - 1) {
     isBoss = true;
-    const bossHpMult = 12 + Math.floor((round - 5) / 5) * 5;
+    const bossHpMult = 12 + bossTier * 7;
     hp *= bossHpMult;
     spd *= 0.6; dmg *= 4;
   } else if (round >= 3 && Math.random() < 0.15) {
@@ -1351,7 +1359,14 @@ function spawnZombie() {
   else if (speedRoll < 0.32) { speedMult = 0.45 + Math.random() * 0.2; hasLimp = false; }
   else if (speedRoll < 0.55) { speedMult = 0.5 + Math.random() * 0.3; hasLimp = true; }
   else { speedMult = 0.75 + Math.random() * 0.5; hasLimp = false; }
-  if (isBoss) { speedMult = 0.7; hasLimp = false; }
+  if (isBoss) {
+    // Boss speed mult scales with the bossTier computed above. Round 5
+    // keeps the original 0.7 (unchanged feel for the first boss).
+    // Each tier adds 0.035, capped at 0.88 so phase-3 (×1.5) plus the
+    // hard cap below never let the boss outrun a sprinting player.
+    speedMult = Math.min(0.88, 0.7 + bossTier * 0.035);
+    hasLimp = false;
+  }
   if (isElite) { speedMult = 1.15 + Math.random() * 0.2; hasLimp = false; }
   // FINAL 2 zombies of a round always sprint — no slow-shamble or
   // limp roll. They appear close to the player AND close the gap
@@ -1369,11 +1384,18 @@ function spawnZombie() {
   // player who's actively sprinting can always out-distance any single
   // zombie even on late rounds — otherwise the tier + fast-branch +
   // final-two stack can produce 14-16+ u/s zombies that outrun sprint.
-  // Bosses are excluded from the cap — they're designed to be tanky,
-  // not fast (their default speedMult 0.7 already keeps them slow).
   if (!isBoss) {
     const ZOMBIE_MAX_SPEED = player.speed * SPRINT_MULT * 0.95;
     spd = Math.min(spd, ZOMBIE_MAX_SPEED);
+  } else {
+    // Boss cap — with tier scaling bosses can now reach speedMult 0.88,
+    // and phase 3 additionally multiplies by 1.5, so a raw-cap check
+    // is needed to keep the sprint-outrun guarantee. Cap the stored
+    // base speed at 60% of player sprint (~6.96 u/s). Phase-3 max then
+    // lands at ~10.44 u/s — safely below the 11.02 u/s sprint speed so
+    // a player fleeing with Shift held can always open the gap.
+    const BOSS_BASE_MAX = player.speed * SPRINT_MULT * 0.60;
+    spd = Math.min(spd, BOSS_BASE_MAX);
   }
 
   const _aiSpeedMult = isBoss ? 0.7 : (0.85 + Math.random() * 0.3);
