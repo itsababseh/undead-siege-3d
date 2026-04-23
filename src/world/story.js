@@ -16,18 +16,22 @@ export function setStoryDoors(doors) {
 
 
 // --- Radio Transmissions (narrative between rounds) ---
+// Generator/catalyst-related transmissions removed alongside the easter
+// egg quest itself (those mechanics no longer exist in-game). Replaced
+// with atmosphere/threat-escalation flavor so the radio still rewards
+// pushing into late rounds.
 const radioTransmissions = [
   { round: 1, speaker: 'COMMAND', text: 'Operative, this is Command. You\'ve been deployed to Facility 935. The dead are rising. Hold your position at all costs.', color: '#4af' },
   { round: 2, speaker: 'COMMAND', text: 'We\'re detecting increased anomalous activity. The breach originated from the west wing laboratory. Do NOT investigate... yet.', color: '#4af' },
   { round: 3, speaker: 'DR. RICHTER', text: '*static* ...the serum... it wasn\'t supposed to... they were already dead when we started the trials...', color: '#f84' },
-  { round: 5, speaker: 'COMMAND', text: 'Good work surviving this long. Intel suggests the horde is being controlled. Find the source. We\'re detecting energy signatures from three generators.', color: '#4af' },
-  { round: 7, speaker: 'DR. RICHTER', text: '*crackle* The Element 115... it binds them. Three generators power the containment field. If you could overload them... but the sequence matters...', color: '#f84' },
-  { round: 10, speaker: 'COMMAND', text: 'Operative, radiation levels are spiking. Whatever Richter was working on, it\'s accelerating. Find those generators. That\'s an order.', color: '#4af' },
+  { round: 5, speaker: 'COMMAND', text: 'Good work surviving this long. The horde\'s growing — fall back to a chokepoint. The boards on the windows won\'t hold forever.', color: '#4af' },
+  { round: 7, speaker: 'DR. RICHTER', text: '*crackle* The Element 115... it binds them. They feel pain. They remember you. Be ready — they learn.', color: '#f84' },
+  { round: 10, speaker: 'COMMAND', text: 'Radiation levels are spiking. Whatever Richter was working on, it\'s accelerating. Hold the line, Operative.', color: '#4af' },
   { round: 12, speaker: '???', text: '*distorted voice* ...you think you can stop this? We are already free. The 115 chose US. It will choose you too...', color: '#f44' },
-  { round: 15, speaker: 'DR. RICHTER', text: 'The generators! Red, Blue, Yellow — activate them in the correct order. I encoded the sequence in the facility... look at the walls... the symbols...', color: '#f84' },
-  { round: 18, speaker: 'COMMAND', text: 'Operative, your extraction window is closing. Complete the objective or we\'ll be forced to enact Protocol Omega. You don\'t want that.', color: '#4af' },
+  { round: 15, speaker: 'DR. RICHTER', text: 'The breach is widening. They\'re coming through the walls now. Patch every board you can — that\'s your only edge.', color: '#f84' },
+  { round: 18, speaker: 'COMMAND', text: 'Your extraction window is closing. Complete the objective or we\'ll be forced to enact Protocol Omega. You don\'t want that.', color: '#4af' },
   { round: 20, speaker: '???', text: '*laughing* Protocol Omega... they\'ll burn everything. You, us, the truth. But Element 115 cannot be destroyed. WE cannot be destroyed.', color: '#f44' },
-  { round: 25, speaker: 'DR. RICHTER', text: 'If you\'ve activated all three generators... go to the central chamber. The machine there... it can reverse the breach. But it needs a catalyst. YOUR life force. Are you prepared to sacrifice?', color: '#f84' },
+  { round: 25, speaker: 'DR. RICHTER', text: 'If you\'ve made it this far... maybe there\'s hope. Keep killing. Keep moving. The dead don\'t get to win today.', color: '#f84' },
 ];
 
 let radioActive = false;
@@ -119,180 +123,35 @@ export function closeRadio() {
   document.getElementById('radioOverlay').style.display = 'none';
 }
 
-// --- Easter Egg Quest ---
+// --- Easter Egg Quest (REMOVED) ---
+//
+// The original three-generator + catalyst quest was removed because the
+// in-world generators were blocking other interactions (notably the BLUE
+// generator at (22,16) sat on top of the e-14 window's repair prompt,
+// making the barricade un-repairable). The quest was also unfindable
+// without out-of-band knowledge of the activation sequence.
+//
+// `easterEgg` stays exported as an empty stub so HUD / minimap loops
+// over `easterEgg.generators` and the initGame state-reset block
+// continue to no-op cleanly without scattering null checks everywhere.
+// `buildGenerators` / `tryActivateGenerator` / `tryCatalyst` /
+// `updateGenerators` are kept as empty exports so the import bindings
+// in main.js + buying.js stay valid without further surgery.
 export const easterEgg = {
-  generators: [
-    { id: 'red', tx: 3, tz: 3, color: '#ff2222', activated: false, doorReq: 'west', label: 'RED GENERATOR' },
-    { id: 'blue', tx: 22, tz: 16, color: '#2244ff', activated: false, doorReq: 'east', label: 'BLUE GENERATOR' },
-    { id: 'yellow', tx: 15, tz: 21, color: '#ffdd00', activated: false, doorReq: null, label: 'YELLOW GENERATOR' },
-  ],
-  correctOrder: ['red', 'yellow', 'blue'], // The secret sequence
+  generators: [],
+  correctOrder: [],
   activatedOrder: [],
   allActivated: false,
   catalystReady: false,
   catalystUsed: false,
   questComplete: false,
-  catalystTx: 12, catalystTz: 12, // central chamber
+  catalystTx: -1, catalystTz: -1,
 };
 
-const generatorMeshes = [];
-
-export function buildGenerators() {
-  // Clean old
-  generatorMeshes.forEach(gm => { _scene.remove(gm.body); _scene.remove(gm.light); _scene.remove(gm.ring); });
-  generatorMeshes.length = 0;
-  
-  easterEgg.generators.forEach(gen => {
-    const gx = gen.tx * _TILE + _TILE / 2;
-    const gz = gen.tz * _TILE + _TILE / 2;
-    const color = new THREE.Color(gen.color);
-    
-    // Generator body (cylinder)
-    const bodyGeo = new THREE.CylinderGeometry(0.5, 0.6, 1.8, 8);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333340, roughness: 0.5, metalness: 0.6 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.set(gx, 0.9, gz);
-    body.castShadow = true;
-    _scene.add(body);
-    
-    // Energy ring (torus)
-    const ringGeo = new THREE.TorusGeometry(0.7, 0.05, 8, 16);
-    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.set(gx, 1.2, gz);
-    ring.rotation.x = Math.PI / 2;
-    _scene.add(ring);
-    
-    // Light
-    const light = new THREE.PointLight(color.getHex(), 0.5, 10);
-    light.position.set(gx, 2, gz);
-    _scene.add(light);
-    
-    generatorMeshes.push({ body, ring, light, gen });
-  });
-}
-
-export function tryActivateGenerator() {
-  if (easterEgg.allActivated) return false;
-  
-  const px = _camera.position.x, pz = _camera.position.z;
-  for (const gen of easterEgg.generators) {
-    if (gen.activated) continue;
-    
-    // Check door requirement
-    if (gen.doorReq) {
-      const door = _doors.find(d => d.id === gen.doorReq);
-      if (!door || !door.opened) continue;
-    }
-    
-    const gx = gen.tx * _TILE + _TILE / 2;
-    const gz = gen.tz * _TILE + _TILE / 2;
-    const d = Math.hypot(gx - px, gz - pz);
-    if (d > _TILE * 2) continue;
-    
-    // Activate!
-    gen.activated = true;
-    easterEgg.activatedOrder.push(gen.id);
-    
-    // Check if correct order
-    const idx = easterEgg.activatedOrder.length - 1;
-    const isCorrect = easterEgg.activatedOrder[idx] === easterEgg.correctOrder[idx];
-    
-    if (isCorrect) {
-      _addFloatText(`⚡ ${gen.label} ACTIVATED ⚡`, gen.color, 3);
-      triggerScreenShake(0.8, 6);
-      beep(400, 'sine', 0.15, 0.12);
-      setTimeout(() => beep(600, 'sine', 0.15, 0.12), 120);
-      setTimeout(() => beep(800, 'sine', 0.2, 0.1), 240);
-      _gs.points += 500;
-    } else {
-      // Wrong order — reset all generators
-      _addFloatText('⚠ WRONG SEQUENCE ⚠', '#f44', 3);
-      _addFloatText('Generators reset...', '#888', 2.5);
-      triggerScreenShake(1.5, 4);
-      beep(200, 'sawtooth', 0.3, 0.15);
-      easterEgg.generators.forEach(g => g.activated = false);
-      easterEgg.activatedOrder = [];
-    }
-    
-    // Check if all activated correctly
-    if (easterEgg.activatedOrder.length === 3 && 
-        easterEgg.activatedOrder.every((id, i) => id === easterEgg.correctOrder[i])) {
-      easterEgg.allActivated = true;
-      easterEgg.catalystReady = true;
-      _addFloatText('🔓 ALL GENERATORS ACTIVE!', '#0f0', 4);
-      _addFloatText('Go to the Central Chamber...', '#fc0', 3.5);
-      triggerScreenShake(2, 4);
-      // Dramatic sound
-      setTimeout(() => {
-        beep(200, 'sine', 0.3, 0.15);
-        setTimeout(() => beep(300, 'sine', 0.3, 0.15), 200);
-        setTimeout(() => beep(400, 'sine', 0.3, 0.15), 400);
-        setTimeout(() => beep(600, 'sine', 0.5, 0.12), 600);
-      }, 500);
-    }
-    
-    return true;
-  }
-  return false;
-}
-
-export function tryCatalyst() {
-  if (!easterEgg.catalystReady || easterEgg.catalystUsed) return false;
-  
-  const cx = easterEgg.catalystTx * _TILE + _TILE / 2;
-  const cz = easterEgg.catalystTz * _TILE + _TILE / 2;
-  const d = Math.hypot(cx - _camera.position.x, cz - _camera.position.z);
-  if (d > _TILE * 2) return false;
-  
-  // Easter egg complete!
-  easterEgg.catalystUsed = true;
-  easterEgg.questComplete = true;
-  
-  // Massive reward
-  _gs.points += 10000;
-  _gs.player.maxHp = 250;
-  _gs.player.hp = 250;
-  
-  // Visual spectacle
-  triggerScreenShake(3, 3);
-  const flash = document.getElementById('roundFlash');
-  flash.style.display = 'block';
-  flash.style.opacity = '0.8';
-  flash.style.background = 'rgba(100,200,255,0.5)';
-  setTimeout(() => { flash.style.opacity = '0'; setTimeout(() => { flash.style.display = 'none'; flash.style.background = 'rgba(255,255,255,0.3)'; }, 800); }, 500);
-  
-  // Epic sound
-  beep(200, 'sine', 0.5, 0.15);
-  setTimeout(() => beep(400, 'sine', 0.5, 0.15), 300);
-  setTimeout(() => beep(600, 'sine', 0.5, 0.15), 600);
-  setTimeout(() => beep(800, 'sine', 0.5, 0.15), 900);
-  setTimeout(() => beep(1200, 'sine', 1.0, 0.12), 1200);
-  
-  _addFloatText('🏆 EASTER EGG COMPLETE! 🏆', '#0ff', 5);
-  _addFloatText('+10,000 POINTS · 250 MAX HP', '#fc0', 4);
-  _addFloatText('The breach is sealed...', '#4af', 3.5);
-  _addFloatText('But the dead still walk.', '#f84', 3);
-  
-  // Save to persistent unlocks
-  saveUnlock('easterEggComplete', true);
-  saveUnlock('highestEERound', _gs.round);
-  
-  return true;
-}
-
-export function updateGenerators(dt) {
-  const t = performance.now() / 1000;
-  generatorMeshes.forEach(gm => {
-    const activated = gm.gen.activated;
-    gm.ring.material.opacity = activated ? 0.6 + Math.sin(t * 3) * 0.2 : 0.15 + Math.sin(t * 1.5) * 0.1;
-    gm.ring.rotation.z += dt * (activated ? 3 : 0.5);
-    gm.light.intensity = activated ? 2 + Math.sin(t * 4) * 0.5 : 0.3 + Math.sin(t * 1.5) * 0.15;
-  });
-  
-  // Catalyst location glow (when ready)
-  // This is handled via existing _scene — just show float text hint periodically
-}
+export function buildGenerators() { /* no-op — easter egg removed */ }
+export function tryActivateGenerator() { return false; }
+export function tryCatalyst() { return false; }
+export function updateGenerators(_dt) { /* no-op — easter egg removed */ }
 
 // --- Persistent Unlock System ---
 const UNLOCK_KEY = 'undeadSiege3dUnlocks';

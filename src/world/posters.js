@@ -53,9 +53,11 @@ const POSTERS = [
     attr: '— John A.',
     drawIllustration: drawRings,
   },
-  // 4 — AutoGPT / Toran  (main arena east wall, faces west)
+  // 4 — AutoGPT / Toran  (east chamber east wall, faces west).
+  // Was at fz=12 — but (23,12) is the e-12 boarded window, so the poster
+  // floated in front of the planks. fz=13 lands on a regular wall tile.
   {
-    fx: 22, fz: 12, face: 'W', y: 1.55,
+    fx: 22, fz: 13, face: 'W', y: 1.55,
     title: 'JOINED AUTOGPT · JUNE 2024',
     quote: [
       '"Democratizing AI and making it',
@@ -117,9 +119,11 @@ const POSTERS = [
     attr: '— John A.',
     drawIllustration: drawCrackedHeart,
   },
-  // 9 — Pat & Bentley  (east room, east wall, faces west)
+  // 9 — Pat & Bentley  (east chamber east wall, faces west).
+  // Was at fz=14 — but (23,14) is the e-14 boarded window. fz=15 lands
+  // on a regular wall tile so the poster reads cleanly.
   {
-    fx: 22, fz: 14, face: 'W', y: 1.55,
+    fx: 22, fz: 15, face: 'W', y: 1.55,
     title: 'WE GOT BETTER TODAY, PAT 🤝',
     quote: [
       'Thanks Bentley for the gameplay help.',
