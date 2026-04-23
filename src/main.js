@@ -52,6 +52,11 @@ window._netcodeCallConsumePowerUp = (puId) => { netcode.callConsumePowerUp(puId)
 // remaining zombies if no kill has happened in a while and the round
 // is on its tail end. Reset to 0 on round start (nextRound).
 let _lastZombieDeathTime = 0;
+// Tracks the previous frame's MP target roster size so we can detect
+// transitions (player downed / revived / joined / left) and force
+// every zombie to re-pick its chase target immediately instead of
+// waiting up to ~1s for their natural re-pick timer to expire.
+let _prevTargetsCount = -1;
 // Throttles for window-breach sound effects so simultaneous breaches
 // don't pile up audio nodes (lag culprit during chaotic moments).
 let _lastBreachThud = 0;
@@ -59,8 +64,17 @@ let _lastBreachBang = 0;
 window._resetZombieDeathTimer = () => { _lastZombieDeathTime = performance.now(); };
 
 // Local player name helper — used for high-score submission + chat.
+// If the player never set a name, we generate a distinct fallback once
+// per browser ("Player-1234") and persist it so MP teammates see a
+// unique identifier instead of every untitled player rendering as
+// "Survivor". The user can still override via the name input.
 function getLocalPlayerName() {
-  return (localStorage.getItem('undead.playerName') || 'Survivor').slice(0, 24);
+  let name = (localStorage.getItem('undead.playerName') || '').trim();
+  if (!name) {
+    name = `Player-${Math.floor(1000 + Math.random() * 9000)}`;
+    try { localStorage.setItem('undead.playerName', name); } catch (e) {}
+  }
+  return name.slice(0, 24);
 }
 function setLocalPlayerName(name) {
   const trimmed = (name || '').trim().slice(0, 24);
@@ -114,7 +128,7 @@ window._forceGunMeshRefresh = forceGunMeshRefresh;
 import { _arrivedViaPortal, initVibeJamPortals, animateVibeJamPortals, 
          _triggerExitPortal, cleanupVibeJamPortals, handleIncomingPortalUser, setPortalDeps } from './world/portal.js';
 import { createTexture, floorTex, ceilTex, wallTextures } from './world/textures.js';
-import { wallMeshes, doorMeshes, buildMap, setMapDeps } from './world/map.js';
+import { wallMeshes, doorMeshes, buildMap, setMapDeps, setMapDoors } from './world/map.js';
 import { buildPosters } from './world/posters.js';
 import {
   windows, windowSpecs, PLANKS_PER_WINDOW,
@@ -270,6 +284,22 @@ document.addEventListener('pointerlockchange', () => {
   controls.isLocked = document.pointerLockElement === renderer.domElement;
   if (controls.isLocked && !wasLocked) { controls._skipFrames = 5; suppressMouse(200); }
   if (!controls.isLocked && wasLocked) { suppressMouse(200); }
+});
+
+// Pointer-lock requests fail silently if not initiated from a user
+// gesture. That happens to MP clients when the host starts the match —
+// _onMatchStarted runs from a netcode callback (no gesture context) so
+// controls.lock() is rejected by the browser, no pointerlockchange
+// fires, and the player can't rotate. Same scenario after an MP
+// revive: the revive notification arrives async, so the implicit
+// re-lock fails. Catching pointerlockerror lets us surface the
+// click-to-refocus hint so the player knows what to do.
+document.addEventListener('pointerlockerror', () => {
+  if ((state === 'playing' || state === 'roundIntro') && !isLocallyDowned()) {
+    if (isInActiveMatch()) {
+      showMpUnlockHint();
+    }
+  }
 });
 
 // On focus loss / tab switch / minimize, clear any held gameplay keys.
@@ -547,11 +577,21 @@ wallBuys.forEach(wb => {
 });
 
 // ===== DOORS =====
+// `tiles` lists EVERY map cell that should be cleared and have its mesh
+// removed when the door opens. The west wing has TWO walls in front of
+// the barracks: the door itself at col 9 (cells 4) AND the green
+// barracks wall one tile inside at col 8 (cells 3). We list both so
+// opening the door actually grants entry instead of leaving a 1-tile
+// pocket where zombies get trapped.
 const doors = [
-  { id:'west', tiles:[[9,7],[9,8]], cost:1250, opened:false, label:'West Wing' },
+  { id:'west', tiles:[[9,7],[9,8],[8,7],[8,8]], cost:1250, opened:false, label:'West Wing' },
   { id:'east', tiles:[[19,11],[19,12]], cost:2000, opened:false, label:'East Chamber' },
 ];
 setStoryDoors(doors);
+// Now that `doors` is defined, hand the reference to the map builder so
+// it can pre-extract the door-extension tiles into per-tile meshes
+// (called BEFORE buildMap; deferred until after the doors const exists).
+setMapDoors(doors);
 
 // ===== DEPENDENCY INJECTION (buying & shooting) =====
 // These calls must come AFTER the const declarations for zombies, wallBuys,
@@ -949,6 +989,19 @@ window.__onMpRevived = () => {
     player.mag = (typeof saved === 'number') ? saved : weapons[mpDownedPrevWeapon].mag;
   }
   addFloatText('REVIVED!', '#4f4', 2.5);
+  // Pointer lock was released when the downed overlay went up. The
+  // revive happens via a server callback, NOT a user gesture, so any
+  // controls.lock() here would be silently rejected by the browser
+  // and the player wouldn't be able to rotate. Try the lock anyway,
+  // and surface the click-to-refocus hint after a short delay if it
+  // didn't take so the player knows to click the canvas.
+  try { controls.lock(); } catch (e) {}
+  setTimeout(() => {
+    if (!controls.isLocked && (state === 'playing' || state === 'roundIntro')
+        && !isLocallyDowned() && isInActiveMatch()) {
+      showMpUnlockHint();
+    }
+  }, 250);
 };
 
 // If the MP refocus hint is up when we go down, hide it — the red
@@ -2070,6 +2123,21 @@ function _update(dt) {
     for (const rp of netcode.getRemotePlayers().values()) {
       if (rp.downed || rp.spectating) continue;
       targets.push({ x: rp.wx, z: rp.wz, isLocal: false });
+    }
+  }
+  // Detect a CHANGE in the target roster (someone went down, was
+  // revived, joined, left, etc.) and force every zombie to re-pick
+  // its target on the next frame. Without this, a zombie that was
+  // mid-chase on the now-downed player keeps walking toward their
+  // old position for up to a full second (the re-pick timer cap),
+  // which the player perceives as "zombies are stuck on me even
+  // though I'm down". The roster size is a cheap proxy — we don't
+  // need a deep diff because any roster change should re-pick.
+  if (_isHostOrSP && _mpActive) {
+    const rosterKey = targets.length;
+    if (_prevTargetsCount !== rosterKey) {
+      _prevTargetsCount = rosterKey;
+      for (const z of zombies) z._targetPickTimer = 0;
     }
   }
 
@@ -3361,6 +3429,19 @@ function _onMatchStarted() {
   // keyboard focus into gameplay
   closeChatInput();
   if (typeof window._startGame === 'function') window._startGame();
+  // Non-host clients reach _onMatchStarted via a netcode subscription
+  // callback — NOT a user gesture — so the controls.lock() that
+  // _startGame fires is silently rejected by the browser. Result: the
+  // player can't rotate at the start of the round. Schedule a visible
+  // "click to refocus" hint after the start animation settles so they
+  // know to click the canvas to engage. The hint hides itself the
+  // moment pointer lock actually takes (pointerlockchange handler).
+  setTimeout(() => {
+    if (!controls.isLocked && (state === 'playing' || state === 'roundIntro')
+        && !isLocallyDowned() && isInActiveMatch()) {
+      showMpUnlockHint();
+    }
+  }, 600);
 }
 
 function _onMatchEnded() {
@@ -3503,6 +3584,16 @@ function dismissMpRunSummary() {
         _multiBtnEl.style.background = '#2a5';
         _multiStatusEl.textContent = 'connected';
         _multiStatusEl.style.color = '#8f8';
+        // Push the local player name to the server NOW. Without this,
+        // players who set their name in the menu before connecting
+        // (the common path) show up as "Survivor" in the lobby + on
+        // their teammates' name tags / scoreboard / chat. Uses
+        // getLocalPlayerName() so the auto-generated "Player-####"
+        // fallback gets sent for users who never typed a name.
+        try {
+          const myName = getLocalPlayerName();
+          if (myName) netcode.callSetPlayerName(myName);
+        } catch (e) {}
         // After connect, player.lobbyId is 0 so we land on the MP menu.
         // If we're already in a lobby (e.g. invite link auto-joined),
         // the onMyLobbyChange callback will transition us to mpLobby.
@@ -3593,7 +3684,12 @@ function dismissMpRunSummary() {
         _menuNameInputEl.style.boxShadow = '0 0 10px #4af';
         setTimeout(() => { _menuNameInputEl.style.boxShadow = ''; }, 600);
       }
-      _multiStatusEl.textContent = 'set a name first ↑';
+      // Arrow used to be ↑ but the name input sits BELOW the status
+      // message in the menu layout, so the visual cue pointed at the
+      // wrong element. Use ↓ to actually direct the player to the
+      // input. (With the new auto-generated Player-#### fallback in
+      // getLocalPlayerName(), this codepath rarely triggers anymore.)
+      _multiStatusEl.textContent = 'set a name first ↓';
       _multiStatusEl.style.color = '#fc8';
       return false;
     }
