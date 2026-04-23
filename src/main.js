@@ -2534,30 +2534,40 @@ function _update(dt) {
     // snappy catch-up (~65ms). Also extrapolate using the delta between
     // consecutive server updates so zombies keep moving between ticks
     // instead of freezing until the next subscription event arrives.
+    //
+    // IMPORTANT: we do NOT gate this on _zombieCanOccupy. The host is
+    // authoritative for the zombie's position — it intentionally places
+    // zombies at window cells (which have mapAt=1) while they pound
+    // planks, then teleports them inside the bunker on breach, and the
+    // watchdog may warp far away. Requiring a walkable map cell here
+    // would freeze the remote client's zombie any time the host's
+    // position lands on a wall tile, which produced the "MP zombie
+    // stuck / glitched" reports. Trust the host.
     if (z._remote && z._targetWx !== undefined) {
       const gap = z._targetWx - z.wx;
       const gapZ = z._targetWz - z.wz;
       const gapD = Math.hypot(gap, gapZ);
-      // If the gap is large AND the straight line is wall-clear, snap.
-      // If blocked by a wall we'd clip through, let the lerp path find
-      // a walkable approximation instead of teleporting through geometry.
-      if (gapD > TILE * 3 && _lineIsClear(z.wx, z.wz, z._targetWx, z._targetWz)) {
+      if (gapD > TILE * 3) {
+        // Large gap — authoritative snap. Skip the line-clear gate
+        // (a window-breach / watchdog-warp legitimately crosses a
+        // wall in map terms, and refusing the snap stranded the
+        // zombie at its last lerp position forever).
         z.wx = z._targetWx;
         z.wz = z._targetWz;
       } else {
         const lerp = Math.min(1, dt * 15);
-        const nx = z.wx + gap * lerp;
-        const nz = z.wz + gapZ * lerp;
-        // Apply each axis independently so we slide along walls instead
-        // of getting yanked through them by the lerp.
-        if (_zombieCanOccupy(nx, z.wz, gap, 0, ZOMBIE_RADIUS)) z.wx = nx;
-        if (_zombieCanOccupy(z.wx, nz, 0, gapZ, ZOMBIE_RADIUS)) z.wz = nz;
-        // Extrapolation between server ticks
-        if (gapD < 0.5 && localD > 1.5) {
+        z.wx += gap * lerp;
+        z.wz += gapZ * lerp;
+        // Extrapolation between server ticks — keeps zombies
+        // moving smoothly in the 50ms between 20Hz syncs when
+        // they're near-locked on target. Guarded by localD > 1.5
+        // so we don't extrapolate onto the player when they're
+        // right on top.
+        if (gapD < 0.5 && localD > 1.5 && z.spd > 0) {
           const ex = (localDx / localD) * z.spd * dt * 0.5;
           const ez = (localDz / localD) * z.spd * dt * 0.5;
-          if (_zombieCanOccupy(z.wx + ex, z.wz, ex, 0, ZOMBIE_RADIUS)) z.wx += ex;
-          if (_zombieCanOccupy(z.wx, z.wz + ez, 0, ez, ZOMBIE_RADIUS)) z.wz += ez;
+          z.wx += ex;
+          z.wz += ez;
         }
       }
     }
