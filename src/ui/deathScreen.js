@@ -128,12 +128,16 @@ export function showDeath() {
     if (veil) veil.style.background = 'rgba(0,0,0,0.85)';
   } catch (e) {}
 
-  // Inner setTimeout body wrapped in try/catch — any thrown exception
-  // here (DOM access on a missing node, innerHTML interpolation on a
-  // weird score, etc.) used to leave the blocker at opacity:0 forever
-  // and look like a frozen game on mobile. Now any throw lets the
-  // 1.5s watchdog above render the fallback.
-  setTimeout(() => { try {
+  // SYNCHRONOUS render path. The inner setTimeout used to delay this
+  // by another 300-1000ms after showDeath was already delayed 400ms
+  // by the caller — total 700-1400ms of "nothing visible happens" on
+  // mobile, which players reported as "frozen, no death screen". By
+  // running the render inline here, the YOU DIED card appears the
+  // same frame showDeath() is called. The fade-in transition (set in
+  // requestAnimationFrame below) still gives it a smooth reveal.
+  // Wrapped in try/catch so any thrown exception lets the 1.5s
+  // watchdog above render the fallback.
+  try {
     const blocker = document.getElementById('blocker');
     if (!blocker) return;
     blocker.classList.remove('hidden');
@@ -261,5 +265,5 @@ export function showDeath() {
     try { clearTimeout(_watchdog); } catch (e) {}
   } catch (innerErr) {
     console.error('[deathScreen] inner render threw — watchdog will fall back', innerErr);
-  } }, 300);
+  }
 }

@@ -57,6 +57,10 @@ let _lastZombieDeathTime = 0;
 // every zombie to re-pick its chase target immediately instead of
 // waiting up to ~1s for their natural re-pick timer to expire.
 let _prevTargetsCount = -1;
+// Per-frame death-screen safety net — if state='dead' for >1s and the
+// screen hasn't shown, force-call showDeath. Caught the mobile bug
+// where setTimeout(showDeath) silently failed to fire.
+let _deadStateSinceMs = 0;
 // Throttles for window-breach sound effects so simultaneous breaches
 // don't pile up audio nodes (lag culprit during chaotic moments).
 let _lastBreachThud = 0;
@@ -1819,7 +1823,28 @@ if (isMobile) {
   document.getElementById('joystickArea').addEventListener('touchend', joystickRelease);
   document.getElementById('joystickArea').addEventListener('touchcancel', joystickRelease);
 
-  document.getElementById('fireBtn').addEventListener('touchstart', e => { e.preventDefault(); mobileFiring = true; initAudio(); startBackgroundMusic(); });
+  // Mobile fullscreen request — must be triggered from a USER GESTURE
+  // (browser security). The first touch on the fire/joystick/buy/reload
+  // button kicks the document into fullscreen so the address bar and
+  // tab bar disappear. Subsequent touches are no-ops because we check
+  // document.fullscreenElement first. Falls back silently on browsers
+  // without the API or where the user rejects the prompt — game still
+  // plays, just with the browser chrome visible.
+  function _requestFullscreenFromGesture() {
+    if (!isMobile) return;
+    try {
+      if (document.fullscreenElement) return;
+      const docEl = document.documentElement;
+      const fn = docEl.requestFullscreen || docEl.webkitRequestFullscreen
+              || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+      if (fn) fn.call(docEl, { navigationUI: 'hide' }).catch(() => {});
+      // iOS Safari pre-16 — try to lock landscape orientation if API exists.
+      if (screen && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch (e) {}
+  }
+  document.getElementById('fireBtn').addEventListener('touchstart', e => { e.preventDefault(); _requestFullscreenFromGesture(); mobileFiring = true; initAudio(); startBackgroundMusic(); });
   // Fire release — also touchcancel so a system interruption doesn't
   // leave the fire button latched and the player auto-shooting forever.
   const fireRelease = e => { e.preventDefault(); mobileFiring = false; };
@@ -3169,6 +3194,24 @@ function gameLoop(time) {
   updateLowHealthEffect(dt, state);
   updateHitIndicators(dt);
   profBegin('atmosphere'); try { animateVibeJamPortals(dt, state); } finally { profEnd(); }
+  // PER-FRAME DEATH-SCREEN SAFETY NET. If the player is in 'dead'
+  // state but the death screen still hasn't appeared after a beat,
+  // force-call showDeath here. This is the last line of defense
+  // against any setTimeout that didn't fire (mobile background tab,
+  // GC pause, audio-thread hang, etc.) — the user reported repro
+  // was "I died on mobile, no death screen ever appeared, game
+  // frozen". With this guard, the worst case is a ~1s delay before
+  // the screen pops up; previously it could be infinite.
+  if (state === 'dead' && !isDeathShown()) {
+    if (!_deadStateSinceMs) _deadStateSinceMs = performance.now();
+    if (performance.now() - _deadStateSinceMs > 1000) {
+      console.warn('[death] safety net firing — death screen never appeared');
+      try { showDeath(); } catch (e) { console.error('[death] showDeath threw', e); }
+      _deadStateSinceMs = 0;
+    }
+  } else {
+    _deadStateSinceMs = 0;
+  }
   if (!isDeathShown()) {
     profBegin('hud'); try { _updateHUD(dmgFlash, switchWeapon); } finally { profEnd(); }
     profBegin('minimap'); try { drawMinimap(); } finally { profEnd(); }
@@ -3194,6 +3237,27 @@ window._startGame = function() {
   _startingGame = true;
   paused = false;
   hidePause();
+  // Mobile: request fullscreen here too. _startGame is called from the
+  // ENLIST button click and from FIGHT AGAIN — both are user gestures
+  // that satisfy browser security for the fullscreen API. Hides the
+  // browser tab bar / address bar / Vibe Jam badge area on mobile so
+  // the player gets the entire screen for gameplay.
+  if (isMobile) {
+    try {
+      if (!document.fullscreenElement) {
+        const docEl = document.documentElement;
+        const fn = docEl.requestFullscreen || docEl.webkitRequestFullscreen
+                || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+        if (fn) {
+          const p = fn.call(docEl, { navigationUI: 'hide' });
+          if (p && p.catch) p.catch(() => {});
+        }
+        if (screen && screen.orientation && screen.orientation.lock) {
+          try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
 
   // Show the black transition overlay BEFORE the heavy init work runs.
   // initGame() builds the map, props, windows, generators, perk machines,
