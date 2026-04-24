@@ -2496,7 +2496,12 @@ function _update(dt) {
                   state = 'dead';
                   sfxPlayerDeath();
                   controls.unlock();
-                  setTimeout(showDeath, 1000);
+                  // 400ms (was 1000ms) — gives the death sound a beat
+                  // to land but doesn't leave the player staring at a
+                  // frozen scene. Inner blocker reveal in showDeath
+                  // is now 300ms with a 1.5s watchdog fallback so the
+                  // player ALWAYS sees a tappable FIGHT AGAIN button.
+                  setTimeout(showDeath, 400);
                 }
               }
             }
@@ -2823,7 +2828,10 @@ function _update(dt) {
           state = 'dead';
           sfxPlayerDeath();
           controls.unlock();
-          setTimeout(showDeath, 1000);
+          // 400ms (was 1000ms) — see the matching path above; the
+          // showDeath() call now self-recovers via watchdog if its
+          // fancy render misbehaves on mobile.
+          setTimeout(showDeath, 400);
           profEnd();
           break;
         }
