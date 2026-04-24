@@ -34,6 +34,25 @@ export function resetDeathShown() {
   try { document.body.style.touchAction = ''; } catch (e) {}
 }
 
+// Emergency-fallback HTML for the death screen — used when the
+// fancy stats/leaderboard render path throws. Guarantees the player
+// always has a visible FIGHT AGAIN button, even on mobile when an
+// upstream call (saveScore, updatePersistentStats, closeRadio,
+// initMenuBackground) misbehaves under flaky touch / network state.
+function _renderFallbackDeathScreen(round, totalKills, points) {
+  const blocker = document.getElementById('blocker');
+  if (!blocker) return;
+  blocker.classList.remove('hidden');
+  blocker.style.opacity = '1';
+  blocker.innerHTML =
+    '<h1 style="color:#c00;text-shadow:0 0 60px #c00">YOU DIED</h1>' +
+    '<div class="sub">SURVIVED ' + round + ' ROUND' + (round!==1?'S':'') + '</div>' +
+    '<div style="color:#aaa;margin:14px 0;font:13px monospace">' +
+    'Round ' + round + ' &middot; ' + totalKills + ' kills &middot; ' + points + ' pts</div>' +
+    '<button onclick="window._startGame()" style="background:none;border:2px solid #c00;color:#c00;padding:14px 50px;font:bold 16px monospace;cursor:pointer;letter-spacing:3px;margin-top:8px">FIGHT AGAIN</button>' +
+    '<br><button onclick="window._deathMultiplayer && window._deathMultiplayer()" style="background:none;border:2px solid #4af;color:#4af;padding:10px 32px;font:bold 13px monospace;cursor:pointer;letter-spacing:2px;margin-top:10px">⚔️ MULTIPLAYER</button>';
+}
+
 export function showDeath() {
   try { resetKillStreak(); } catch(e) {}
   if (_shown) return;
@@ -47,15 +66,35 @@ export function showDeath() {
   // bug). Restored to 'none' in resetDeathShown() so gameplay isn't
   // affected on FIGHT AGAIN / MAIN MENU.
   try { document.body.style.touchAction = 'pan-y'; } catch (e) {}
-  updatePersistentStats();
-  closeRadio();
-  const round = _gameState.round;
-  const totalKills = _gameState.totalKills;
-  const points = _gameState.points;
+  // Snapshot the round stats up-front so the emergency fallback below
+  // can render even if updatePersistentStats / closeRadio / saveScore
+  // throws (commonly seen on mobile under flaky network state).
+  let round = 0, totalKills = 0, points = 0;
+  try {
+    round = _gameState.round;
+    totalKills = _gameState.totalKills;
+    points = _gameState.points;
+  } catch (e) {}
+  // Watchdog — if the fancy render path below silently fails (a thrown
+  // exception inside the inner setTimeout could leave the blocker at
+  // opacity:0 forever, which the player perceives as "frozen, no
+  // death screen"), force the emergency fallback at +1.5s so the
+  // player can always reach FIGHT AGAIN.
+  const _watchdog = setTimeout(() => {
+    const blocker = document.getElementById('blocker');
+    if (!blocker || blocker.classList.contains('hidden') || blocker.style.opacity === '0' || blocker.style.opacity === '') {
+      console.warn('[deathScreen] watchdog firing — fancy render did not complete; using fallback');
+      try { _renderFallbackDeathScreen(round, totalKills, points); } catch (e) { console.error('[deathScreen] fallback also failed', e); }
+    }
+  }, 1500);
+  try { updatePersistentStats(); } catch (e) { console.warn('[deathScreen] updatePersistentStats failed', e); }
+  try { closeRadio(); } catch (e) { console.warn('[deathScreen] closeRadio failed', e); }
   // Snapshot run stats for the stats card; reset for next run.
   let _runStats = null;
   try { _runStats = getRunStats(); resetRunStats(); } catch(e) {}
-  const board = saveScore(round, totalKills, points);
+  let board = [];
+  try { board = saveScore(round, totalKills, points); }
+  catch (e) { console.warn('[deathScreen] saveScore failed', e); }
   // Submit to the global SpacetimeDB leaderboard. Both SP and MP death
   // paths reach here (MP session-reset path submits separately in
   // hostSync to handle the all-died case with the full squad roster).
@@ -84,11 +123,19 @@ export function showDeath() {
     }
   }
 
-  const veil = document.getElementById('deathVeil');
-  veil.style.background = 'rgba(0,0,0,0.85)';
+  try {
+    const veil = document.getElementById('deathVeil');
+    if (veil) veil.style.background = 'rgba(0,0,0,0.85)';
+  } catch (e) {}
 
-  setTimeout(() => {
+  // Inner setTimeout body wrapped in try/catch — any thrown exception
+  // here (DOM access on a missing node, innerHTML interpolation on a
+  // weird score, etc.) used to leave the blocker at opacity:0 forever
+  // and look like a frozen game on mobile. Now any throw lets the
+  // 1.5s watchdog above render the fallback.
+  setTimeout(() => { try {
     const blocker = document.getElementById('blocker');
+    if (!blocker) return;
     blocker.classList.remove('hidden');
     blocker.style.opacity = '0';
 
@@ -200,12 +247,19 @@ export function showDeath() {
     rankEl.innerHTML = `<div style="color:${rank.color};font-size:13px;letter-spacing:2px">${rank.rank}</div><div style="color:#aaa;font-size:10px">${rank.desc}</div>`;
     blocker.appendChild(rankEl);
 
-    document.getElementById('hud').classList.add('hidden');
-    restartMenuBackground();
+    try { document.getElementById('hud').classList.add('hidden'); } catch (e) {}
+    try { restartMenuBackground(); } catch (e) { console.warn('[deathScreen] restartMenuBackground failed', e); }
     requestAnimationFrame(() => {
-      blocker.style.transition = 'opacity 0.8s ease-in';
-      blocker.style.opacity = '1';
-      veil.style.background = 'rgba(0,0,0,0)';
+      try {
+        blocker.style.transition = 'opacity 0.8s ease-in';
+        blocker.style.opacity = '1';
+        const _veil = document.getElementById('deathVeil');
+        if (_veil) _veil.style.background = 'rgba(0,0,0,0)';
+      } catch (e) {}
     });
-  }, 1000);
+    // Fancy path completed — cancel the watchdog.
+    try { clearTimeout(_watchdog); } catch (e) {}
+  } catch (innerErr) {
+    console.error('[deathScreen] inner render threw — watchdog will fall back', innerErr);
+  } }, 300);
 }
